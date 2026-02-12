@@ -25,6 +25,10 @@ def V_high_dim(X):
 def gradV_high_dim(X):
     return 4.0 * X * (X**2 - 1.0)
 
+def score_high_dim(X, eps):
+    # Score of target pi(x) ∝ exp(-V/eps^2)
+    return -gradV_high_dim(X) / (eps**2)
+
 # ============================================================
 # 2. Reference Sampler (Ground Truth)
 # ============================================================
@@ -116,26 +120,19 @@ def compute_marginal_errors(X, dim_idx, true_x, true_pdf):
 # ============================================================
 
 def step_diff(X, dt, eps, rng):
-    grad = gradV_high_dim(X)
+    # Score-based drift: b = (eps^2 / 2) * grad log pi, pi ∝ exp(-V/eps^2)
+    score = score_high_dim(X, eps)
+    drift = 0.5 * (eps**2) * score
     
-    # Taming (Prevent explosion)
-    norm_grad = np.linalg.norm(grad, axis=1, keepdims=True)
-    drift = -grad / (1.0 + dt * norm_grad) # Tamed Drift
-    
-    # Euler-Maruyama: dX = -gradV dt + sqrt(2)*eps*dW
-    # Note: Using sqrt(2) for standard Langevin dynamics scaling if we want pi ~ exp(-V/eps^2)
-    # If the equation is dX = -gradV dt + eps*dW, then pi ~ exp(-2V/eps^2)
-    # Let's stick to the convention in your previous code: eps * noise
+    # Euler-Maruyama: dX = b dt + eps dW
     noise = eps * np.sqrt(dt) * rng.standard_normal(X.shape)
     
     return X + drift * dt + noise
 
 def step_levy(X, dt, eps, rng, lam, sigma_L):
-    grad = gradV_high_dim(X)
-    
-    # 1. Diffusion Step (Same as above)
-    norm_grad = np.linalg.norm(grad, axis=1, keepdims=True)
-    drift = -grad / (1.0 + dt * norm_grad)
+    # 1. Diffusion Step (Score-based drift)
+    score = score_high_dim(X, eps)
+    drift = 0.5 * (eps**2) * score
     noise = eps * np.sqrt(dt) * rng.standard_normal(X.shape)
     X_new = X + drift * dt + noise
     
