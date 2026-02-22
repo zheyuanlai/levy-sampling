@@ -13,6 +13,7 @@ sys.path.insert(0, THIS_DIR)
 import fourwells as fw
 import mueller as mu
 import ring as rg
+import lennard_kones_potential as lj
 
 def set_academic_style():
     plt.rcParams.update({
@@ -115,6 +116,64 @@ def simulate_ring(seed=42):
     dens_l = rg.density_on_grid(X_levy, gx, gy)
     return gx, gy, pi, dens_d, dens_l
 
+
+def simulate_lennard(seed=42):
+    lj_eps, sigma, r_soft = 1.0, 1.0, 0.20
+    noise_eps, dt, T, N = 0.50, 0.002, 20.0, 5000
+    gx, gy = np.linspace(-3.2, 3.2, 220), np.linspace(-3.2, 3.2, 220)
+    lam, sigma_L, mults, pm = 1.0, 0.65, [1.0, 1.6, 2.2], [0.78, 0.18, 0.04]
+    num_dirs = 16
+    jump_mu = 0.0
+    jump_kappa = 0.0
+    jump_cap = 2.0
+    rng = np.random.default_rng(seed)
+
+    pi, bx, by, Sx, Sy = lj.precompute_pi_b_S(
+        noise_eps,
+        gx,
+        gy,
+        lj_eps,
+        sigma,
+        r_soft,
+        lam,
+        sigma_L,
+        mults,
+        pm,
+        num_dirs=num_dirs,
+        jump_mu=jump_mu,
+        jump_kappa=jump_kappa,
+    )
+
+    X_diff = np.array([2.5 * sigma, 0.0]) + 0.08 * rng.standard_normal((N, 2))
+    X_levy = X_diff.copy()
+
+    steps = int(T / dt)
+    for _ in range(steps):
+        X_diff = lj.step_diff(X_diff, dt, noise_eps, gx, gy, bx, by, rng)
+        X_levy = lj.step_levy(
+            X_levy,
+            dt,
+            noise_eps,
+            gx,
+            gy,
+            bx,
+            by,
+            Sx,
+            Sy,
+            rng,
+            lam,
+            sigma_L,
+            mults,
+            pm,
+            jump_mu=jump_mu,
+            jump_kappa=jump_kappa,
+            jump_cap=jump_cap,
+        )
+
+    dens_d = lj.density_on_grid(X_diff, gx, gy)
+    dens_l = lj.density_on_grid(X_levy, gx, gy)
+    return gx, gy, pi, dens_d, dens_l
+
 def generate_all(out_dir):
     set_academic_style()
     os.makedirs(out_dir, exist_ok=True)
@@ -142,6 +201,14 @@ def generate_all(out_dir):
     norm = _shared_err_norm([err_d, err_l], gamma=0.8)
     save_error_image(err_d, gx, gy, "Ring: |Diffusion − True|", os.path.join(out_dir, "ring_abs_err_diffusion.png"), norm)
     save_error_image(err_l, gx, gy, "Ring: |Lévy − True|", os.path.join(out_dir, "ring_abs_err_levy.png"), norm)
+
+    # Lennard-Jones
+    gx, gy, pi, dens_d, dens_l = simulate_lennard()
+    err_d = np.abs(dens_d - pi)
+    err_l = np.abs(dens_l - pi)
+    norm = _shared_err_norm([err_d, err_l], gamma=0.8)
+    save_error_image(err_d, gx, gy, "Lennard-Jones: |Diffusion − True|", os.path.join(out_dir, "lennard_kones_abs_err_diffusion.png"), norm)
+    save_error_image(err_l, gx, gy, "Lennard-Jones: |Lévy − True|", os.path.join(out_dir, "lennard_kones_abs_err_levy.png"), norm)
 
 if __name__ == "__main__":
     output_dir = os.path.join(THIS_DIR, "abs_error")

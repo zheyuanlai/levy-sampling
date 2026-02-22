@@ -14,6 +14,7 @@ sys.path.insert(0, THIS_DIR)
 import fourwells as fw
 import mueller as mu
 import ring as rg
+import lennard_kones_potential as lj
 
 def set_academic_style():
     plt.rcParams.update({
@@ -143,6 +144,68 @@ def simulate_ring(seed=42):
     dens_ml = rg.density_on_grid(X_malevy, gx, gy)
     return gx, gy, pi, dens_d, dens_l, dens_m, dens_ml, init
 
+
+def simulate_lennard(seed=42):
+    lj_eps, sigma, r_soft = 1.0, 1.0, 0.20
+    noise_eps, dt, T, N = 0.50, 0.002, 20.0, 5000
+    gx, gy = np.linspace(-3.2, 3.2, 220), np.linspace(-3.2, 3.2, 220)
+    lam, sigma_L, mults, pm = 1.0, 0.65, [1.0, 1.6, 2.2], [0.78, 0.18, 0.04]
+    num_dirs = 16
+    jump_mu = 0.0
+    jump_kappa = 0.0
+    jump_cap = 2.0
+    rng = np.random.default_rng(seed)
+
+    pi, bx, by, Sx, Sy = lj.precompute_pi_b_S(
+        noise_eps,
+        gx,
+        gy,
+        lj_eps,
+        sigma,
+        r_soft,
+        lam,
+        sigma_L,
+        mults,
+        pm,
+        num_dirs=num_dirs,
+        jump_mu=jump_mu,
+        jump_kappa=jump_kappa,
+    )
+
+    init = np.array([2.5 * sigma, 0.0])
+    X_diff = init + 0.08 * rng.standard_normal((N, 2))
+    X_levy = X_diff.copy()
+    X_mala = X_diff.copy()
+
+    steps = int(T / dt)
+    for _ in range(steps):
+        X_diff = lj.step_diff(X_diff, dt, noise_eps, gx, gy, bx, by, rng)
+        X_levy = lj.step_levy(
+            X_levy,
+            dt,
+            noise_eps,
+            gx,
+            gy,
+            bx,
+            by,
+            Sx,
+            Sy,
+            rng,
+            lam,
+            sigma_L,
+            mults,
+            pm,
+            jump_mu=jump_mu,
+            jump_kappa=jump_kappa,
+            jump_cap=jump_cap,
+        )
+        X_mala, _ = lj.step_mala(X_mala, dt, noise_eps, lj_eps, sigma, r_soft, rng)
+
+    dens_d = lj.density_on_grid(X_diff, gx, gy)
+    dens_l = lj.density_on_grid(X_levy, gx, gy)
+    dens_m = lj.density_on_grid(X_mala, gx, gy)
+    return gx, gy, pi, dens_d, dens_l, dens_m, init
+
 def _shared_norm(arrs, use_log=True, gamma=0.7):
     vmax = max(a.max() for a in arrs)
     if use_log:
@@ -185,6 +248,14 @@ def generate_all(out_dir, use_log=False):
     save_density_image(dens_l, gx, gy, "Ring: Lévy Density", os.path.join(out_dir, "ring_levy_density.png"), norm, init_point=init)
     save_density_image(dens_m, gx, gy, "Ring: MALA Density", os.path.join(out_dir, "ring_mala_density.png"), norm, init_point=init)
     save_density_image(dens_ml, gx, gy, "Ring: MALA-Levy Density", os.path.join(out_dir, "ring_malevy_density.png"), norm, init_point=init)
+
+    # Lennard-Jones
+    gx, gy, pi, dens_d, dens_l, dens_m, init = simulate_lennard()
+    _, _, norm = _shared_norm([pi, dens_d, dens_l, dens_m], use_log=use_log, gamma=0.5)
+    save_density_image(pi, gx, gy, "Lennard-Jones: True Invariant Density", os.path.join(out_dir, "lennard_kones_true_density.png"), norm)
+    save_density_image(dens_d, gx, gy, "Lennard-Jones: Diffusion Density", os.path.join(out_dir, "lennard_kones_diffusion_density.png"), norm, init_point=init)
+    save_density_image(dens_l, gx, gy, "Lennard-Jones: Lévy Density", os.path.join(out_dir, "lennard_kones_levy_density.png"), norm, init_point=init)
+    save_density_image(dens_m, gx, gy, "Lennard-Jones: MALA Density", os.path.join(out_dir, "lennard_kones_mala_density.png"), norm, init_point=init)
 
 if __name__ == "__main__":
     output_dir = os.path.join(THIS_DIR, "density_compare")
