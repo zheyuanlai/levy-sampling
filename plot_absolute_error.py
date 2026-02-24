@@ -13,7 +13,7 @@ sys.path.insert(0, THIS_DIR)
 import fourwells as fw
 import mueller as mu
 import ring as rg
-import lennard_kones_potential as lj
+import lennard_jones_potential as lj
 
 def set_academic_style():
     plt.rcParams.update({
@@ -207,8 +207,8 @@ def generate_all(out_dir):
     err_d = np.abs(dens_d - pi)
     err_l = np.abs(dens_l - pi)
     norm = _shared_err_norm([err_d, err_l], gamma=0.8)
-    save_error_image(err_d, gx, gy, "Lennard-Jones: |Diffusion − True|", os.path.join(out_dir, "lennard_kones_abs_err_diffusion.png"), norm)
-    save_error_image(err_l, gx, gy, "Lennard-Jones: |Lévy − True|", os.path.join(out_dir, "lennard_kones_abs_err_levy.png"), norm)
+    save_error_image(err_d, gx, gy, "Lennard-Jones: |Diffusion − True|", os.path.join(out_dir, "lennard_jones_abs_err_diffusion.png"), norm)
+    save_error_image(err_l, gx, gy, "Lennard-Jones: |Lévy − True|", os.path.join(out_dir, "lennard_jones_abs_err_levy.png"), norm)
 
 if __name__ == "__main__":
     output_dir = os.path.join(THIS_DIR, "abs_error")

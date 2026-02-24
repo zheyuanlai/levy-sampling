@@ -14,7 +14,7 @@ sys.path.insert(0, THIS_DIR)
 import fourwells as fw
 import mueller as mu
 import ring as rg
-import lennard_kones_potential as lj
+import lennard_jones_potential as lj
 
 def set_academic_style():
     plt.rcParams.update({
@@ -252,10 +252,10 @@ def generate_all(out_dir, use_log=False):
     # Lennard-Jones
     gx, gy, pi, dens_d, dens_l, dens_m, init = simulate_lennard()
     _, _, norm = _shared_norm([pi, dens_d, dens_l, dens_m], use_log=use_log, gamma=0.5)
-    save_density_image(pi, gx, gy, "Lennard-Jones: True Invariant Density", os.path.join(out_dir, "lennard_kones_true_density.png"), norm)
-    save_density_image(dens_d, gx, gy, "Lennard-Jones: Diffusion Density", os.path.join(out_dir, "lennard_kones_diffusion_density.png"), norm, init_point=init)
-    save_density_image(dens_l, gx, gy, "Lennard-Jones: Lévy Density", os.path.join(out_dir, "lennard_kones_levy_density.png"), norm, init_point=init)
-    save_density_image(dens_m, gx, gy, "Lennard-Jones: MALA Density", os.path.join(out_dir, "lennard_kones_mala_density.png"), norm, init_point=init)
+    save_density_image(pi, gx, gy, "Lennard-Jones: True Invariant Density", os.path.join(out_dir, "lennard_jones_true_density.png"), norm)
+    save_density_image(dens_d, gx, gy, "Lennard-Jones: Diffusion Density", os.path.join(out_dir, "lennard_jones_diffusion_density.png"), norm, init_point=init)
+    save_density_image(dens_l, gx, gy, "Lennard-Jones: Lévy Density", os.path.join(out_dir, "lennard_jones_levy_density.png"), norm, init_point=init)
+    save_density_image(dens_m, gx, gy, "Lennard-Jones: MALA Density", os.path.join(out_dir, "lennard_jones_mala_density.png"), norm, init_point=init)
 
 if __name__ == "__main__":
     output_dir = os.path.join(THIS_DIR, "density_compare")

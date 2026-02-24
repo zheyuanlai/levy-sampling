@@ -327,13 +327,10 @@ def run_simulation(
     by,
     Sx,
     Sy,
-    lj_eps,
     sigma,
-    r_soft,
     jump_mu=0.0,
     jump_kappa=0.0,
     jump_cap=2.5,
-    mala_dt=None,
 ):
     rng = np.random.default_rng(seed)
     ref = sample_from_pi(rng, pi, gx, gy, N=2000)
@@ -341,19 +338,14 @@ def run_simulation(
     init = np.array([2.5 * sigma, 0.0])
     X_diff = init + 0.08 * rng.standard_normal((N, 2))
     X_levy = X_diff.copy()
-    X_mala = X_diff.copy()
 
     history = {
         "t": [],
-        "w2_d": [], "w2_l": [], "w2_m": [],
-        "mae_d": [], "mae_l": [], "mae_m": [],
-        "l2_d": [], "l2_l": [], "l2_m": [],
-        "out_d": [], "out_l": [], "out_m": [],
+        "w2_d": [], "w2_l": [],
+        "mae_d": [], "mae_l": [],
+        "l2_d": [], "l2_l": [],
+        "out_d": [], "out_l": [],
     }
-    if mala_dt is None:
-        mala_dt = dt
-    acc_sum = 0.0
-    acc_count = 0
 
     steps = int(T / dt)
     check = max(steps // 20, 1)
@@ -368,27 +360,20 @@ def run_simulation(
             ref_sub = ref[idx_ref]
             A_d = clip_to_domain(X_diff[rng.choice(N, sub, replace=False)], gx, gy)
             A_l = clip_to_domain(X_levy[rng.choice(N, sub, replace=False)], gx, gy)
-            A_m = clip_to_domain(X_mala[rng.choice(N, sub, replace=False)], gx, gy)
             history["w2_d"].append(wasserstein2_stable(A_d, ref_sub))
             history["w2_l"].append(wasserstein2_stable(A_l, ref_sub))
-            history["w2_m"].append(wasserstein2_stable(A_m, ref_sub))
             history["out_d"].append(outside_fraction(X_diff, gx, gy))
             history["out_l"].append(outside_fraction(X_levy, gx, gy))
-            history["out_m"].append(outside_fraction(X_mala, gx, gy))
 
             d_dens = density_on_grid(X_diff, gx, gy)
             l_dens = density_on_grid(X_levy, gx, gy)
-            m_dens = density_on_grid(X_mala, gx, gy)
 
             _, md, l2d = compute_errors(d_dens, pi, dx, dy)
             _, ml, l2l = compute_errors(l_dens, pi, dx, dy)
-            _, mm, l2m = compute_errors(m_dens, pi, dx, dy)
             history["mae_d"].append(md)
             history["mae_l"].append(ml)
-            history["mae_m"].append(mm)
             history["l2_d"].append(l2d)
             history["l2_l"].append(l2l)
-            history["l2_m"].append(l2m)
 
         X_diff = step_diff(X_diff, dt, noise_eps, gx, gy, bx, by, rng)
         X_levy = step_levy(
@@ -410,12 +395,9 @@ def run_simulation(
             jump_kappa=jump_kappa,
             jump_cap=jump_cap,
         )
-        X_mala, acc = step_mala(X_mala, mala_dt, noise_eps, lj_eps, sigma, r_soft, rng)
-        acc_sum += acc
-        acc_count += 1
+        # MALA baseline is intentionally disabled in this script.
 
-    acc_rate = acc_sum / max(acc_count, 1)
-    return history, X_diff, X_levy, X_mala, acc_rate
+    return history, X_diff, X_levy
 
 
 def aggregate_histories(histories, keys):
@@ -467,9 +449,8 @@ def main():
     )
     histories = []
     first_final = None
-    acc_rates = []
     for seed in seeds:
-        history, X_diff, X_levy, X_mala, acc_rate = run_simulation(
+        history, X_diff, X_levy = run_simulation(
             seed,
             noise_eps,
             dt,
@@ -488,20 +469,17 @@ def main():
             by,
             Sx,
             Sy,
-            lj_eps,
             sigma,
-            r_soft,
             jump_mu=jump_mu,
             jump_kappa=jump_kappa,
             jump_cap=jump_cap,
         )
         histories.append(history)
-        acc_rates.append(acc_rate)
         if first_final is None:
-            first_final = (X_diff, X_levy, X_mala)
+            first_final = (X_diff, X_levy)
 
     t = np.array(histories[0]["t"])
-    keys = ["w2_d", "w2_l", "w2_m", "mae_d", "mae_l", "mae_m", "l2_d", "l2_l", "l2_m"]
+    keys = ["w2_d", "w2_l", "mae_d", "mae_l", "l2_d", "l2_l"]
     mean, std = aggregate_histories(histories, keys)
 
     # ============================================================
@@ -510,55 +488,44 @@ def main():
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     axes[0].errorbar(t, mean["w2_d"], yerr=std["w2_d"], fmt="b--", label="Diffusion", capsize=2, alpha=0.9)
     axes[0].errorbar(t, mean["w2_l"], yerr=std["w2_l"], fmt="r-", label="Levy", capsize=2, alpha=0.9)
-    axes[0].errorbar(t, mean["w2_m"], yerr=std["w2_m"], fmt="g-", label="MALA", capsize=2, alpha=0.9)
     axes[0].set_title("W2 Distance")
     axes[0].legend()
 
     axes[1].errorbar(t, mean["mae_d"], yerr=std["mae_d"], fmt="b--", label="Diffusion", capsize=2, alpha=0.9)
     axes[1].errorbar(t, mean["mae_l"], yerr=std["mae_l"], fmt="r-", label="Levy", capsize=2, alpha=0.9)
-    axes[1].errorbar(t, mean["mae_m"], yerr=std["mae_m"], fmt="g-", label="MALA", capsize=2, alpha=0.9)
     axes[1].set_title("MAE ($L^1$) Error")
     axes[1].legend()
 
     axes[2].errorbar(t, mean["l2_d"], yerr=std["l2_d"], fmt="b--", label="Diffusion", capsize=2, alpha=0.9)
     axes[2].errorbar(t, mean["l2_l"], yerr=std["l2_l"], fmt="r-", label="Levy", capsize=2, alpha=0.9)
-    axes[2].errorbar(t, mean["l2_m"], yerr=std["l2_m"], fmt="g-", label="MALA", capsize=2, alpha=0.9)
     axes[2].set_title("$L^2$ (RMSE) Error")
     axes[2].legend()
     plt.tight_layout()
-    plt.savefig("lennard_kones_errors.png", dpi=200)
+    plt.savefig("lennard_jones_errors.png", dpi=200)
     plt.close()
 
-    X_diff, X_levy, X_mala = first_final
+    X_diff, X_levy = first_final
     d_dens = density_on_grid(X_diff, gx, gy)
     l_dens = density_on_grid(X_levy, gx, gy)
-    m_dens = density_on_grid(X_mala, gx, gy)
     err_d, _, _ = compute_errors(d_dens, pi, dx, dy)
     err_l, _, _ = compute_errors(l_dens, pi, dx, dy)
-    err_m, _, _ = compute_errors(m_dens, pi, dx, dy)
-    vmax = max(np.max(err_d), np.max(err_l), np.max(err_m))
+    vmax = max(np.max(err_d), np.max(err_l))
 
-    fig, ax = plt.subplots(1, 3, figsize=(18, 6))
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
     im1 = ax[0].imshow(err_d, origin="lower", extent=[gx[0], gx[-1], gy[0], gy[-1]], cmap="inferno", vmin=0, vmax=vmax)
     ax[0].set_title("Diffusion Spatial Error")
     fig.colorbar(im1, ax=ax[0])
     im2 = ax[1].imshow(err_l, origin="lower", extent=[gx[0], gx[-1], gy[0], gy[-1]], cmap="inferno", vmin=0, vmax=vmax)
     ax[1].set_title("Levy Spatial Error")
     fig.colorbar(im2, ax=ax[1])
-    im3 = ax[2].imshow(err_m, origin="lower", extent=[gx[0], gx[-1], gy[0], gy[-1]], cmap="inferno", vmin=0, vmax=vmax)
-    ax[2].set_title("MALA Spatial Error")
-    fig.colorbar(im3, ax=ax[2])
     plt.tight_layout()
-    plt.savefig("lennard_kones_spatial_error.png", dpi=200)
+    plt.savefig("lennard_jones_spatial_error.png", dpi=200)
     plt.close()
 
-    print("Done. Check lennard_kones_errors.png and lennard_kones_spatial_error.png")
-    avg_acc = float(np.mean(acc_rates)) if acc_rates else 0.0
-    print(f"MALA mean acceptance rate: {avg_acc:.3f}")
+    print("Done. Check lennard_jones_errors.png and lennard_jones_spatial_error.png")
     final_out_d = float(np.mean([h["out_d"][-1] for h in histories]))
     final_out_l = float(np.mean([h["out_l"][-1] for h in histories]))
-    final_out_m = float(np.mean([h["out_m"][-1] for h in histories]))
-    print(f"Final outside-domain fraction (Diffusion/Levy/MALA): {final_out_d:.3f} / {final_out_l:.3f} / {final_out_m:.3f}")
+    print(f"Final outside-domain fraction (Diffusion/Levy): {final_out_d:.3f} / {final_out_l:.3f}")
 
 
 if __name__ == "__main__":
