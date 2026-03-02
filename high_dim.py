@@ -4,297 +4,449 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-try:
-    import ot  # POT for Wasserstein
-    HAS_POT = True
-except ImportError:
-    HAS_POT = False
-    print("Warning: POT not installed. W2 metric will be 0.0. (pip install POT)")
+
+EXPO_CLIP = 40.0
+POT_CLIP = 12.0
+STATE_CLIP = 25.0
+
 
 # ============================================================
-# 1. 10D Separable Double Well Potential
+# 1. 10D Separable Double-Well Potential (paper Sec. 4.6)
 # ============================================================
-# V(x) = sum( (x_i^2 - 1)^2 )
-# Invariant measure factorizes: pi(x) = prod( pi_1d(x_i) )
+# V(x) = sum_i (x_i^2 - 1)^2
+# Diffusion baseline: dX_t = -∇V(X_t) dt + sigma dB_t
+# Target invariant: pi(x) ∝ exp( -2 V(x) / sigma^2 )
 
-DIM = 10
 
 def V_high_dim(X):
-    return np.sum((X**2 - 1.0)**2, axis=1)
+    X = np.asarray(X, dtype=float)
+    Xc = np.clip(X, -POT_CLIP, POT_CLIP)
+    return np.sum((Xc * Xc - 1.0) ** 2, axis=1)
+
 
 def gradV_high_dim(X):
-    return 4.0 * X * (X**2 - 1.0)
+    X = np.asarray(X, dtype=float)
+    Xc = np.clip(X, -POT_CLIP, POT_CLIP)
+    return 4.0 * Xc * (Xc * Xc - 1.0)
 
-def score_high_dim(X, eps):
-    # Score of target pi(x) ∝ exp(-V/eps^2)
-    return -gradV_high_dim(X) / (eps**2)
+
+def sanitize_state(X):
+    X = np.asarray(X, dtype=float)
+    X = np.nan_to_num(X, nan=0.0, posinf=STATE_CLIP, neginf=-STATE_CLIP)
+    return np.clip(X, -STATE_CLIP, STATE_CLIP)
+
+
+def tamed_drift_increment(drift, dt):
+    norm = np.linalg.norm(drift, axis=1, keepdims=True)
+    return (dt * drift) / (1.0 + dt * norm)
+
 
 # ============================================================
-# 2. Reference Sampler (Ground Truth)
+# 2. Reference Sampler (exact product target)
 # ============================================================
-# Since dimensions are independent, we can sample 1D marginals 
-# using Rejection Sampling and stack them.
 
-def get_true_marginal_pdf(x_grid, eps):
-    # pi_1d(x) propto exp( - (x^2-1)^2 / eps^2 )
-    V = (x_grid**2 - 1.0)**2
-    log_pi = -V / (eps**2)
-    log_pi -= log_pi.max()
-    pi = np.exp(log_pi)
-    pi /= np.trapz(pi, x_grid)
-    return pi
 
-def sample_true_1d(n_samples, eps, rng):
-    # Rejection sampling for 1D double well
-    # Proposal: Uniform [-2.5, 2.5] (covers the bulk)
+def sample_true_1d(n_samples, sigma, rng):
+    """Rejection sampler for 1D target pi_1d(x) ∝ exp(-2 (x^2-1)^2 / sigma^2)."""
     samples = []
     while len(samples) < n_samples:
-        batch_size = (n_samples - len(samples)) * 3
+        batch_size = max((n_samples - len(samples)) * 3, 64)
         prop = rng.uniform(-2.5, 2.5, batch_size)
-        
-        # Target unnormalized density
-        log_target = -(prop**2 - 1.0)**2 / (eps**2)
-        # We can just accept with prob exp(log_target) since max(log_target)=0
-        accept_prob = np.exp(log_target)
-        
-        u = rng.random(batch_size)
-        accepted = prop[u < accept_prob]
-        samples.extend(accepted)
-    
-    return np.array(samples[:n_samples])
+        log_target = -2.0 * (prop**2 - 1.0) ** 2 / (sigma**2)
+        accept_prob = np.exp(np.clip(log_target, -EXPO_CLIP, 0.0))
+        accepted = prop[rng.random(batch_size) < accept_prob]
+        samples.extend(accepted.tolist())
+    return np.asarray(samples[:n_samples], dtype=float)
 
-def sample_true_high_d(N, dim, eps, rng):
-    # Stack independent 1D samples
-    X = np.zeros((N, dim))
+
+def sample_true_high_d(n_samples, dim, sigma, rng):
+    """Exact sampling from the dD product target by stacking independent 1D draws."""
+    X = np.zeros((n_samples, dim), dtype=float)
     for d in range(dim):
-        X[:, d] = sample_true_1d(N, eps, rng)
+        X[:, d] = sample_true_1d(n_samples, sigma, rng)
     return X
 
-# ============================================================
-# 3. Metrics (W2, L1, L2)
-# ============================================================
-
-def compute_wasserstein(X, Y_ref, rng):
-    """Compute W2 between X and Y_ref (subsampled for speed)"""
-    if not HAS_POT: return 0.0
-    
-    # Subsample to 500 points to keep Sinkhorn fast
-    n_sub = 500
-    idx_x = rng.choice(X.shape[0], n_sub, replace=False)
-    idx_y = rng.choice(Y_ref.shape[0], n_sub, replace=False)
-    
-    X_sub = X[idx_x]
-    Y_sub = Y_ref[idx_y]
-    
-    # Cost matrix: Squared Euclidean distance
-    M = ot.dist(X_sub, Y_sub, metric='sqeuclidean')
-    
-    # Sinkhorn W2 (regularized)
-    # sqrt because sinkhorn2 returns squared W2
-    val = ot.sinkhorn2([], [], M, reg=0.1, numItermax=2000)
-    return np.sqrt(val)
-
-def compute_marginal_errors(X, dim_idx, true_x, true_pdf):
-    """Compute L1/L2 error on the marginal distribution of dimension `dim_idx`"""
-    # 1. Estimate empirical density of X[:, dim_idx]
-    # Use same bins as true_x grid
-    hist, edges = np.histogram(X[:, dim_idx], bins=true_x, density=True)
-    
-    # true_pdf is evaluated at centers
-    centers = (edges[:-1] + edges[1:]) / 2
-    # Interpolate true_pdf to centers (or assume true_x was dense enough)
-    # Let's assumes true_x closely matches the histogram bins for simplicity,
-    # or just interpolate true PDF onto centers.
-    ref_vals = np.interp(centers, true_x, true_pdf)
-    
-    diff = np.abs(hist - ref_vals)
-    dx = edges[1] - edges[0]
-    
-    mae = np.sum(diff) * dx          # L1 = Integral |p - p_ref|
-    rmse = np.sqrt(np.sum(diff**2) * dx) # L2 = Sqrt( Integral (p - p_ref)^2 )
-    
-    return mae, rmse
 
 # ============================================================
-# 4. Simulation Kernels
+# 3. High-dimensional Metrics
 # ============================================================
 
-def step_diff(X, dt, eps, rng):
-    # Score-based drift: b = (eps^2 / 2) * grad log pi, pi ∝ exp(-V/eps^2)
-    score = score_high_dim(X, eps)
-    drift = 0.5 * (eps**2) * score
-    
-    # Euler-Maruyama: dX = b dt + eps dW
-    noise = eps * np.sqrt(dt) * rng.standard_normal(X.shape)
-    
-    return X + drift * dt + noise
 
-def step_levy(X, dt, eps, rng, lam, sigma_L):
-    # 1. Diffusion Step (Score-based drift)
-    score = score_high_dim(X, eps)
-    drift = 0.5 * (eps**2) * score
-    noise = eps * np.sqrt(dt) * rng.standard_normal(X.shape)
-    X_new = X + drift * dt + noise
-    
-    # 2. Jump Step
-    # Jump rate lambda
-    n_samples = X.shape[0]
-    # Poisson approximation for small dt
-    jump_mask = rng.random(n_samples) < (lam * dt)
-    n_jumps = np.sum(jump_mask)
-    
-    if n_jumps > 0:
-        # Isotropic jumps in 10D
-        direction = rng.standard_normal((n_jumps, DIM))
-        direction /= np.linalg.norm(direction, axis=1, keepdims=True)
-        
-        # Jump size: Fixed large jumps to cross barrier (width ~ 2)
-        # 2.5 is enough to jump from -1 to > 1
-        jumps = direction * sigma_L
-        
-        X_new[jump_mask] += jumps
-        
-    return X_new
+def _wasserstein2_1d_exact(x, y):
+    x = np.asarray(x, dtype=float).reshape(-1)
+    y = np.asarray(y, dtype=float).reshape(-1)
+    x = x[np.isfinite(x)]
+    y = y[np.isfinite(y)]
+    if x.size <= 1 or y.size <= 1:
+        return 0.0
+
+    x = np.sort(x)
+    y = np.sort(y)
+    n = max(x.size, y.size)
+    q = (np.arange(n, dtype=float) + 0.5) / n
+    qx = (np.arange(x.size, dtype=float) + 0.5) / x.size
+    qy = (np.arange(y.size, dtype=float) + 0.5) / y.size
+    xq = np.interp(q, qx, x)
+    yq = np.interp(q, qy, y)
+    return float(np.sqrt(np.mean((xq - yq) ** 2)))
+
+
+def compute_wasserstein(X, Y_ref, rng, n_proj=64, max_points=700):
+    """
+    Sliced W2 in full d dimensions.
+    This avoids external OT dependencies and remains fully high-dimensional.
+    """
+    X = np.asarray(X, dtype=float)
+    Y_ref = np.asarray(Y_ref, dtype=float)
+    if X.ndim != 2 or Y_ref.ndim != 2:
+        return 0.0
+    if X.shape[0] <= 1 or Y_ref.shape[0] <= 1 or X.shape[1] != Y_ref.shape[1]:
+        return 0.0
+
+    m = min(max_points, X.shape[0], Y_ref.shape[0])
+    if X.shape[0] > m:
+        X = X[rng.choice(X.shape[0], size=m, replace=False)]
+    if Y_ref.shape[0] > m:
+        Y_ref = Y_ref[rng.choice(Y_ref.shape[0], size=m, replace=False)]
+
+    dim = X.shape[1]
+    dirs = rng.standard_normal((n_proj, dim))
+    dirs /= np.linalg.norm(dirs, axis=1, keepdims=True) + 1e-12
+
+    vals_sq = []
+    for u in dirs:
+        px = X @ u
+        py = Y_ref @ u
+        w1d = _wasserstein2_1d_exact(px, py)
+        vals_sq.append(w1d * w1d)
+    return float(np.sqrt(np.mean(vals_sq)))
+
+
+def compute_orthant_errors(X):
+    """
+    High-dimensional L1/L2 errors on orthant occupancy.
+    For this symmetric target, each orthant has true mass 1 / 2^d.
+    """
+    X = sanitize_state(X)
+    n_samples, dim = X.shape
+    n_orthants = 1 << dim
+    bits = (X >= 0.0).astype(np.uint64)
+    weights = (1 << np.arange(dim, dtype=np.uint64))
+    codes = (bits * weights).sum(axis=1).astype(np.int64)
+    hist = np.bincount(codes, minlength=n_orthants).astype(float) / float(n_samples)
+
+    true_mass = 1.0 / n_orthants
+    diff = hist - true_mass
+    l1 = np.sum(np.abs(diff))
+    l2 = np.sqrt(np.sum(diff**2))
+    return float(l1), float(l2)
+
 
 # ============================================================
-# 5. Main Execution
+# 4. Jump Law + Stationary Lévy-score Integral (Eq. 24)
 # ============================================================
 
-def run_simulation(seed, eps, dt, T, N, dim, lam, sigma_L, X_ref, grid_x, pdf_true):
+
+def sample_jump_vectors(rng, n_events, dim, sigma_L, multipliers, pm):
+    """Sample jump vectors Ai ~ nu_J in R^d."""
+    if n_events <= 0:
+        return np.zeros((0, dim), dtype=float)
+
+    mult_choice = rng.choice(multipliers, size=n_events, p=pm)
+    dirs = rng.standard_normal((n_events, dim))
+    dirs /= np.linalg.norm(dirs, axis=1, keepdims=True) + 1e-12
+    radii = sigma_L * mult_choice
+    return dirs * radii[:, None]
+
+
+def levy_score_integral_stationary(
+    X,
+    sigma,
+    lam,
+    sigma_L,
+    multipliers,
+    pm,
+    rng,
+    n_dir_score=8,
+    n_theta=7,
+    expo_clip=EXPO_CLIP,
+    s_clip=None,
+):
+    """
+    Approximate I(x) = lam * int_0^1 int r * exp(-2(V(x-theta r)-V(x))/sigma^2) nu_J(dr) dtheta
+    using:
+      - trapezoidal quadrature in theta
+      - Monte Carlo over isotropic directions with antithetic +/- pairing.
+
+    The manuscript drift is: -gradV(x) - I(x).
+    """
+    X = sanitize_state(X)
+    n_samples, dim = X.shape
+    if n_samples == 0:
+        return np.zeros_like(X)
+
+    X_eval = np.clip(X, -POT_CLIP, POT_CLIP)
+    V0 = V_high_dim(X_eval)
+
+    theta = np.linspace(0.0, 1.0, n_theta)
+    w_theta = np.ones_like(theta)
+    w_theta[0] = 0.5
+    w_theta[-1] = 0.5
+    w_theta /= np.sum(w_theta)
+
+    dirs = rng.standard_normal((n_dir_score, dim))
+    dirs /= np.linalg.norm(dirs, axis=1, keepdims=True) + 1e-12
+
+    integral = np.zeros_like(X)
+    for mult, p_mult in zip(multipliers, pm):
+        radius = sigma_L * mult
+        for u in dirs:
+            r = radius * u
+            acc = np.zeros_like(X)
+            for th, wth in zip(theta, w_theta):
+                Xm = np.clip(X_eval - th * r, -POT_CLIP, POT_CLIP)
+                Xp = np.clip(X_eval + th * r, -POT_CLIP, POT_CLIP)
+
+                Vm = V_high_dim(Xm)
+                Vp = V_high_dim(Xp)
+
+                dlog_m = -2.0 * (Vm - V0) / (sigma**2)
+                dlog_p = -2.0 * (Vp - V0) / (sigma**2)
+                dlog_m = np.nan_to_num(dlog_m, nan=-expo_clip, posinf=expo_clip, neginf=-expo_clip)
+                dlog_p = np.nan_to_num(dlog_p, nan=-expo_clip, posinf=expo_clip, neginf=-expo_clip)
+                rm = np.exp(np.clip(dlog_m, -expo_clip, expo_clip))
+                rp = np.exp(np.clip(dlog_p, -expo_clip, expo_clip))
+
+                # Symmetric pair (+/-r): 0.5 * r * (ratio_minus - ratio_plus)
+                term = 0.5 * (rm - rp)
+                acc += wth * term[:, None] * r[None, :]
+
+            integral += (p_mult / n_dir_score) * acc
+
+    integral *= lam
+    if s_clip is not None:
+        integral = np.clip(integral, -s_clip, s_clip)
+    return integral
+
+
+# ============================================================
+# 5. Simulation Kernels
+# ============================================================
+
+
+def step_diff(X, dt, sigma, rng):
+    """Paper diffusion baseline: dX = -gradV dt + sigma dB."""
+    X = sanitize_state(X)
+    drift = -gradV_high_dim(X)
+    noise = sigma * np.sqrt(dt) * rng.standard_normal(X.shape)
+    X_new = X + tamed_drift_increment(drift, dt) + noise
+    return sanitize_state(X_new)
+
+
+def step_levy(
+    X,
+    dt,
+    sigma,
+    rng,
+    lam,
+    sigma_L,
+    multipliers,
+    pm,
+    n_dir_score=8,
+    n_theta=7,
+):
+    """Algorithm 1 style step with Lévy-score-corrected drift + compound-Poisson jumps."""
+    X = sanitize_state(X)
+    drift_base = -gradV_high_dim(X)
+    score_int = levy_score_integral_stationary(
+        X,
+        sigma=sigma,
+        lam=lam,
+        sigma_L=sigma_L,
+        multipliers=multipliers,
+        pm=pm,
+        rng=rng,
+        n_dir_score=n_dir_score,
+        n_theta=n_theta,
+    )
+    drift = drift_base - score_int
+    noise = sigma * np.sqrt(dt) * rng.standard_normal(X.shape)
+    X_new = X + tamed_drift_increment(drift, dt) + noise
+
+    n_samples, dim = X.shape
+    jump_counts = rng.poisson(lam * dt, size=n_samples)
+    total_jumps = int(np.sum(jump_counts))
+    if total_jumps > 0:
+        rows = np.repeat(np.arange(n_samples), jump_counts)
+        jumps = sample_jump_vectors(
+            rng,
+            n_events=total_jumps,
+            dim=dim,
+            sigma_L=sigma_L,
+            multipliers=multipliers,
+            pm=pm,
+        )
+        np.add.at(X_new, rows, jumps)
+
+    return sanitize_state(X_new)
+
+
+# ============================================================
+# 6. Run + Aggregate + Plot
+# ============================================================
+
+
+def run_simulation(
+    seed,
+    sigma,
+    dt,
+    T,
+    N,
+    dim,
+    lam,
+    sigma_L,
+    multipliers,
+    pm,
+    X_ref,
+    n_dir_score,
+    n_theta,
+):
     rng = np.random.default_rng(seed)
 
-    # Initialization: Trapped in Left Well (-1)
+    # Left-well initialization in all coordinates.
     X_diff = -1.0 + 0.1 * rng.standard_normal((N, dim))
     X_levy = -1.0 + 0.1 * rng.standard_normal((N, dim))
 
     steps = int(T / dt)
-    check_interval = steps // 40  # Check 40 times total
+    check_interval = max(1, steps // 40)
 
-    history = {
-        't': [],
-        'w2_d': [], 'w2_l': [],
-        'l1_d': [], 'l1_l': [],
-        'l2_d': [], 'l2_l': []
-    }
+    history = {"t": [], "w2_d": [], "w2_l": [], "l1_d": [], "l1_l": [], "l2_d": [], "l2_l": []}
 
     for i in range(steps + 1):
         if i % check_interval == 0:
             t = i * dt
-            history['t'].append(t)
+            history["t"].append(t)
 
-            # 1. W2 Metric (Full High-D)
             w2_d = compute_wasserstein(X_diff, X_ref, rng)
             w2_l = compute_wasserstein(X_levy, X_ref, rng)
+            l1_d, l2_d = compute_orthant_errors(X_diff)
+            l1_l, l2_l = compute_orthant_errors(X_levy)
 
-            # 2. Marginal Metrics (Dim 0)
-            l1_d, l2_d = compute_marginal_errors(X_diff, 0, grid_x, pdf_true)
-            l1_l, l2_l = compute_marginal_errors(X_levy, 0, grid_x, pdf_true)
+            history["w2_d"].append(w2_d)
+            history["w2_l"].append(w2_l)
+            history["l1_d"].append(l1_d)
+            history["l1_l"].append(l1_l)
+            history["l2_d"].append(l2_d)
+            history["l2_l"].append(l2_l)
 
-            history['w2_d'].append(w2_d); history['w2_l'].append(w2_l)
-            history['l1_d'].append(l1_d); history['l1_l'].append(l1_l)
-            history['l2_d'].append(l2_d); history['l2_l'].append(l2_l)
+            print(
+                f"[seed {seed}] t={t:.2f} | "
+                f"W2(D):{w2_d:.3f} W2(L):{w2_l:.3f} | "
+                f"Orth-L1(D):{l1_d:.3f} Orth-L1(L):{l1_l:.3f}"
+            )
 
-            print(f"[seed {seed}] t={t:.1f} | W2(D):{w2_d:.2f} W2(L):{w2_l:.2f} | L1(D):{l1_d:.2f} L1(L):{l1_l:.2f}")
+        X_diff = step_diff(X_diff, dt, sigma, rng)
+        X_levy = step_levy(
+            X_levy,
+            dt,
+            sigma,
+            rng,
+            lam=lam,
+            sigma_L=sigma_L,
+            multipliers=multipliers,
+            pm=pm,
+            n_dir_score=n_dir_score,
+            n_theta=n_theta,
+        )
 
-        # Steps
-        X_diff = step_diff(X_diff, dt, eps, rng)
-        X_levy = step_levy(X_levy, dt, eps, rng, lam, sigma_L)
+    return history
 
-    return history, X_diff, X_levy
 
 def aggregate_histories(histories, keys):
-    stacked = {k: np.stack([np.array(h[k]) for h in histories], axis=0) for k in keys}
+    stacked = {k: np.stack([np.asarray(h[k], dtype=float) for h in histories], axis=0) for k in keys}
     mean = {k: stacked[k].mean(axis=0) for k in keys}
     std = {k: stacked[k].std(axis=0) for k in keys}
     return mean, std
 
+
 def main():
-    eps = 0.75
+    sigma = 0.75
     dt = 0.005
     T = 20.0
     N = 20000
-    DIM = 10
+    dim = 10
     num_seeds = 5
     seeds = list(range(num_seeds))
-    
-    # Levy Params
-    lam = 0.8       # Frequent enough jumps
-    sigma_L = 2.5   # Distance between wells is 2.0 (-1 to 1). 2.5 ensures crossing.
+
+    # Compound-Poisson jump law nu_J: isotropic direction + discrete radial multipliers.
+    lam = 0.8
+    sigma_L = 1.0
+    multipliers = np.asarray([1.0, 1.8, 2.6], dtype=float)
+    pm = np.asarray([0.70, 0.22, 0.08], dtype=float)
+    pm /= pm.sum()
+
+    # Numerical quadrature controls for Eq. (24).
+    n_dir_score = 8
+    n_theta = 7
 
     rng_ref = np.random.default_rng(12345)
-    print("Generating Reference Samples (Ground Truth)...")
-    X_ref = sample_true_high_d(2000, DIM, eps, rng_ref)
-    
-    # Precompute 1D Marginal PDF for Grid Metrics
-    grid_x = np.linspace(-3, 3, 100)
-    pdf_true = get_true_marginal_pdf(grid_x, eps)
+    print("Generating reference samples from pi(x) ∝ exp(-2V/sigma^2) ...")
+    X_ref = sample_true_high_d(2500, dim, sigma, rng_ref)
 
-    print(f"Simulating {num_seeds} seeds for 10D System (eps={eps} -> High Barrier)...")
+    print(f"Running {num_seeds} seeds for {dim}D model (manuscript-aligned Lévy-score drift) ...")
     histories = []
-    first_final = None
     for seed in seeds:
-        history, X_diff, X_levy = run_simulation(
-            seed, eps, dt, T, N, DIM, lam, sigma_L, X_ref, grid_x, pdf_true
+        h = run_simulation(
+            seed=seed,
+            sigma=sigma,
+            dt=dt,
+            T=T,
+            N=N,
+            dim=dim,
+            lam=lam,
+            sigma_L=sigma_L,
+            multipliers=multipliers,
+            pm=pm,
+            X_ref=X_ref,
+            n_dir_score=n_dir_score,
+            n_theta=n_theta,
         )
-        histories.append(history)
-        if first_final is None:
-            first_final = (X_diff, X_levy)
+        histories.append(h)
 
-    t = np.array(histories[0]['t'])
-    keys = ['w2_d', 'w2_l', 'l1_d', 'l1_l', 'l2_d', 'l2_l']
+    t = np.asarray(histories[0]["t"], dtype=float)
+    keys = ["w2_d", "w2_l", "l1_d", "l1_l", "l2_d", "l2_l"]
     mean, std = aggregate_histories(histories, keys)
 
-    # ============================================================
-    # 6. Plotting
-    # ============================================================
     out_prefix = "high_dim"
-    
-    # Plot 1: Metrics Convergence
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-    
-    # W2
-    axes[0].errorbar(t, mean['w2_d'], yerr=std['w2_d'], fmt='b--', label='Diffusion', capsize=2, alpha=0.9)
-    axes[0].errorbar(t, mean['w2_l'], yerr=std['w2_l'], fmt='r-', label='Lévy PF', capsize=2, alpha=0.9)
-    axes[0].set_title(f"Wasserstein-2 (Full {DIM}D)")
+
+    axes[0].errorbar(t, mean["w2_d"], yerr=std["w2_d"], fmt="b--", label="Diffusion", capsize=2, alpha=0.9)
+    axes[0].errorbar(t, mean["w2_l"], yerr=std["w2_l"], fmt="r-", label="LSBMC", capsize=2, alpha=0.9)
+    axes[0].set_title(f"Sliced W2")
     axes[0].set_xlabel("Time")
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
-    
-    # L1
-    axes[1].errorbar(t, mean['l1_d'], yerr=std['l1_d'], fmt='b--', label='Diffusion', capsize=2, alpha=0.9)
-    axes[1].errorbar(t, mean['l1_l'], yerr=std['l1_l'], fmt='r-', label='Lévy PF', capsize=2, alpha=0.9)
-    axes[1].set_title("Marginal L1 Error (MAE)")
+
+    axes[1].errorbar(t, mean["l1_d"], yerr=std["l1_d"], fmt="b--", label="Diffusion", capsize=2, alpha=0.9)
+    axes[1].errorbar(t, mean["l1_l"], yerr=std["l1_l"], fmt="r-", label="LSBMC", capsize=2, alpha=0.9)
+    axes[1].set_title("Orthant L1 Error")
     axes[1].set_xlabel("Time")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
-    
-    # L2
-    axes[2].errorbar(t, mean['l2_d'], yerr=std['l2_d'], fmt='b--', label='Diffusion', capsize=2, alpha=0.9)
-    axes[2].errorbar(t, mean['l2_l'], yerr=std['l2_l'], fmt='r-', label='Lévy PF', capsize=2, alpha=0.9)
-    axes[2].set_title("Marginal L2 Error (RMSE)")
+
+    axes[2].errorbar(t, mean["l2_d"], yerr=std["l2_d"], fmt="b--", label="Diffusion", capsize=2, alpha=0.9)
+    axes[2].errorbar(t, mean["l2_l"], yerr=std["l2_l"], fmt="r-", label="LSBMC", capsize=2, alpha=0.9)
+    axes[2].set_title("Orthant L2 Error")
     axes[2].set_xlabel("Time")
     axes[2].legend()
     axes[2].grid(True, alpha=0.3)
-    
+
     plt.tight_layout()
     plt.savefig(f"{out_prefix}_metrics.png", dpi=200)
     plt.close()
-    
-    # Plot 2: Final Marginal Density Comparison
-    X_diff, X_levy = first_final
-    plt.figure(figsize=(8, 6))
-    plt.hist(X_diff[:, 0], bins=50, density=True, alpha=0.5, color='blue', label='Diffusion (Trapped)')
-    plt.hist(X_levy[:, 0], bins=50, density=True, alpha=0.5, color='red', label='Lévy PF (Mixed)')
-    plt.plot(grid_x, pdf_true, 'k--', linewidth=2, label='True Marginal')
-    plt.title(f"Final Marginal Density (Dim 0) @ T={T}")
-    plt.xlabel("x_0")
-    plt.ylabel("Density")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.savefig(f"{out_prefix}_density.png", dpi=200)
-    plt.close()
-    
-    print(f"Done. Saved {out_prefix}_metrics.png and {out_prefix}_density.png")
+
+    print(f"Done. Saved {out_prefix}_metrics.png")
+
 
 if __name__ == "__main__":
     main()
