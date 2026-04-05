@@ -93,6 +93,12 @@ The manuscript **intentionally uses different parameterizations** for different 
    - MALA + symmetric Levy jump MH move
    - **Status**: ✓ Correct
 
+5. **FLMC** (`step_flmc_1d`, `step_flmc_2d`)
+   - Shared alpha-stable FLMC utilities live in `flmc_utils.py`
+   - Present in: `doublewell.py`, `ring.py`, `fourwells.py`, `mueller.py`
+   - Four-well and Mueller use `V_*_flmc = 0.5 * V_*` wrappers so FLMC matches the manuscript's rescaled Boltzmann convention
+   - **Status**: ✓ Correct and fully integrated for low-dimensional experiments
+
 ---
 
 ## Historical Reference (Deleted FLMC Code)
@@ -125,6 +131,8 @@ The manuscript **intentionally uses different parameterizations** for different 
 
 **Verdict**: FLA.py is **mostly consistent** but used a different potential scaling convention (`U = V/2` for some examples). The deleted code is a useful reference for FLMC implementation but should be adapted to match current `V` notation.
 
+When deleted historical code conflicts with the manuscript TeX, the manuscript TeX is authoritative.
+
 ---
 
 ## Five Main Manuscript Examples
@@ -135,25 +143,25 @@ The manuscript **intentionally uses different parameterizations** for different 
    - SDE: `dX = (X - X³) dt + ε dB` (note: drift = -∇V)
    - Script: `doublewell.py`
    - Outputs: `doublewell_output/doublewell_metrics.png`, `doublewell_bias.png`, `doublewell_final_density.png`
-   - **Status**: ✓ Complete with FLMC baseline and average bias metric
+   - **Status**: ✓ Complete with Diffusion / FLMC / LSB-MC and observable bias metric
 
 2. **Ring Potential** (2D)
    - Manuscript: Section 5.2
    - Script: `ring.py`
    - Outputs: `ring_final_errors_convergence.png`, `ring_final_spatial_error.png`
-   - **Status**: ✓ Complete and correct
+   - **Status**: ✓ Complete with Diffusion / LSB-MC / FLMC / MALA / MALA-Levy; primary metrics = W2 / L1 / L2
 
 3. **Four-Well Potential** (2D)
    - Manuscript: Section 5.3
    - Script: `fourwells.py`
    - Outputs: `fourwell_errors.png`, `fourwell_spatial_error.png`
-   - **Status**: ✓ Complete and correct
+   - **Status**: ✓ Complete with Diffusion / LSB-MC / FLMC / MALA / MALA-Levy; primary metrics = W2 / L1 / L2
 
 4. **Muller-Brown Potential** (2D)
    - Manuscript: Section 5.4
    - Script: `mueller.py`
    - Outputs: `mueller_analysis_convergence.png`, `mueller_analysis_spatial_err.png`
-   - **Status**: ✓ Complete and correct
+   - **Status**: ✓ Complete with Diffusion / LSB-MC / FLMC / MALA / MALA-Levy; primary metrics = W2 / L1 / L2
 
 5. **Lennard-Jones Cluster** (higher-dimensional: N particles in R^d)
    - Manuscript: Section 5.5
@@ -189,33 +197,6 @@ The manuscript **intentionally uses different parameterizations** for different 
 
 ---
 
-## Future Implementation Plan
-
-### Objective
-Add **FLMC (Fractional Langevin Monte Carlo) as a baseline for low-dimensional experiments only**.
-
-### Scope
-1. **Double-Well** (1D):
-   - Restore from deleted FLA.py
-   - Add FLMC sampler (alpha-stable noise)
-   - Add **average bias** metric for estimating mean
-
-2. **Ring / Four-Well / Muller-Brown** (2D):
-   - Add FLMC sampler
-   - Keep W2/L1/L2 as primary metrics (same as current)
-
-3. **Lennard-Jones / High-Dim**:
-   - **DO NOT MODIFY** - leave as diffusion vs LSB-MC only
-
-### Implementation Constraints
-- FLMC uses **alpha-stable Levy noise** (not compound Poisson)
-- Reference: deleted `FLA.py` (commit 843946a)
-- FLMC should be a third method alongside diffusion and LSB-MC
-- Current plotting infrastructure assumes 2-4 methods; verify flexibility
-- **Must match current `V` notation** (not FLA's `U` notation)
-
----
-
 ## Do Not Break List
 
 ### Project-Level Invariants
@@ -227,7 +208,7 @@ Add **FLMC (Fractional Langevin Monte Carlo) as a baseline for low-dimensional e
 
 2. **Jump-Process Semantics**
    - LSB-MC: compound Poisson with score correction
-   - FLMC (future): alpha-stable without score correction
+   - FLMC: alpha-stable without score correction
    - Keep these distinct
 
 3. **Metrics and Output Contracts**
@@ -270,7 +251,7 @@ Add **FLMC (Fractional Langevin Monte Carlo) as a baseline for low-dimensional e
 
 ## Implementation Status
 
-### ✅ Stage 1 Complete: FLMC Core + Double-Well (1D)
+### ✅ Stage 1 Complete: FLMC Core
 
 **Completed Components**:
 1. ✅ **FLMC Utilities** (`flmc_utils.py`)
@@ -279,7 +260,9 @@ Add **FLMC (Fractional Langevin Monte Carlo) as a baseline for low-dimensional e
    - `step_flmc_1d(...)`: FLMC stepping for 1D potentials
    - `step_flmc_2d(...)`: FLMC stepping for 2D potentials
 
-2. ✅ **Double-Well Experiment** (`doublewell.py`)
+### ✅ Stage 1.5 Complete: Double-Well 3-Way Comparison
+
+1. ✅ **Double-Well Experiment** (`doublewell.py`)
    - Potential: `V(x) = x⁴/4 - x²/2` (matches manuscript Section 5.1)
    - Three methods:
      - Diffusion: `dX = -∇V dt + σ dB`
@@ -295,29 +278,35 @@ Add **FLMC (Fractional Langevin Monte Carlo) as a baseline for low-dimensional e
 - LSB-MC achieves best W2 convergence (6.5× faster than diffusion)
 - Both FLMC and LSB-MC show significant improvement over pure diffusion
 
-### 🔄 Stage 2 Pending: FLMC Integration for 2D Low-Dimensional Experiments
+### ✅ Stage 2 Complete: 2D Low-Dimensional FLMC Integration
 
-**Remaining Work**:
-1. ⏳ **Ring Potential** (`ring.py`)
-   - Add FLMC sampler using `step_flmc_2d`
-   - Integrate into existing experiment loop
-   - Update plotting to include FLMC curves
+**Completed Components**:
+1. ✅ **Ring / Four-Well / Muller-Brown**
+   - `ring.py`, `fourwells.py`, and `mueller.py` all include:
+     - Diffusion
+     - LSB-MC
+     - FLMC
+     - MALA
+     - MALA-Levy
+   - Primary low-dimensional metrics remain W2 / L1 / L2
+   - In-file convergence plots and spatial error plots include FLMC
 
-2. ⏳ **Four-Well Potential** (`fourwells.py`)
-   - Add FLMC sampler
-   - Keep existing W2/L1/L2 metrics
+2. ✅ **Shared Plotting Scripts**
+   - `plot_density_compare.py` includes FLMC density outputs for ring / four-well / Muller-Brown
+   - `plot_absolute_error.py` includes FLMC absolute-error outputs for ring / four-well / Muller-Brown
+   - Plotting/output generation now handles all five low-dimensional methods consistently
 
-3. ⏳ **Muller-Brown Potential** (`mueller.py`)
-   - Add FLMC sampler
-   - Keep existing W2/L1/L2 metrics
+3. ✅ **Scope Boundaries Preserved**
+   - `high_dim.py` remains unchanged
+   - `lennard_jones_potential.py` remains unchanged
 
-4. ⏳ **Plotting Scripts**
-   - Update `plot_density_compare.py` for FLMC
-   - Update `plot_absolute_error.py` for FLMC
+### Environment Caveat: POT / OpenMP
 
-**Not Planned**:
-- ❌ Lennard-Jones: No FLMC (high-dimensional, keep as-is)
-- ❌ 10D separable: No FLMC (auxiliary benchmark)
+- Authoritative 2D W2 runs still require a working `POT` / `ot` import
+- In the current sandbox, plain `import ot` aborts Python before any repository code runs with:
+  - `OMP: Error #179: Function Can't open SHM2 failed`
+  - `OMP: System error #2: No such file or directory`
+- Reduced smoke tests passed with an `ot` stub, so the Stage 2 wiring is validated, but authoritative POT-backed W2 numbers must be rerun on a normal local environment where `import ot` succeeds
 
 ---
 
@@ -326,7 +315,7 @@ Add **FLMC (Fractional Langevin Monte Carlo) as a baseline for low-dimensional e
 ```
 .
 ├── flmc_utils.py                # FLMC utilities (alpha-stable sampling)
-├── doublewell.py                # Double-well (1D) with diffusion + FLMC
+├── doublewell.py                # Double-well (1D) with diffusion + FLMC + LSB-MC
 ├── doublewell_output/           # Double-well experiment outputs
 ├── paper/                       # Manuscript TeX source (authoritative)
 │   ├── main.tex
@@ -339,8 +328,8 @@ Add **FLMC (Fractional Langevin Monte Carlo) as a baseline for low-dimensional e
 ├── mueller.py                   # Muller-Brown potential (2D)
 ├── high_dim.py                  # Auxiliary 10D separable double-well
 ├── lennard_jones_potential.py   # LJ cluster (high-D)
-├── plot_density_compare.py      # Density visualization
-├── plot_absolute_error.py       # Spatial error heatmaps
+├── plot_density_compare.py      # Density visualization (2D low-dim includes FLMC)
+├── plot_absolute_error.py       # Spatial error heatmaps (2D low-dim includes FLMC)
 ├── stitch_density_compare.py    # Grid stitching
 ├── stitch_abs_error.py          # Error stitching
 ├── density_compare/             # Density plots
@@ -359,7 +348,7 @@ Add **FLMC (Fractional Langevin Monte Carlo) as a baseline for low-dimensional e
 
 - `numpy` (core)
 - `matplotlib` (plotting)
-- `POT` / `ot` (optimal transport for W2 distance) - **REQUIRED** for most experiments
+- `POT` / `ot` (optimal transport for W2 distance) - **REQUIRED** for authoritative 2D W2 runs
 - `scipy` (optional)
 
 ---
@@ -392,6 +381,13 @@ Add **FLMC (Fractional Langevin Monte Carlo) as a baseline for low-dimensional e
 ---
 
 ## Recent Updates
+
+**2026-04-05 (Stage 2: Low-Dimensional FLMC Complete)**
+- Integrated FLMC into `ring.py`, `fourwells.py`, and `mueller.py`
+- Updated `plot_density_compare.py` and `plot_absolute_error.py` for FLMC in the 2D low-dimensional workflows
+- Ring / four-well / Mueller now track W2 / L1 / L2 across Diffusion, LSB-MC, FLMC, MALA, and MALA-Levy
+- `high_dim.py` and `lennard_jones_potential.py` remain unchanged
+- Validation note: reduced smoke tests pass; authoritative POT-backed runs are blocked in this sandbox by the `import ot` OpenMP shared-memory failure
 
 **2026-04-05 (Stage 1.5: LSB-MC Added to Double-Well)**
 - Implemented 1D LSB-MC score precomputation in `doublewell.py`

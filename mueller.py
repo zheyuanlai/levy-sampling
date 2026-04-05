@@ -4,6 +4,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+from flmc_utils import step_flmc_2d
 
 try:
     import ot  # POT
@@ -45,6 +46,16 @@ def gradV_mueller(x, y):
         dVx += exp_term * (2*a*dx + b*dy)
         dVy += exp_term * (b*dx + 2*c*dy)
     return dVx, dVy
+
+
+def V_mueller_flmc(x, y):
+    # Manuscript uses the rescaled convention b = -(1/2) grad V for this example.
+    return 0.5 * V_mueller(x, y)
+
+
+def gradV_mueller_flmc(x, y):
+    dVx, dVy = gradV_mueller(x, y)
+    return 0.5 * dVx, 0.5 * dVy
 
 # ============================================================
 # 2. Utilities & Density Estimation
@@ -222,21 +233,22 @@ def sample_from_pi(rng, pi, gx, gy, N):
 # 5. Main Execution
 # ============================================================
 
-def run_simulation(seed, eps, dt, T, N, gx, gy, dx_grid, dy_grid, lam, sigma_L, mults, pm, pi, bx, by, Sx, Sy, mala_dt=None):
+def run_simulation(seed, eps, dt, T, N, gx, gy, dx_grid, dy_grid, lam, sigma_L, mults, pm, pi, bx, by, Sx, Sy, alpha=1.5, mala_dt=None):
     rng = np.random.default_rng(seed)
     ref_samples = sample_from_pi(rng, pi, gx, gy, N=2000)
 
     X_diff = np.zeros((N, 2)) + np.array([1.0, 0.0]) + rng.standard_normal((N,2))*0.1
     X_levy = X_diff.copy()
+    X_flmc = X_diff.copy()
     X_mala = X_diff.copy()
     X_malevy = X_diff.copy()
 
     # History tracking
     metrics = {
         't': [],
-        'w2_d': [], 'w2_l': [], 'w2_m': [], 'w2_ml': [],
-        'mae_d': [], 'mae_l': [], 'mae_m': [], 'mae_ml': [],
-        'l2_d': [], 'l2_l': [], 'l2_m': [], 'l2_ml': []
+        'w2_d': [], 'w2_l': [], 'w2_flmc': [], 'w2_m': [], 'w2_ml': [],
+        'mae_d': [], 'mae_l': [], 'mae_flmc': [], 'mae_m': [], 'mae_ml': [],
+        'l2_d': [], 'l2_l': [], 'l2_flmc': [], 'l2_m': [], 'l2_ml': []
     }
     if mala_dt is None:
         mala_dt = dt
@@ -256,34 +268,48 @@ def run_simulation(seed, eps, dt, T, N, gx, gy, dx_grid, dy_grid, lam, sigma_L, 
             # 1. Wasserstein Distance (W2)
             idx_d = rng.choice(N, 1000)
             idx_l = rng.choice(N, 1000)
+            idx_f = rng.choice(N, 1000)
             idx_m = rng.choice(N, 1000)
             idx_ml = rng.choice(N, 1000)
             idx_r = rng.choice(2000, 1000)
             M_d = ot.dist(X_diff[idx_d], ref_samples[idx_r], metric='sqeuclidean')
             M_l = ot.dist(X_levy[idx_l], ref_samples[idx_r], metric='sqeuclidean')
+            M_f = ot.dist(X_flmc[idx_f], ref_samples[idx_r], metric='sqeuclidean')
             M_m = ot.dist(X_mala[idx_m], ref_samples[idx_r], metric='sqeuclidean')
             M_ml = ot.dist(X_malevy[idx_ml], ref_samples[idx_r], metric='sqeuclidean')
             metrics['w2_d'].append(np.sqrt(ot.sinkhorn2([], [], M_d, reg=0.1)))
             metrics['w2_l'].append(np.sqrt(ot.sinkhorn2([], [], M_l, reg=0.1)))
+            metrics['w2_flmc'].append(np.sqrt(ot.sinkhorn2([], [], M_f, reg=0.1)))
             metrics['w2_m'].append(np.sqrt(ot.sinkhorn2([], [], M_m, reg=0.1)))
             metrics['w2_ml'].append(np.sqrt(ot.sinkhorn2([], [], M_ml, reg=0.1)))
 
             # 2. Grid-based Errors (MAE and L2)
             d_dens = density_on_grid(X_diff, gx, gy)
             l_dens = density_on_grid(X_levy, gx, gy)
+            f_dens = density_on_grid(X_flmc, gx, gy)
             m_dens = density_on_grid(X_mala, gx, gy)
             ml_dens = density_on_grid(X_malevy, gx, gy)
             _, mae_d, l2_d = compute_errors(d_dens, pi, dx_grid, dy_grid)
             _, mae_l, l2_l = compute_errors(l_dens, pi, dx_grid, dy_grid)
+            _, mae_f, l2_f = compute_errors(f_dens, pi, dx_grid, dy_grid)
             _, mae_m, l2_m = compute_errors(m_dens, pi, dx_grid, dy_grid)
             _, mae_ml, l2_ml = compute_errors(ml_dens, pi, dx_grid, dy_grid)
-            metrics['mae_d'].append(mae_d); metrics['mae_l'].append(mae_l)
-            metrics['l2_d'].append(l2_d); metrics['l2_l'].append(l2_l)
+            metrics['mae_d'].append(mae_d); metrics['mae_l'].append(mae_l); metrics['mae_flmc'].append(mae_f)
+            metrics['l2_d'].append(l2_d); metrics['l2_l'].append(l2_l); metrics['l2_flmc'].append(l2_f)
             metrics['mae_m'].append(mae_m); metrics['l2_m'].append(l2_m)
             metrics['mae_ml'].append(mae_ml); metrics['l2_ml'].append(l2_ml)
 
         X_diff = step_diff(X_diff, dt, eps, gx, gy, bx, by, rng)
         X_levy = step_levy(X_levy, dt, eps, gx, gy, bx, by, Sx, Sy, rng, lam, sigma_L, mults, pm)
+        X_flmc = step_flmc_2d(
+            X_flmc,
+            dt,
+            alpha,
+            eps,
+            V_mueller_flmc,
+            gradV_mueller_flmc,
+            rng,
+        )
         X_mala, acc = step_mala(X_mala, mala_dt, eps, rng)
         acc_sum += acc
         acc_count += 1
@@ -293,7 +319,7 @@ def run_simulation(seed, eps, dt, T, N, gx, gy, dx_grid, dy_grid, lam, sigma_L, 
 
     acc_rate = acc_sum / max(acc_count, 1)
     acc_rate_ml = acc_sum_ml / max(acc_count_ml, 1)
-    return metrics, X_diff, X_levy, X_mala, X_malevy, acc_rate, acc_rate_ml
+    return metrics, X_diff, X_levy, X_flmc, X_mala, X_malevy, acc_rate, acc_rate_ml
 
 def aggregate_histories(histories, keys):
     stacked = {k: np.stack([np.array(h[k]) for h in histories], axis=0) for k in keys}
@@ -313,26 +339,28 @@ def main():
     print("Precomputing Pi and Score...")
     pi, bx, by, Sx, Sy = precompute_pi_b_S(eps, gx, gy, lam, sigma_L, mults, pm)
 
+    alpha = 1.5
+
     print(f"Simulating {num_seeds} seeds...")
     histories = []
     first_final = None
     acc_rates = []
     acc_rates_ml = []
     for seed in seeds:
-        metrics, X_diff, X_levy, X_mala, X_malevy, acc_rate, acc_rate_ml = run_simulation(
-            seed, eps, dt, T, N, gx, gy, dx_grid, dy_grid, lam, sigma_L, mults, pm, pi, bx, by, Sx, Sy
+        metrics, X_diff, X_levy, X_flmc, X_mala, X_malevy, acc_rate, acc_rate_ml = run_simulation(
+            seed, eps, dt, T, N, gx, gy, dx_grid, dy_grid, lam, sigma_L, mults, pm, pi, bx, by, Sx, Sy, alpha=alpha
         )
         histories.append(metrics)
         acc_rates.append(acc_rate)
         acc_rates_ml.append(acc_rate_ml)
         if first_final is None:
-            first_final = (X_diff, X_levy, X_mala, X_malevy)
+            first_final = (X_diff, X_levy, X_flmc, X_mala, X_malevy)
 
     t = np.array(histories[0]['t'])
     keys = [
-        'w2_d', 'w2_l', 'w2_m', 'w2_ml',
-        'mae_d', 'mae_l', 'mae_m', 'mae_ml',
-        'l2_d', 'l2_l', 'l2_m', 'l2_ml'
+        'w2_d', 'w2_l', 'w2_flmc', 'w2_m', 'w2_ml',
+        'mae_d', 'mae_l', 'mae_flmc', 'mae_m', 'mae_ml',
+        'l2_d', 'l2_l', 'l2_flmc', 'l2_m', 'l2_ml'
     ]
     mean, std = aggregate_histories(histories, keys)
 
@@ -344,20 +372,23 @@ def main():
     # Plot 1: Combined Error Convergence
     fig, ax = plt.subplots(1, 3, figsize=(18, 5))
     ax[0].errorbar(t, mean['w2_d'], yerr=std['w2_d'], fmt='b--', label='Diff', capsize=2, alpha=0.9)
-    ax[0].errorbar(t, mean['w2_l'], yerr=std['w2_l'], fmt='r-', label='Levy', capsize=2, alpha=0.9)
+    ax[0].errorbar(t, mean['w2_l'], yerr=std['w2_l'], fmt='r-', label='LSB-MC', capsize=2, alpha=0.9)
+    ax[0].errorbar(t, mean['w2_flmc'], yerr=std['w2_flmc'], fmt='orange', linestyle='-', label='FLMC', capsize=2, alpha=0.9)
     ax[0].errorbar(t, mean['w2_m'], yerr=std['w2_m'], fmt='g-', label='MALA', capsize=2, alpha=0.9)
     ax[0].errorbar(t, mean['w2_ml'], yerr=std['w2_ml'], fmt='k-', label='MALA-Levy', capsize=2, alpha=0.9)
     ax[0].set_title('Wasserstein-2 Distance'); ax[0].legend()
     
     ax[1].errorbar(t, mean['mae_d'], yerr=std['mae_d'], fmt='b--', label='Diff', capsize=2, alpha=0.9)
-    ax[1].errorbar(t, mean['mae_l'], yerr=std['mae_l'], fmt='r-', label='Levy', capsize=2, alpha=0.9)
+    ax[1].errorbar(t, mean['mae_l'], yerr=std['mae_l'], fmt='r-', label='LSB-MC', capsize=2, alpha=0.9)
+    ax[1].errorbar(t, mean['mae_flmc'], yerr=std['mae_flmc'], fmt='orange', linestyle='-', label='FLMC', capsize=2, alpha=0.9)
     ax[1].errorbar(t, mean['mae_m'], yerr=std['mae_m'], fmt='g-', label='MALA', capsize=2, alpha=0.9)
     ax[1].errorbar(t, mean['mae_ml'], yerr=std['mae_ml'], fmt='k-', label='MALA-Levy', capsize=2, alpha=0.9)
     ax[1].set_title('Mean Absolute Error ($L^1$)')
     ax[1].legend()
     
     ax[2].errorbar(t, mean['l2_d'], yerr=std['l2_d'], fmt='b--', label='Diff', capsize=2, alpha=0.9)
-    ax[2].errorbar(t, mean['l2_l'], yerr=std['l2_l'], fmt='r-', label='Levy', capsize=2, alpha=0.9)
+    ax[2].errorbar(t, mean['l2_l'], yerr=std['l2_l'], fmt='r-', label='LSB-MC', capsize=2, alpha=0.9)
+    ax[2].errorbar(t, mean['l2_flmc'], yerr=std['l2_flmc'], fmt='orange', linestyle='-', label='FLMC', capsize=2, alpha=0.9)
     ax[2].errorbar(t, mean['l2_m'], yerr=std['l2_m'], fmt='g-', label='MALA', capsize=2, alpha=0.9)
     ax[2].errorbar(t, mean['l2_ml'], yerr=std['l2_ml'], fmt='k-', label='MALA-Levy', capsize=2, alpha=0.9)
     ax[2].set_title('Root Mean Square Error ($L^2$)')
@@ -366,26 +397,30 @@ def main():
     plt.close()
 
     # Plot 2: Final Spatial Error Map
-    X_diff, X_levy, X_mala, X_malevy = first_final
+    X_diff, X_levy, X_flmc, X_mala, X_malevy = first_final
     d_dens = density_on_grid(X_diff, gx, gy)
     l_dens = density_on_grid(X_levy, gx, gy)
+    f_dens = density_on_grid(X_flmc, gx, gy)
     m_dens = density_on_grid(X_mala, gx, gy)
     ml_dens = density_on_grid(X_malevy, gx, gy)
     err_d, _, _ = compute_errors(d_dens, pi, dx_grid, dy_grid)
     err_l, _, _ = compute_errors(l_dens, pi, dx_grid, dy_grid)
+    err_f, _, _ = compute_errors(f_dens, pi, dx_grid, dy_grid)
     err_m, _, _ = compute_errors(m_dens, pi, dx_grid, dy_grid)
     err_ml, _, _ = compute_errors(ml_dens, pi, dx_grid, dy_grid)
     
-    vmax = max(np.max(err_d), np.max(err_l), np.max(err_m), np.max(err_ml))
-    fig, ax = plt.subplots(1, 4, figsize=(24, 6))
+    vmax = max(np.max(err_d), np.max(err_l), np.max(err_f), np.max(err_m), np.max(err_ml))
+    fig, ax = plt.subplots(1, 5, figsize=(30, 6))
     im1 = ax[0].imshow(err_d, origin='lower', extent=[gx[0],gx[-1],gy[0],gy[-1]], cmap='hot', vmin=0, vmax=vmax)
     ax[0].set_title("Spatial Error: Diffusion"); fig.colorbar(im1, ax=ax[0])
     im2 = ax[1].imshow(err_l, origin='lower', extent=[gx[0],gx[-1],gy[0],gy[-1]], cmap='hot', vmin=0, vmax=vmax)
-    ax[1].set_title("Spatial Error: Lévy PF"); fig.colorbar(im2, ax=ax[1])
-    im3 = ax[2].imshow(err_m, origin='lower', extent=[gx[0],gx[-1],gy[0],gy[-1]], cmap='hot', vmin=0, vmax=vmax)
-    ax[2].set_title("Spatial Error: MALA"); fig.colorbar(im3, ax=ax[2])
-    im4 = ax[3].imshow(err_ml, origin='lower', extent=[gx[0],gx[-1],gy[0],gy[-1]], cmap='hot', vmin=0, vmax=vmax)
-    ax[3].set_title("Spatial Error: MALA-Levy"); fig.colorbar(im4, ax=ax[3])
+    ax[1].set_title("Spatial Error: LSB-MC"); fig.colorbar(im2, ax=ax[1])
+    im3 = ax[2].imshow(err_f, origin='lower', extent=[gx[0],gx[-1],gy[0],gy[-1]], cmap='hot', vmin=0, vmax=vmax)
+    ax[2].set_title("Spatial Error: FLMC"); fig.colorbar(im3, ax=ax[2])
+    im4 = ax[3].imshow(err_m, origin='lower', extent=[gx[0],gx[-1],gy[0],gy[-1]], cmap='hot', vmin=0, vmax=vmax)
+    ax[3].set_title("Spatial Error: MALA"); fig.colorbar(im4, ax=ax[3])
+    im5 = ax[4].imshow(err_ml, origin='lower', extent=[gx[0],gx[-1],gy[0],gy[-1]], cmap='hot', vmin=0, vmax=vmax)
+    ax[4].set_title("Spatial Error: MALA-Levy"); fig.colorbar(im5, ax=ax[4])
     plt.savefig(f"{out}_spatial_err.png", dpi=200)
     plt.close()
 

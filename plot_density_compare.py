@@ -73,21 +73,33 @@ def simulate_fourwells(seed=42):
     init = np.array([a, a])
     X_diff = init + 0.1 * rng.standard_normal((N, 2))
     X_levy = X_diff.copy()
+    X_flmc = X_diff.copy()
     X_mala = X_diff.copy()
     X_malevy = X_diff.copy()
+    alpha = 1.5
 
     steps = int(T / dt)
     for _ in range(steps):
         X_diff = fw.step_diff(X_diff, dt, eps, gx, gy, bx, by, rng)
         X_levy = fw.step_levy(X_levy, dt, eps, gx, gy, bx, by, Sx, Sy, rng, lam, sigma_L, mults, pm)
+        X_flmc = fw.step_flmc_2d(
+            X_flmc,
+            dt,
+            alpha,
+            eps,
+            lambda x, y: fw.V_fourwell_flmc(x, y, a=a),
+            lambda x, y: fw.gradV_fourwell_flmc(x, y, a=a),
+            rng,
+        )
         X_mala, _ = fw.step_mala(X_mala, dt, eps, a, rng)
         X_malevy, _ = fw.step_malevy(X_malevy, dt, eps, a, rng, lam, sigma_L, mults, pm)
 
     dens_d = fw.density_on_grid(X_diff, gx, gy)
     dens_l = fw.density_on_grid(X_levy, gx, gy)
+    dens_f = fw.density_on_grid(X_flmc, gx, gy)
     dens_m = fw.density_on_grid(X_mala, gx, gy)
     dens_ml = fw.density_on_grid(X_malevy, gx, gy)
-    return gx, gy, pi, dens_d, dens_l, dens_m, dens_ml, init
+    return gx, gy, pi, dens_d, dens_l, dens_f, dens_m, dens_ml, init
 
 def simulate_mueller(seed=42):
     eps, dt, T, N = 0.7, 2e-4, 2.0, 3000
@@ -100,21 +112,25 @@ def simulate_mueller(seed=42):
     init = np.array([1.0, 0.0])
     X_diff = np.zeros((N, 2)) + init + rng.standard_normal((N, 2)) * 0.1
     X_levy = X_diff.copy()
+    X_flmc = X_diff.copy()
     X_mala = X_diff.copy()
     X_malevy = X_diff.copy()
+    alpha = 1.5
 
     steps = int(T / dt)
     for _ in range(steps):
         X_diff = mu.step_diff(X_diff, dt, eps, gx, gy, bx, by, rng)
         X_levy = mu.step_levy(X_levy, dt, eps, gx, gy, bx, by, Sx, Sy, rng, lam, sigma_L, mults, pm)
+        X_flmc = mu.step_flmc_2d(X_flmc, dt, alpha, eps, mu.V_mueller_flmc, mu.gradV_mueller_flmc, rng)
         X_mala, _ = mu.step_mala(X_mala, dt, eps, rng)
         X_malevy, _ = mu.step_malevy(X_malevy, dt, eps, rng, lam, sigma_L, mults, pm)
 
     dens_d = mu.density_on_grid(X_diff, gx, gy)
     dens_l = mu.density_on_grid(X_levy, gx, gy)
+    dens_f = mu.density_on_grid(X_flmc, gx, gy)
     dens_m = mu.density_on_grid(X_mala, gx, gy)
     dens_ml = mu.density_on_grid(X_malevy, gx, gy)
-    return gx, gy, pi, dens_d, dens_l, dens_m, dens_ml, init
+    return gx, gy, pi, dens_d, dens_l, dens_f, dens_m, dens_ml, init
 
 def simulate_ring(seed=42):
     eps, dt, T, N = 0.35, 0.0015, 40.0, 5000
@@ -128,21 +144,25 @@ def simulate_ring(seed=42):
     init = np.array([-1.0, 0.0])
     X_diff = init + 0.05 * rng.standard_normal((N, 2))
     X_levy = X_diff.copy()
+    X_flmc = X_diff.copy()
     X_mala = X_diff.copy()
     X_malevy = X_diff.copy()
+    alpha = 1.5
 
     steps = int(T / dt)
     for _ in range(steps):
         X_diff = rg.step_diff(X_diff, dt, eps, gx, gy, bx, by, rng)
         X_levy = rg.step_levy(X_levy, dt, eps, gx, gy, bx, by, Sx, Sy, rng, lam, sigma_L, mults, pm)
+        X_flmc = rg.step_flmc_2d(X_flmc, dt, alpha, eps, rg.V_ring, rg.gradV_ring, rng)
         X_mala, _ = rg.step_mala(X_mala, dt, eps, rng)
         X_malevy, _ = rg.step_malevy(X_malevy, dt, eps, rng, lam, sigma_L, mults, pm)
 
     dens_d = rg.density_on_grid(X_diff, gx, gy)
     dens_l = rg.density_on_grid(X_levy, gx, gy)
+    dens_f = rg.density_on_grid(X_flmc, gx, gy)
     dens_m = rg.density_on_grid(X_mala, gx, gy)
     dens_ml = rg.density_on_grid(X_malevy, gx, gy)
-    return gx, gy, pi, dens_d, dens_l, dens_m, dens_ml, init
+    return gx, gy, pi, dens_d, dens_l, dens_f, dens_m, dens_ml, init
 
 
 def simulate_lennard(seed=42):
@@ -223,29 +243,32 @@ def generate_all(out_dir, use_log=False):
     os.makedirs(out_dir, exist_ok=True)
 
     # Four wells
-    gx, gy, pi, dens_d, dens_l, dens_m, dens_ml, init = simulate_fourwells()
-    _, _, norm = _shared_norm([pi, dens_d, dens_l, dens_m, dens_ml], use_log=use_log, gamma=0.5)
+    gx, gy, pi, dens_d, dens_l, dens_f, dens_m, dens_ml, init = simulate_fourwells()
+    _, _, norm = _shared_norm([pi, dens_d, dens_l, dens_f, dens_m, dens_ml], use_log=use_log, gamma=0.5)
     save_density_image(pi, gx, gy, "Four-Well: True Invariant Density", os.path.join(out_dir, "fourwell_true_density.png"), norm)
     save_density_image(dens_d, gx, gy, "Four-Well: Diffusion Density", os.path.join(out_dir, "fourwell_diffusion_density.png"), norm, init_point=init)
-    save_density_image(dens_l, gx, gy, "Four-Well: Lévy Density", os.path.join(out_dir, "fourwell_levy_density.png"), norm, init_point=init)
+    save_density_image(dens_l, gx, gy, "Four-Well: LSB-MC Density", os.path.join(out_dir, "fourwell_levy_density.png"), norm, init_point=init)
+    save_density_image(dens_f, gx, gy, "Four-Well: FLMC Density", os.path.join(out_dir, "fourwell_flmc_density.png"), norm, init_point=init)
     save_density_image(dens_m, gx, gy, "Four-Well: MALA Density", os.path.join(out_dir, "fourwell_mala_density.png"), norm, init_point=init)
     save_density_image(dens_ml, gx, gy, "Four-Well: MALA-Levy Density", os.path.join(out_dir, "fourwell_malevy_density.png"), norm, init_point=init)
 
     # Mueller
-    gx, gy, pi, dens_d, dens_l, dens_m, dens_ml, init = simulate_mueller()
-    _, _, norm = _shared_norm([pi, dens_d, dens_l, dens_m, dens_ml], use_log=use_log, gamma=0.5)
+    gx, gy, pi, dens_d, dens_l, dens_f, dens_m, dens_ml, init = simulate_mueller()
+    _, _, norm = _shared_norm([pi, dens_d, dens_l, dens_f, dens_m, dens_ml], use_log=use_log, gamma=0.5)
     save_density_image(pi, gx, gy, "Müller-Brown: True Invariant Density", os.path.join(out_dir, "mueller_true_density.png"), norm)
     save_density_image(dens_d, gx, gy, "Müller-Brown: Diffusion Density", os.path.join(out_dir, "mueller_diffusion_density.png"), norm, init_point=init)
-    save_density_image(dens_l, gx, gy, "Müller-Brown: Lévy Density", os.path.join(out_dir, "mueller_levy_density.png"), norm, init_point=init)
+    save_density_image(dens_l, gx, gy, "Müller-Brown: LSB-MC Density", os.path.join(out_dir, "mueller_levy_density.png"), norm, init_point=init)
+    save_density_image(dens_f, gx, gy, "Müller-Brown: FLMC Density", os.path.join(out_dir, "mueller_flmc_density.png"), norm, init_point=init)
     save_density_image(dens_m, gx, gy, "Müller-Brown: MALA Density", os.path.join(out_dir, "mueller_mala_density.png"), norm, init_point=init)
     save_density_image(dens_ml, gx, gy, "Müller-Brown: MALA-Levy Density", os.path.join(out_dir, "mueller_malevy_density.png"), norm, init_point=init)
 
     # Ring
-    gx, gy, pi, dens_d, dens_l, dens_m, dens_ml, init = simulate_ring()
-    _, _, norm = _shared_norm([pi, dens_d, dens_l, dens_m, dens_ml], use_log=use_log, gamma=0.5)
+    gx, gy, pi, dens_d, dens_l, dens_f, dens_m, dens_ml, init = simulate_ring()
+    _, _, norm = _shared_norm([pi, dens_d, dens_l, dens_f, dens_m, dens_ml], use_log=use_log, gamma=0.5)
     save_density_image(pi, gx, gy, "Ring: True Invariant Density", os.path.join(out_dir, "ring_true_density.png"), norm)
     save_density_image(dens_d, gx, gy, "Ring: Diffusion Density", os.path.join(out_dir, "ring_diffusion_density.png"), norm, init_point=init)
-    save_density_image(dens_l, gx, gy, "Ring: Lévy Density", os.path.join(out_dir, "ring_levy_density.png"), norm, init_point=init)
+    save_density_image(dens_l, gx, gy, "Ring: LSB-MC Density", os.path.join(out_dir, "ring_levy_density.png"), norm, init_point=init)
+    save_density_image(dens_f, gx, gy, "Ring: FLMC Density", os.path.join(out_dir, "ring_flmc_density.png"), norm, init_point=init)
     save_density_image(dens_m, gx, gy, "Ring: MALA Density", os.path.join(out_dir, "ring_mala_density.png"), norm, init_point=init)
     save_density_image(dens_ml, gx, gy, "Ring: MALA-Levy Density", os.path.join(out_dir, "ring_malevy_density.png"), norm, init_point=init)
 
