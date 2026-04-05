@@ -11,10 +11,11 @@ SDE: dX_t = (X_t - X_t^3) dt + ε dB_t
 
 Target density: p_∞(x) ∝ exp(-2V(x)/σ²) with σ = ε
 
-This script compares THREE methods:
-1. Diffusion baseline (overdamped Langevin)
-2. FLMC (Fractional Langevin Monte Carlo with alpha-stable noise)
-3. LSB-MC (Levy-Score-Based Monte Carlo with compound Poisson jumps)
+This script compares FOUR methods:
+1. ULA baseline (overdamped Langevin)
+2. MALA (Metropolis-adjusted Langevin algorithm)
+3. FLMC (Fractional Langevin Monte Carlo with alpha-stable noise)
+4. LSBMC (Levy-Score-Based Monte Carlo with compound Poisson jumps)
 
 Metrics:
 - W2 / L1 / L2 distributional errors
@@ -64,6 +65,15 @@ def gradV_doublewell(x: np.ndarray) -> np.ndarray:
     """
     x = np.asarray(x, dtype=float)
     return x**3 - x
+
+
+def logpi_doublewell(x: np.ndarray, sigma: float) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    return -2.0 * V_doublewell(x) / (sigma ** 2)
+
+
+def grad_logpi_doublewell(x: np.ndarray, sigma: float) -> np.ndarray:
+    return -2.0 * gradV_doublewell(x) / (sigma ** 2)
 
 
 def compute_target_density_1d(gx: np.ndarray, sigma: float) -> np.ndarray:
@@ -206,6 +216,39 @@ def step_diffusion_1d(
         x_new = np.clip(x_new, clip_bounds[0], clip_bounds[1])
 
     return x_new
+
+
+def step_mala_1d(
+    x: np.ndarray,
+    dt: float,
+    sigma: float,
+    rng: np.random.Generator,
+    clip_bounds: tuple = None
+) -> tuple[np.ndarray, float]:
+    """
+    One step of 1D MALA targeting p(x) ∝ exp(-2V(x)/sigma^2).
+    """
+    grad = grad_logpi_doublewell(x, sigma)
+    mean = x + 0.5 * dt * grad
+    proposal = mean + np.sqrt(dt) * rng.standard_normal(x.shape)
+
+    if clip_bounds is not None:
+        proposal = np.clip(proposal, clip_bounds[0], clip_bounds[1])
+
+    logp_x = logpi_doublewell(x, sigma)
+    logp_y = logpi_doublewell(proposal, sigma)
+
+    grad_y = grad_logpi_doublewell(proposal, sigma)
+    mean_y = proposal + 0.5 * dt * grad_y
+
+    log_q_y_given_x = -((proposal - mean) ** 2) / (2.0 * dt)
+    log_q_x_given_y = -((x - mean_y) ** 2) / (2.0 * dt)
+    log_alpha = (logp_y + log_q_x_given_y) - (logp_x + log_q_y_given_x)
+
+    accept = np.log(rng.random(x.shape[0])) < log_alpha
+    x_new = x.copy()
+    x_new[accept] = proposal[accept]
+    return x_new, float(np.mean(accept))
 
 
 def step_lsbmc_1d(
@@ -435,10 +478,11 @@ def run_doublewell_experiment(
     init_mean: float = -1.2,
     init_std: float = 0.08,
     seed: int = 42,
-    output_dir: str = None
+    output_dir: str = None,
+    mala_dt: float = None,
 ):
     """
-    Run double-well experiment comparing diffusion vs FLMC vs LSB-MC.
+    Run double-well experiment comparing ULA vs MALA vs FLMC vs LSBMC.
 
     Args:
         sigma: Noise scale (target is exp(-2V/sigma^2))
@@ -454,6 +498,7 @@ def run_doublewell_experiment(
         init_std: Initial standard deviation
         seed: Random seed
         output_dir: Where to save outputs
+        mala_dt: Optional MALA proposal step size
     """
     if multipliers is None:
         multipliers = [1.0, 1.8, 2.6]
@@ -470,7 +515,7 @@ def run_doublewell_experiment(
     print(f"  Final time T = {T}")
     print(f"  Particles N = {N}")
     print(f"  FLMC alpha = {alpha}")
-    print(f"  LSB-MC: λ={lam}, σ_L={sigma_L}, mults={multipliers}, pm={pm}")
+    print(f"  LSBMC: λ={lam}, σ_L={sigma_L}, mults={multipliers}, pm={pm}")
     print(f"  Init: mean={init_mean}, std={init_std}")
     print()
 
@@ -499,8 +544,12 @@ def run_doublewell_experiment(
     # Initialize particles
     x0 = init_mean + init_std * rng.standard_normal(N)
     x_diff = np.clip(x0.copy(), clip_bounds[0], clip_bounds[1])
+    x_mala = np.clip(x0.copy(), clip_bounds[0], clip_bounds[1])
     x_flmc = np.clip(x0.copy(), clip_bounds[0], clip_bounds[1])
     x_lsb = np.clip(x0.copy(), clip_bounds[0], clip_bounds[1])
+
+    if mala_dt is None:
+        mala_dt = dt
 
     # Reference samples for W2
     n_ref = 3000
@@ -513,9 +562,12 @@ def run_doublewell_experiment(
     history = {
         "t": [],
         "w2_diff": [], "l1_diff": [], "l2_diff": [], "bias_diff": [],
+        "w2_mala": [], "l1_mala": [], "l2_mala": [], "bias_mala": [],
         "w2_flmc": [], "l1_flmc": [], "l2_flmc": [], "bias_flmc": [],
         "w2_lsb": [], "l1_lsb": [], "l2_lsb": [], "bias_lsb": []
     }
+    acc_mala_sum = 0.0
+    acc_mala_count = 0
 
     print(f"Running {steps} steps (checkpoints every {check_every} steps)...")
     print()
@@ -528,18 +580,22 @@ def run_doublewell_experiment(
 
             # Compute metrics
             w2_d = wasserstein2_1d(x_diff, ref_samples)
+            w2_m = wasserstein2_1d(x_mala, ref_samples)
             w2_f = wasserstein2_1d(x_flmc, ref_samples)
             w2_l = wasserstein2_1d(x_lsb, ref_samples)
 
             dens_d = density_on_grid_1d(x_diff, gx, do_smooth=True)
+            dens_m = density_on_grid_1d(x_mala, gx, do_smooth=True)
             dens_f = density_on_grid_1d(x_flmc, gx, do_smooth=True)
             dens_l = density_on_grid_1d(x_lsb, gx, do_smooth=True)
 
             l1_d, l2_d = compute_l1_l2(dens_d, pi, dx)
+            l1_m, l2_m = compute_l1_l2(dens_m, pi, dx)
             l1_f, l2_f = compute_l1_l2(dens_f, pi, dx)
             l1_l, l2_l = compute_l1_l2(dens_l, pi, dx)
 
             bias_d = compute_bias(x_diff, true_mean)
+            bias_m = compute_bias(x_mala, true_mean)
             bias_f = compute_bias(x_flmc, true_mean)
             bias_l = compute_bias(x_lsb, true_mean)
 
@@ -548,6 +604,10 @@ def run_doublewell_experiment(
             history["l1_diff"].append(l1_d)
             history["l2_diff"].append(l2_d)
             history["bias_diff"].append(bias_d)
+            history["w2_mala"].append(w2_m)
+            history["l1_mala"].append(l1_m)
+            history["l2_mala"].append(l2_m)
+            history["bias_mala"].append(bias_m)
             history["w2_flmc"].append(w2_f)
             history["l1_flmc"].append(l1_f)
             history["l2_flmc"].append(l2_f)
@@ -557,15 +617,21 @@ def run_doublewell_experiment(
             history["l2_lsb"].append(l2_l)
             history["bias_lsb"].append(bias_l)
 
-            print(f"t={t:6.2f} | W2: diff={w2_d:.4f}, flmc={w2_f:.4f}, lsb={w2_l:.4f} | Bias: diff={bias_d:.4f}, flmc={bias_f:.4f}, lsb={bias_l:.4f}")
+            print(
+                f"t={t:6.2f} | W2: ula={w2_d:.4f}, mala={w2_m:.4f}, flmc={w2_f:.4f}, lsbmc={w2_l:.4f} | "
+                f"Bias: ula={bias_d:.4f}, mala={bias_m:.4f}, flmc={bias_f:.4f}, lsbmc={bias_l:.4f}"
+            )
 
         if i == steps:
             break
 
         # Step forward
         x_diff = step_diffusion_1d(x_diff, dt, sigma, rng, clip_bounds)
+        x_mala, acc_m = step_mala_1d(x_mala, mala_dt, sigma, rng, clip_bounds)
         x_flmc = step_flmc_1d(x_flmc, dt, alpha, sigma, V_doublewell, gradV_doublewell, rng, clip_bounds)
         x_lsb = step_lsbmc_1d(x_lsb, dt, sigma, gx, drift_grid, score_grid, rng, lam, sigma_L, multipliers, pm, clip_bounds)
+        acc_mala_sum += acc_m
+        acc_mala_count += 1
 
     print()
     print("Simulation complete!")
@@ -573,15 +639,17 @@ def run_doublewell_experiment(
 
     # Final comparison
     print("Final metrics (t={:.1f}):".format(T))
-    print(f"  Diffusion: W2={history['w2_diff'][-1]:.4f}, L1={history['l1_diff'][-1]:.4f}, L2={history['l2_diff'][-1]:.4f}, Bias={history['bias_diff'][-1]:.4f}")
+    print(f"  ULA:       W2={history['w2_diff'][-1]:.4f}, L1={history['l1_diff'][-1]:.4f}, L2={history['l2_diff'][-1]:.4f}, Bias={history['bias_diff'][-1]:.4f}")
+    print(f"  MALA:      W2={history['w2_mala'][-1]:.4f}, L1={history['l1_mala'][-1]:.4f}, L2={history['l2_mala'][-1]:.4f}, Bias={history['bias_mala'][-1]:.4f}")
     print(f"  FLMC:      W2={history['w2_flmc'][-1]:.4f}, L1={history['l1_flmc'][-1]:.4f}, L2={history['l2_flmc'][-1]:.4f}, Bias={history['bias_flmc'][-1]:.4f}")
-    print(f"  LSB-MC:    W2={history['w2_lsb'][-1]:.4f}, L1={history['l1_lsb'][-1]:.4f}, L2={history['l2_lsb'][-1]:.4f}, Bias={history['bias_lsb'][-1]:.4f}")
+    print(f"  LSBMC:     W2={history['w2_lsb'][-1]:.4f}, L1={history['l1_lsb'][-1]:.4f}, L2={history['l2_lsb'][-1]:.4f}, Bias={history['bias_lsb'][-1]:.4f}")
+    print(f"  MALA mean acceptance rate: {acc_mala_sum / max(acc_mala_count, 1):.4f}")
     print()
 
     # Plot results
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
-        plot_results(history, gx, pi, x_diff, x_flmc, x_lsb, output_dir)
+        plot_results(history, gx, pi, x_diff, x_mala, x_flmc, x_lsb, output_dir)
         print(f"Figures saved to: {output_dir}")
 
     return history
@@ -591,8 +659,13 @@ def run_doublewell_experiment(
 # Plotting
 # ============================================================
 
-def plot_results(history, gx, pi, x_diff_final, x_flmc_final, x_lsb_final, output_dir):
+def plot_results(history, gx, pi, x_diff_final, x_mala_final, x_flmc_final, x_lsb_final, output_dir):
     """Generate all plots for double-well experiment."""
+
+    def save_figure_both(fig, out_base):
+        fig.savefig(f"{out_base}.png")
+        fig.savefig(f"{out_base}.pdf")
+        plt.close(fig)
 
     # Set academic style
     plt.rcParams.update({
@@ -613,27 +686,30 @@ def plot_results(history, gx, pi, x_diff_final, x_flmc_final, x_lsb_final, outpu
     # ========================================
     fig, axes = plt.subplots(1, 3, figsize=(12, 3.5))
 
-    axes[0].plot(t, history["w2_diff"], label="Diffusion", color="C0", linewidth=1.5)
-    axes[0].plot(t, history["w2_flmc"], label="FLMC", color="C1", linewidth=1.5)
-    axes[0].plot(t, history["w2_lsb"], label="LSB-MC", color="C2", linewidth=1.5)
+    axes[0].plot(t, history["w2_diff"], label="ULA", color="C0", linewidth=1.5)
+    axes[0].plot(t, history["w2_mala"], label="MALA", color="C1", linewidth=1.5)
+    axes[0].plot(t, history["w2_flmc"], label="FLMC", color="C2", linewidth=1.5)
+    axes[0].plot(t, history["w2_lsb"], label="LSBMC", color="C3", linewidth=1.5)
     axes[0].set_xlabel("Time")
     axes[0].set_ylabel("W2 Distance")
     axes[0].set_title("Wasserstein-2 Distance")
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
 
-    axes[1].plot(t, history["l1_diff"], label="Diffusion", color="C0", linewidth=1.5)
-    axes[1].plot(t, history["l1_flmc"], label="FLMC", color="C1", linewidth=1.5)
-    axes[1].plot(t, history["l1_lsb"], label="LSB-MC", color="C2", linewidth=1.5)
+    axes[1].plot(t, history["l1_diff"], label="ULA", color="C0", linewidth=1.5)
+    axes[1].plot(t, history["l1_mala"], label="MALA", color="C1", linewidth=1.5)
+    axes[1].plot(t, history["l1_flmc"], label="FLMC", color="C2", linewidth=1.5)
+    axes[1].plot(t, history["l1_lsb"], label="LSBMC", color="C3", linewidth=1.5)
     axes[1].set_xlabel("Time")
     axes[1].set_ylabel("L1 Error")
     axes[1].set_title("L1 / MAE")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
 
-    axes[2].plot(t, history["l2_diff"], label="Diffusion", color="C0", linewidth=1.5)
-    axes[2].plot(t, history["l2_flmc"], label="FLMC", color="C1", linewidth=1.5)
-    axes[2].plot(t, history["l2_lsb"], label="LSB-MC", color="C2", linewidth=1.5)
+    axes[2].plot(t, history["l2_diff"], label="ULA", color="C0", linewidth=1.5)
+    axes[2].plot(t, history["l2_mala"], label="MALA", color="C1", linewidth=1.5)
+    axes[2].plot(t, history["l2_flmc"], label="FLMC", color="C2", linewidth=1.5)
+    axes[2].plot(t, history["l2_lsb"], label="LSBMC", color="C3", linewidth=1.5)
     axes[2].set_xlabel("Time")
     axes[2].set_ylabel("L2 Error")
     axes[2].set_title("L2 / RMSE")
@@ -641,49 +717,47 @@ def plot_results(history, gx, pi, x_diff_final, x_flmc_final, x_lsb_final, outpu
     axes[2].grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "doublewell_metrics.png"))
-    plt.close()
+    save_figure_both(fig, os.path.join(output_dir, "doublewell_metrics"))
 
     # ========================================
     # Figure 2: Average Bias
     # ========================================
     fig, ax = plt.subplots(figsize=(6, 4))
 
-    ax.plot(t, history["bias_diff"], label="Diffusion", color="C0", linewidth=1.5)
-    ax.plot(t, history["bias_flmc"], label="FLMC", color="C1", linewidth=1.5)
-    ax.plot(t, history["bias_lsb"], label="LSB-MC", color="C2", linewidth=1.5)
+    ax.plot(t, history["bias_diff"], label="ULA", color="C0", linewidth=1.5)
+    ax.plot(t, history["bias_mala"], label="MALA", color="C1", linewidth=1.5)
+    ax.plot(t, history["bias_flmc"], label="FLMC", color="C2", linewidth=1.5)
+    ax.plot(t, history["bias_lsb"], label="LSBMC", color="C3", linewidth=1.5)
     ax.set_xlabel("Time")
     ax.set_ylabel("Average Bias")
-    ax.set_title("Average Bias for Observable = mean(x)")
+    ax.set_title("Absolute Bias of the Sample Mean")
     ax.legend()
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "doublewell_bias.png"))
-    plt.close()
+    save_figure_both(fig, os.path.join(output_dir, "doublewell_bias"))
 
     # ========================================
     # Figure 3: Final Density Comparison
     # ========================================
     dens_diff_final = density_on_grid_1d(x_diff_final, gx, do_smooth=True)
+    dens_mala_final = density_on_grid_1d(x_mala_final, gx, do_smooth=True)
     dens_flmc_final = density_on_grid_1d(x_flmc_final, gx, do_smooth=True)
     dens_lsb_final = density_on_grid_1d(x_lsb_final, gx, do_smooth=True)
 
     fig, ax = plt.subplots(figsize=(8, 4))
-
-    ax.plot(gx, pi, label="True Density", color="black", linewidth=2, linestyle="--")
-    ax.plot(gx, dens_diff_final, label="Diffusion", color="C0", linewidth=1.5, alpha=0.8)
-    ax.plot(gx, dens_flmc_final, label="FLMC", color="C1", linewidth=1.5, alpha=0.8)
-    ax.plot(gx, dens_lsb_final, label="LSB-MC", color="C2", linewidth=1.5, alpha=0.8)
+    ax.plot(gx, pi, label="True Density", color="black", linewidth=2.0, linestyle="--")
+    ax.plot(gx, dens_diff_final, label="ULA", color="C0", linewidth=1.8)
+    ax.plot(gx, dens_mala_final, label="MALA", color="C1", linewidth=1.8)
+    ax.plot(gx, dens_flmc_final, label="FLMC", color="C2", linewidth=1.8)
+    ax.plot(gx, dens_lsb_final, label="LSBMC", color="C3", linewidth=1.8)
     ax.set_xlabel("x")
     ax.set_ylabel("Density")
     ax.set_title("Final Density Comparison (Double-Well)")
     ax.legend()
     ax.grid(True, alpha=0.3)
-
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "doublewell_final_density.png"))
-    plt.close()
+    save_figure_both(fig, os.path.join(output_dir, "doublewell_final_density"))
 
 
 # ============================================================

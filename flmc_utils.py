@@ -50,6 +50,10 @@ def sample_symmetric_alpha_stable(
     Uses Chambers-Mallows-Stuck algorithm for generating alpha-stable random variables.
     The characteristic function is exp(-|t|^alpha).
 
+    WARNING: This generates COORDINATEWISE INDEPENDENT alpha-stable samples.
+    For genuinely isotropic high-dimensional alpha-stable vectors, use
+    sample_isotropic_alpha_stable_vector() instead.
+
     Args:
         rng: NumPy random generator
         size: Shape of output array
@@ -86,6 +90,55 @@ def sample_symmetric_alpha_stable(
     return part1 * part2
 
 
+def sample_isotropic_alpha_stable_vector(
+    rng: np.random.Generator,
+    n_samples: int,
+    dim: int,
+    alpha: float
+) -> np.ndarray:
+    """
+    Sample isotropic alpha-stable vectors in R^d.
+
+    For genuinely isotropic (rotationally invariant) alpha-stable vectors,
+    we use the representation:
+        Z = R * U
+    where:
+        - U ~ Uniform(S^(d-1)) is a uniformly distributed direction
+        - R ~ S_alpha^(1/alpha) is a radial component
+
+    This ensures the distribution is invariant under rotations, matching
+    the isotropic structure used in LSBMC jumps.
+
+    Args:
+        rng: NumPy random generator
+        n_samples: Number of vectors to generate
+        dim: Dimension of each vector
+        alpha: Tail index in (1, 2]
+
+    Returns:
+        Array of shape (n_samples, dim) with isotropic alpha-stable vectors
+
+    Reference:
+        Nolan, J. P. (2020). Univariate Stable Distributions.
+        Springer Series in Operations Research and Financial Engineering.
+    """
+    if not (1.0 < alpha <= 2.0):
+        raise ValueError(f"Alpha must satisfy 1 < alpha <= 2, got {alpha}")
+
+    # Generate uniform directions on unit sphere S^(d-1)
+    directions = rng.standard_normal((n_samples, dim))
+    norms = np.linalg.norm(directions, axis=1, keepdims=True)
+    directions = directions / (norms + 1e-12)
+
+    # Generate radial components
+    # For isotropic alpha-stable in R^d, radial part is S_alpha^(1/alpha)
+    radii_raw = sample_symmetric_alpha_stable(rng, size=(n_samples,), alpha=alpha)
+    radii = np.abs(radii_raw) ** (1.0 / alpha)
+
+    # Combine direction and radius
+    return directions * radii[:, None]
+
+
 def step_flmc_1d(
     x: np.ndarray,
     dt: float,
@@ -100,7 +153,7 @@ def step_flmc_1d(
     One step of FLMC (Fractional Langevin MC) for 1D potential V.
 
     FLMC discretization (following manuscript global convention):
-        X_{n+1} = X_n - c_alpha * dt * gradV(X_n) + dt^(1/alpha) * Z
+        X_{n+1} = X_n - c_alpha * dt * gradV(X_n) + sigma * dt^(1/alpha) * Z
 
     where:
         - Target density: p ∝ exp(-2V/sigma^2)
@@ -108,6 +161,7 @@ def step_flmc_1d(
         - c_alpha = Gamma(alpha-1) / Gamma(alpha/2)^2
 
     NOTE: FLMC does NOT use score correction (unlike LSB-MC).
+    The sigma scaling ensures temperature matching with ULA/MALA/LSBMC.
 
     Args:
         x: Current positions (N,)
@@ -133,7 +187,8 @@ def step_flmc_1d(
     stable_noise = sample_symmetric_alpha_stable(rng, size=x.shape, alpha=alpha)
 
     # Update with taming for stability
-    x_new = x + dt * drift / (1.0 + dt * np.abs(drift)) + (dt ** (1.0 / alpha)) * stable_noise
+    # NOTE: sigma scaling ensures FLMC targets same distribution as ULA/MALA/LSBMC
+    x_new = x + dt * drift / (1.0 + dt * np.abs(drift)) + sigma * (dt ** (1.0 / alpha)) * stable_noise
 
     # Clip to bounds if provided
     if clip_bounds is not None:
@@ -156,9 +211,11 @@ def step_flmc_2d(
     One step of FLMC for 2D potential V(x, y).
 
     FLMC discretization:
-        X_{n+1} = X_n - c_alpha * dt * gradV(X_n) + dt^(1/alpha) * Z
+        X_{n+1} = X_n - c_alpha * dt * gradV(X_n) + sigma * dt^(1/alpha) * Z
 
     where Z is 2D isotropic alpha-stable noise.
+
+    The sigma factor ensures FLMC targets p_∞ ∝ exp(-2V/sigma²), matching ULA/MALA/LSBMC.
 
     Args:
         x: Current positions (N, 2)
@@ -184,8 +241,9 @@ def step_flmc_2d(
     stable_noise = sample_symmetric_alpha_stable(rng, size=x.shape, alpha=alpha)
 
     # Update with taming
+    # NOTE: sigma scaling ensures FLMC targets same distribution as ULA/MALA/LSBMC
     norm = np.linalg.norm(drift, axis=1, keepdims=True)
-    x_new = x + (dt * drift) / (1.0 + dt * norm) + (dt ** (1.0 / alpha)) * stable_noise
+    x_new = x + (dt * drift) / (1.0 + dt * norm) + sigma * (dt ** (1.0 / alpha)) * stable_noise
 
     # Clip to bounds if provided
     if clip_bounds is not None:
@@ -193,3 +251,63 @@ def step_flmc_2d(
         x_new[:, 1] = np.clip(x_new[:, 1], clip_bounds[1][0], clip_bounds[1][1])
 
     return x_new
+
+
+def step_flmc_nd(
+    x: np.ndarray,
+    dt: float,
+    alpha: float,
+    sigma: float,
+    gradV_fn,
+    rng: np.random.Generator,
+    clip_bounds: Tuple[float, float] = None
+) -> np.ndarray:
+    """
+    One step of FLMC for high-dimensional potential V(x).
+
+    FLMC discretization:
+        X_{n+1} = X_n - c_alpha * dt * gradV(X_n) + sigma * dt^(1/alpha) * Z
+
+    where Z is GENUINELY ISOTROPIC alpha-stable noise in R^d (not coordinatewise).
+
+    The isotropic structure uses Z = R * U where:
+        - U ~ Uniform(S^(d-1)) is a random direction
+        - R ~ S_alpha^(1/alpha) is a radial component
+
+    This ensures rotational invariance, matching the structure of LSBMC jumps.
+    The sigma factor ensures FLMC targets p_∞ ∝ exp(-2V/sigma²), matching ULA/MALA/LSBMC.
+
+    Args:
+        x: Current positions (N, d)
+        dt: Time step
+        alpha: Tail index in (1, 2]
+        sigma: Noise scale (for target density, not used in FLMC update directly)
+        gradV_fn: Gradient function gradV(X) returning (N, d) array
+        rng: Random generator
+        clip_bounds: Optional (min, max) bounds for clipping all coordinates
+
+    Returns:
+        Updated positions (N, d)
+    """
+    c_val = c_alpha(alpha)
+    n_samples, dim = x.shape
+
+    # Compute gradient
+    grad = gradV_fn(x)
+    drift = -c_val * grad
+
+    # Genuinely isotropic alpha-stable noise in R^d
+    # Uses direction × radius decomposition to ensure rotational invariance
+    stable_noise = sample_isotropic_alpha_stable_vector(rng, n_samples, dim, alpha)
+
+    # Update with taming
+    # NOTE: sigma scaling ensures FLMC targets same distribution as ULA/MALA/LSBMC
+    norm = np.linalg.norm(drift, axis=1, keepdims=True)
+    x_new = x + (dt * drift) / (1.0 + dt * norm) + sigma * (dt ** (1.0 / alpha)) * stable_noise
+
+    # Clip to bounds if provided
+    if clip_bounds is not None:
+        x_new = np.clip(x_new, clip_bounds[0], clip_bounds[1])
+
+    return x_new
+

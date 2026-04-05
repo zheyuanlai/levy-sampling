@@ -3,6 +3,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from flmc_utils import step_flmc_nd
 
 
 EXPO_CLIP = 40.0
@@ -143,7 +144,7 @@ def compute_orthant_errors(X):
 
 
 # ============================================================
-# 4. Jump Law + Stationary Lévy-score Integral (Eq. 24)
+# 4. Jump Law + Stationary Lévy-score Integral
 # ============================================================
 
 
@@ -235,11 +236,95 @@ def levy_score_integral_stationary(
 
 
 def step_diff(X, dt, sigma, rng):
-    """Paper diffusion baseline: dX = -gradV dt + sigma dB."""
+    """Paper diffusion baseline (ULA): dX = -gradV dt + sigma dB."""
     X = sanitize_state(X)
     drift = -gradV_high_dim(X)
     noise = sigma * np.sqrt(dt) * rng.standard_normal(X.shape)
     X_new = X + tamed_drift_increment(drift, dt) + noise
+    return sanitize_state(X_new)
+
+
+def logpi_high_dim(X, sigma):
+    """Log target density: log p_∞(x) = -2V(x)/σ² + const."""
+    V = V_high_dim(X)
+    return -2.0 * V / (sigma ** 2)
+
+
+def grad_logpi_high_dim(X, sigma):
+    """Gradient of log target: ∇ log p_∞(x) = -2∇V(x)/σ²."""
+    return -2.0 * gradV_high_dim(X) / (sigma ** 2)
+
+
+def step_mala(X, dt, sigma, rng):
+    """
+    MALA step for high-dimensional target p_∞(x) ∝ exp(-2V(x)/σ²).
+
+    Proposal: Y = X + 0.5 * dt * grad_logpi(X) + √dt * Z
+    Accept with MH ratio based on target density and proposal kernels.
+    """
+    X = sanitize_state(X)
+    n_samples, dim = X.shape
+
+    # Forward proposal
+    grad_x = grad_logpi_high_dim(X, sigma)
+    mean_fwd = X + 0.5 * dt * grad_x
+    proposal = mean_fwd + np.sqrt(dt) * rng.standard_normal(X.shape)
+    proposal = sanitize_state(proposal)
+
+    # Log target densities
+    logp_x = logpi_high_dim(X, sigma)
+    logp_y = logpi_high_dim(proposal, sigma)
+
+    # Backward proposal kernel
+    grad_y = grad_logpi_high_dim(proposal, sigma)
+    mean_bwd = proposal + 0.5 * dt * grad_y
+
+    # Log proposal densities (Gaussian kernels)
+    diff_fwd = proposal - mean_fwd
+    diff_bwd = X - mean_bwd
+    log_q_fwd = -np.sum(diff_fwd ** 2, axis=1) / (2.0 * dt)
+    log_q_bwd = -np.sum(diff_bwd ** 2, axis=1) / (2.0 * dt)
+
+    # MH acceptance
+    log_alpha = (logp_y + log_q_bwd) - (logp_x + log_q_fwd)
+    log_u = np.log(rng.random(n_samples))
+    accept = log_u < log_alpha
+
+    X_new = X.copy()
+    X_new[accept] = proposal[accept]
+
+    acc_rate = float(accept.mean())
+    return sanitize_state(X_new), acc_rate
+
+
+def step_flmc(X, dt, sigma, alpha, rng):
+    """
+    FLMC step for high-dimensional potential.
+
+    FLMC: dX = -c_alpha * ∇V dt + sigma * dt^(1/alpha) * Z
+    where Z is GENUINELY ISOTROPIC alpha-stable noise (no score correction).
+
+    IMPORTANT: The potential V(x) is treated as a general high-dimensional function,
+    NOT exploiting separability even when V(x) = Σᵢ Vᵢ(xᵢ). This ensures fair
+    comparison with ULA/MALA/LSBMC, which also treat V as non-separable.
+
+    The isotropic noise structure Z = R * U uses:
+        - U ~ Uniform(S^(d-1)): random direction on unit sphere
+        - R ~ S_alpha^(1/alpha): alpha-stable radial component
+
+    This matches the rotational invariance of LSBMC's isotropic jumps.
+    The sigma scaling ensures FLMC targets p_∞ ∝ exp(-2V/sigma²), matching ULA/MALA/LSBMC.
+    """
+    X = sanitize_state(X)
+    X_new = step_flmc_nd(
+        x=X,
+        dt=dt,
+        alpha=alpha,
+        sigma=sigma,
+        gradV_fn=gradV_high_dim,
+        rng=rng,
+        clip_bounds=(-STATE_CLIP, STATE_CLIP)
+    )
     return sanitize_state(X_new)
 
 
@@ -310,17 +395,32 @@ def run_simulation(
     X_ref,
     n_dir_score,
     n_theta,
+    alpha,
+    mala_dt=None,
 ):
     rng = np.random.default_rng(seed)
 
     # Left-well initialization in all coordinates.
     X_diff = -1.0 + 0.1 * rng.standard_normal((N, dim))
-    X_levy = -1.0 + 0.1 * rng.standard_normal((N, dim))
+    X_mala = X_diff.copy()
+    X_flmc = X_diff.copy()
+    X_levy = X_diff.copy()
+
+    if mala_dt is None:
+        mala_dt = dt
 
     steps = int(T / dt)
     check_interval = max(1, steps // 40)
 
-    history = {"t": [], "w2_d": [], "w2_l": [], "l1_d": [], "l1_l": [], "l2_d": [], "l2_l": []}
+    history = {
+        "t": [],
+        "w2_d": [], "w2_m": [], "w2_f": [], "w2_l": [],
+        "l1_d": [], "l1_m": [], "l1_f": [], "l1_l": [],
+        "l2_d": [], "l2_m": [], "l2_f": [], "l2_l": []
+    }
+
+    acc_sum = 0.0
+    acc_count = 0
 
     for i in range(steps + 1):
         if i % check_interval == 0:
@@ -328,24 +428,33 @@ def run_simulation(
             history["t"].append(t)
 
             w2_d = compute_wasserstein(X_diff, X_ref, rng)
+            w2_m = compute_wasserstein(X_mala, X_ref, rng)
+            w2_f = compute_wasserstein(X_flmc, X_ref, rng)
             w2_l = compute_wasserstein(X_levy, X_ref, rng)
+
             l1_d, l2_d = compute_orthant_errors(X_diff)
+            l1_m, l2_m = compute_orthant_errors(X_mala)
+            l1_f, l2_f = compute_orthant_errors(X_flmc)
             l1_l, l2_l = compute_orthant_errors(X_levy)
 
-            history["w2_d"].append(w2_d)
-            history["w2_l"].append(w2_l)
-            history["l1_d"].append(l1_d)
-            history["l1_l"].append(l1_l)
-            history["l2_d"].append(l2_d)
-            history["l2_l"].append(l2_l)
+            history["w2_d"].append(w2_d); history["w2_m"].append(w2_m)
+            history["w2_f"].append(w2_f); history["w2_l"].append(w2_l)
+            history["l1_d"].append(l1_d); history["l1_m"].append(l1_m)
+            history["l1_f"].append(l1_f); history["l1_l"].append(l1_l)
+            history["l2_d"].append(l2_d); history["l2_m"].append(l2_m)
+            history["l2_f"].append(l2_f); history["l2_l"].append(l2_l)
 
             print(
                 f"[seed {seed}] t={t:.2f} | "
-                f"W2(D):{w2_d:.3f} W2(L):{w2_l:.3f} | "
-                f"Orth-L1(D):{l1_d:.3f} Orth-L1(L):{l1_l:.3f}"
+                f"W2: D:{w2_d:.3f} M:{w2_m:.3f} F:{w2_f:.3f} L:{w2_l:.3f} | "
+                f"Orth-L1: D:{l1_d:.3f} M:{l1_m:.3f} F:{l1_f:.3f} L:{l1_l:.3f}"
             )
 
         X_diff = step_diff(X_diff, dt, sigma, rng)
+        X_mala, acc = step_mala(X_mala, mala_dt, sigma, rng)
+        acc_sum += acc
+        acc_count += 1
+        X_flmc = step_flmc(X_flmc, dt, sigma, alpha, rng)
         X_levy = step_levy(
             X_levy,
             dt,
@@ -359,7 +468,8 @@ def run_simulation(
             n_theta=n_theta,
         )
 
-    return history
+    acc_rate = acc_sum / max(acc_count, 1)
+    return history, acc_rate
 
 
 def aggregate_histories(histories, keys):
@@ -372,10 +482,10 @@ def aggregate_histories(histories, keys):
 def main():
     sigma = 0.75
     dt = 0.005
-    T = 20.0
+    T = 10.0
     N = 20000
     dim = 10
-    num_seeds = 5
+    num_seeds = 3
     seeds = list(range(num_seeds))
 
     # Compound-Poisson jump law nu_J: isotropic direction + discrete radial multipliers.
@@ -385,18 +495,22 @@ def main():
     pm = np.asarray([0.70, 0.22, 0.08], dtype=float)
     pm /= pm.sum()
 
-    # Numerical quadrature controls for Eq. (24).
+    # Numerical quadrature controls for LSBMC score.
     n_dir_score = 8
     n_theta = 7
+
+    # FLMC parameter
+    alpha = 1.75
 
     rng_ref = np.random.default_rng(12345)
     print("Generating reference samples from pi(x) ∝ exp(-2V/sigma^2) ...")
     X_ref = sample_true_high_d(2500, dim, sigma, rng_ref)
 
-    print(f"Running {num_seeds} seeds for {dim}D model (manuscript-aligned Lévy-score drift) ...")
+    print(f"Running {num_seeds} seeds for {dim}D model with ULA / MALA / FLMC / LSBMC ...")
     histories = []
+    acc_rates = []
     for seed in seeds:
-        h = run_simulation(
+        h, acc_rate = run_simulation(
             seed=seed,
             sigma=sigma,
             dt=dt,
@@ -410,32 +524,47 @@ def main():
             X_ref=X_ref,
             n_dir_score=n_dir_score,
             n_theta=n_theta,
+            alpha=alpha,
         )
         histories.append(h)
+        acc_rates.append(acc_rate)
 
     t = np.asarray(histories[0]["t"], dtype=float)
-    keys = ["w2_d", "w2_l", "l1_d", "l1_l", "l2_d", "l2_l"]
+    keys = [
+        "w2_d", "w2_m", "w2_f", "w2_l",
+        "l1_d", "l1_m", "l1_f", "l1_l",
+        "l2_d", "l2_m", "l2_f", "l2_l"
+    ]
     mean, std = aggregate_histories(histories, keys)
 
     out_prefix = "high_dim"
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
-    axes[0].errorbar(t, mean["w2_d"], yerr=std["w2_d"], fmt="b--", label="Diffusion", capsize=2, alpha=0.9)
-    axes[0].errorbar(t, mean["w2_l"], yerr=std["w2_l"], fmt="r-", label="LSBMC", capsize=2, alpha=0.9)
+    # Sliced W2
+    axes[0].errorbar(t, mean["w2_d"], yerr=std["w2_d"], fmt="-", color="C0", label="ULA", capsize=2, alpha=0.9)
+    axes[0].errorbar(t, mean["w2_m"], yerr=std["w2_m"], fmt="-", color="C2", label="MALA", capsize=2, alpha=0.9)
+    axes[0].errorbar(t, mean["w2_f"], yerr=std["w2_f"], fmt="-", color="tab:orange", label="FLMC", capsize=2, alpha=0.9)
+    axes[0].errorbar(t, mean["w2_l"], yerr=std["w2_l"], fmt="-", color="C3", label="LSBMC", capsize=2, alpha=0.9)
     axes[0].set_title(f"Sliced W2")
     axes[0].set_xlabel("Time")
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
 
-    axes[1].errorbar(t, mean["l1_d"], yerr=std["l1_d"], fmt="b--", label="Diffusion", capsize=2, alpha=0.9)
-    axes[1].errorbar(t, mean["l1_l"], yerr=std["l1_l"], fmt="r-", label="LSBMC", capsize=2, alpha=0.9)
+    # Orthant L1
+    axes[1].errorbar(t, mean["l1_d"], yerr=std["l1_d"], fmt="-", color="C0", label="ULA", capsize=2, alpha=0.9)
+    axes[1].errorbar(t, mean["l1_m"], yerr=std["l1_m"], fmt="-", color="C2", label="MALA", capsize=2, alpha=0.9)
+    axes[1].errorbar(t, mean["l1_f"], yerr=std["l1_f"], fmt="-", color="tab:orange", label="FLMC", capsize=2, alpha=0.9)
+    axes[1].errorbar(t, mean["l1_l"], yerr=std["l1_l"], fmt="-", color="C3", label="LSBMC", capsize=2, alpha=0.9)
     axes[1].set_title("Orthant L1 Error")
     axes[1].set_xlabel("Time")
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
 
-    axes[2].errorbar(t, mean["l2_d"], yerr=std["l2_d"], fmt="b--", label="Diffusion", capsize=2, alpha=0.9)
-    axes[2].errorbar(t, mean["l2_l"], yerr=std["l2_l"], fmt="r-", label="LSBMC", capsize=2, alpha=0.9)
+    # Orthant L2
+    axes[2].errorbar(t, mean["l2_d"], yerr=std["l2_d"], fmt="-", color="C0", label="ULA", capsize=2, alpha=0.9)
+    axes[2].errorbar(t, mean["l2_m"], yerr=std["l2_m"], fmt="-", color="C2", label="MALA", capsize=2, alpha=0.9)
+    axes[2].errorbar(t, mean["l2_f"], yerr=std["l2_f"], fmt="-", color="tab:orange", label="FLMC", capsize=2, alpha=0.9)
+    axes[2].errorbar(t, mean["l2_l"], yerr=std["l2_l"], fmt="-", color="C3", label="LSBMC", capsize=2, alpha=0.9)
     axes[2].set_title("Orthant L2 Error")
     axes[2].set_xlabel("Time")
     axes[2].legend()
@@ -443,9 +572,12 @@ def main():
 
     plt.tight_layout()
     plt.savefig(f"{out_prefix}_metrics.png", dpi=200)
+    plt.savefig(f"{out_prefix}_metrics.pdf")
     plt.close()
 
-    print(f"Done. Saved {out_prefix}_metrics.png")
+    avg_acc = float(np.mean(acc_rates)) if acc_rates else 0.0
+    print(f"Done. Saved {out_prefix}_metrics.png and .pdf")
+    print(f"MALA mean acceptance rate: {avg_acc:.3f}")
 
 
 if __name__ == "__main__":

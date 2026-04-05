@@ -56,3 +56,8 @@ Thumbs.db
 
 .claude/
 paper/
+
+abs_error/
+density_compare/
+AGENTS.md
+CLAUDE.md

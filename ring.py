@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from flmc_utils import step_flmc_2d
 
-# Optional: POT (Python Optimal Transport)
-try:
-    import ot  # pip install POT
-    HAS_POT = True
-except Exception:
-    HAS_POT = False
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # ============================================================
 # Example: Ring Potential
@@ -226,164 +223,123 @@ def step_malevy(X, dt, eps, rng, lam, sigma_L, mults, pm, jump_cap=3.2):
     X_new = X_mid.copy()
     X_new[accept] = proposal[accept]
     return X_new, float(accept.mean())
-def wasserstein2(X, Y, rng, m=400):
-    A = X[rng.choice(X.shape[0], m, replace=False)]
-    B = Y[rng.choice(Y.shape[0], m, replace=False)]
-    if HAS_POT:
-        M = ot.dist(A, B, metric='sqeuclidean')
-        return np.sqrt(ot.sinkhorn2([], [], M, reg=0.05, numItermax=5000))
-    else:
-        return 0.0 # Fallback
-
 # ---------------- Plotting Functions ----------------
 
-def plot_errors_over_time(t, mean, std, out_prefix):
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+def save_figure_both(fig, out_base, dpi=200):
+    fig.savefig(f"{out_base}.png", dpi=dpi)
+    fig.savefig(f"{out_base}.pdf")
+    plt.close(fig)
 
-    # 1. Wasserstein-2
-    axes[0].errorbar(t, mean['w_d'], yerr=std['w_d'], fmt='b--', label='Diffusion', alpha=0.9, capsize=2)
-    axes[0].errorbar(t, mean['w_l'], yerr=std['w_l'], fmt='r-', label='LSB-MC', alpha=0.9, capsize=2)
-    axes[0].errorbar(t, mean['w_flmc'], yerr=std['w_flmc'], fmt='orange', linestyle='-', label='FLMC', alpha=0.9, capsize=2)
-    axes[0].errorbar(t, mean['w_m'], yerr=std['w_m'], fmt='g-', label='MALA', alpha=0.9, capsize=2)
-    axes[0].errorbar(t, mean['w_ml'], yerr=std['w_ml'], fmt='k-', label='MALA-Levy', alpha=0.9, capsize=2)
-    axes[0].set_title('Wasserstein-2 Distance ($W_2$)')
-    axes[0].set_xlabel('Time')
+
+def shared_density_norm(arrs, use_log=False, gamma=0.5):
+    vmax = max(float(np.max(a)) for a in arrs)
+    if use_log:
+        min_pos = min(float(np.min(a[a > 0])) for a in arrs)
+        vmin = max(min_pos, vmax * 1e-6)
+        return mcolors.LogNorm(vmin=vmin, vmax=vmax)
+    return mcolors.PowerNorm(gamma=gamma, vmin=0.0, vmax=vmax)
+
+
+def plot_metrics_figure(t, mean, std, out_dir):
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
+
+    methods = [
+        ("l1_d", "ULA", "C0"),
+        ("l1_m", "MALA", "C2"),
+        ("l1_flmc", "FLMC", "tab:orange"),
+        ("l1_l", "LSBMC", "C3"),
+    ]
+    for key, label, color in methods:
+        axes[0].errorbar(t, mean[key], yerr=std[key], fmt="-", color=color, label=label, alpha=0.9, capsize=2)
+    axes[0].set_title("L1 Error")
+    axes[0].set_xlabel("Time")
     axes[0].grid(True, alpha=0.3)
     axes[0].legend()
 
-    # 2. L1 Error (MAE)
-    axes[1].errorbar(t, mean['l1_d'], yerr=std['l1_d'], fmt='b--', label='Diffusion', alpha=0.9, capsize=2)
-    axes[1].errorbar(t, mean['l1_l'], yerr=std['l1_l'], fmt='r-', label='LSB-MC', alpha=0.9, capsize=2)
-    axes[1].errorbar(t, mean['l1_flmc'], yerr=std['l1_flmc'], fmt='orange', linestyle='-', label='FLMC', alpha=0.9, capsize=2)
-    axes[1].errorbar(t, mean['l1_m'], yerr=std['l1_m'], fmt='g-', label='MALA', alpha=0.9, capsize=2)
-    axes[1].errorbar(t, mean['l1_ml'], yerr=std['l1_ml'], fmt='k-', label='MALA-Levy', alpha=0.9, capsize=2)
-    axes[1].set_title('Mean Absolute Error ($L^1$)')
-    axes[1].set_xlabel('Time')
+    methods = [
+        ("l2_d", "ULA", "C0"),
+        ("l2_m", "MALA", "C2"),
+        ("l2_flmc", "FLMC", "tab:orange"),
+        ("l2_l", "LSBMC", "C3"),
+    ]
+    for key, label, color in methods:
+        axes[1].errorbar(t, mean[key], yerr=std[key], fmt="-", color=color, label=label, alpha=0.9, capsize=2)
+    axes[1].set_title("L2 Error")
+    axes[1].set_xlabel("Time")
     axes[1].grid(True, alpha=0.3)
     axes[1].legend()
 
-    # 3. L2 Error (RMSE)
-    axes[2].errorbar(t, mean['l2_d'], yerr=std['l2_d'], fmt='b--', label='Diffusion', alpha=0.9, capsize=2)
-    axes[2].errorbar(t, mean['l2_l'], yerr=std['l2_l'], fmt='r-', label='LSB-MC', alpha=0.9, capsize=2)
-    axes[2].errorbar(t, mean['l2_flmc'], yerr=std['l2_flmc'], fmt='orange', linestyle='-', label='FLMC', alpha=0.9, capsize=2)
-    axes[2].errorbar(t, mean['l2_m'], yerr=std['l2_m'], fmt='g-', label='MALA', alpha=0.9, capsize=2)
-    axes[2].errorbar(t, mean['l2_ml'], yerr=std['l2_ml'], fmt='k-', label='MALA-Levy', alpha=0.9, capsize=2)
-    axes[2].set_title('Root Mean Square Error ($L^2$)')
-    axes[2].set_xlabel('Time')
-    axes[2].grid(True, alpha=0.3)
-    axes[2].legend()
+    fig.suptitle("Ring: Metrics Comparison")
+    fig.tight_layout()
+    save_figure_both(fig, os.path.join(out_dir, "metrics"))
 
-    plt.tight_layout()
-    plt.savefig(f"{out_prefix}_errors_convergence.png", dpi=200)
-    plt.close()
 
-def plot_spatial_heatmaps(gx, gy, diff_dens, levy_dens, flmc_dens, mala_dens, malevy_dens, pi, out_prefix):
-    # Calculate Abs Errors
-    err_d = np.abs(diff_dens - pi)
-    err_l = np.abs(levy_dens - pi)
-    err_flmc = np.abs(flmc_dens - pi)
-    err_m = np.abs(mala_dens - pi)
-    err_ml = np.abs(malevy_dens - pi)
-
-    # Common color scale for fairness
-    vmax = max(np.max(err_d), np.max(err_l), np.max(err_flmc), np.max(err_m), np.max(err_ml))
-
-    fig, axes = plt.subplots(1, 5, figsize=(30, 6))
+def plot_density_figure(gx, gy, dens, title, slug, out_dir, norm, init_point=None):
+    fig, ax = plt.subplots(figsize=(5.0, 4.2))
     extent = [gx[0], gx[-1], gy[0], gy[-1]]
 
-    # Diffusion Map
-    im1 = axes[0].imshow(err_d, origin='lower', extent=extent, cmap='hot', vmin=0, vmax=vmax)
-    axes[0].set_title(f'Spatial Error: Diffusion\nMax Err: {np.max(err_d):.2f}')
-    axes[0].set_xlabel('x'); axes[0].set_ylabel('y')
-    fig.colorbar(im1, ax=axes[0], fraction=0.046, pad=0.04)
+    im = ax.imshow(dens, origin="lower", extent=extent, cmap="viridis", norm=norm, aspect="equal")
+    if init_point is not None:
+        ax.scatter(
+            init_point[0],
+            init_point[1],
+            marker="*",
+            s=120,
+            c="red",
+            edgecolors="white",
+            linewidths=0.8,
+            zorder=5,
+        )
+    ax.set_title(title)
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
 
-    # LSB-MC Map
-    im2 = axes[1].imshow(err_l, origin='lower', extent=extent, cmap='hot', vmin=0, vmax=vmax)
-    axes[1].set_title(f'Spatial Error: LSB-MC\nMax Err: {np.max(err_l):.2f}')
-    axes[1].set_xlabel('x')
-    fig.colorbar(im2, ax=axes[1], fraction=0.046, pad=0.04)
-
-    # FLMC Map
-    im3 = axes[2].imshow(err_flmc, origin='lower', extent=extent, cmap='hot', vmin=0, vmax=vmax)
-    axes[2].set_title(f'Spatial Error: FLMC\nMax Err: {np.max(err_flmc):.2f}')
-    axes[2].set_xlabel('x')
-    fig.colorbar(im3, ax=axes[2], fraction=0.046, pad=0.04)
-
-    # MALA Map
-    im4 = axes[3].imshow(err_m, origin='lower', extent=extent, cmap='hot', vmin=0, vmax=vmax)
-    axes[3].set_title(f'Spatial Error: MALA\nMax Err: {np.max(err_m):.2f}')
-    axes[3].set_xlabel('x')
-    fig.colorbar(im4, ax=axes[3], fraction=0.046, pad=0.04)
-
-    # MALA-Levy Map
-    im5 = axes[4].imshow(err_ml, origin='lower', extent=extent, cmap='hot', vmin=0, vmax=vmax)
-    axes[4].set_title(f'Spatial Error: MALA-Levy\nMax Err: {np.max(err_ml):.2f}')
-    axes[4].set_xlabel('x')
-    fig.colorbar(im5, ax=axes[4], fraction=0.046, pad=0.04)
-
-    plt.tight_layout()
-    plt.savefig(f"{out_prefix}_spatial_error.png", dpi=200)
-    plt.close()
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("Density")
+    fig.tight_layout()
+    save_figure_both(fig, os.path.join(out_dir, slug))
 
 # ---------------- Main ----------------
 
 def run_simulation(seed, eps, dt, T, N, gx, gy, dx, dy, lam, sigma_L, mults, pm, pi, bx, by, Sx, Sy, alpha=1.5, mala_dt=None):
     rng = np.random.default_rng(seed)
-    ref_samples = sample_from_pi_grid(rng, pi, gx, gy, 2000)
 
     # Init trapped in Left Well (-1, 0)
     X_diff = np.array([-1.0, 0.0]) + 0.05 * rng.standard_normal((N, 2))
     X_levy = X_diff.copy()
     X_flmc = X_diff.copy()
     X_mala = X_diff.copy()
-    X_malevy = X_diff.copy()
 
     history = {
         't': [],
-        'w_d': [], 'w_l': [], 'w_flmc': [], 'w_m': [], 'w_ml': [],
-        'l1_d': [], 'l1_l': [], 'l1_flmc': [], 'l1_m': [], 'l1_ml': [],
-        'l2_d': [], 'l2_l': [], 'l2_flmc': [], 'l2_m': [], 'l2_ml': []
+        'l1_d': [], 'l1_l': [], 'l1_flmc': [], 'l1_m': [],
+        'l2_d': [], 'l2_l': [], 'l2_flmc': [], 'l2_m': []
     }
     if mala_dt is None:
         mala_dt = dt
     acc_sum = 0.0
     acc_count = 0
-    acc_sum_ml = 0.0
-    acc_count_ml = 0
 
     steps = int(T/dt)
-    check = steps // 20 
+    check = max(1, steps // 20)
 
     for i in range(steps+1):
         if i % check == 0 or i == steps:
             t = i * dt
             history['t'].append(t)
 
-            # W2
-            wd = wasserstein2(X_diff, ref_samples, rng)
-            wl = wasserstein2(X_levy, ref_samples, rng)
-            wflmc = wasserstein2(X_flmc, ref_samples, rng)
-            wm = wasserstein2(X_mala, ref_samples, rng)
-            wml = wasserstein2(X_malevy, ref_samples, rng)
-            history['w_d'].append(wd); history['w_l'].append(wl); history['w_flmc'].append(wflmc)
-            history['w_m'].append(wm); history['w_ml'].append(wml)
-
-            # Grid Errors
             dd = density_on_grid(X_diff, gx, gy)
             dl = density_on_grid(X_levy, gx, gy)
             dflmc = density_on_grid(X_flmc, gx, gy)
             dm = density_on_grid(X_mala, gx, gy)
-            dml = density_on_grid(X_malevy, gx, gy)
             _, l1d, l2d = compute_grid_errors(dd, pi, dx, dy)
             _, l1l, l2l = compute_grid_errors(dl, pi, dx, dy)
             _, l1flmc, l2flmc = compute_grid_errors(dflmc, pi, dx, dy)
             _, l1m, l2m = compute_grid_errors(dm, pi, dx, dy)
-            _, l1ml, l2ml = compute_grid_errors(dml, pi, dx, dy)
 
             history['l1_d'].append(l1d); history['l1_l'].append(l1l); history['l1_flmc'].append(l1flmc)
             history['l2_d'].append(l2d); history['l2_l'].append(l2l); history['l2_flmc'].append(l2flmc)
             history['l1_m'].append(l1m); history['l2_m'].append(l2m)
-            history['l1_ml'].append(l1ml); history['l2_ml'].append(l2ml)
 
         X_diff = step_diff(X_diff, dt, eps, gx, gy, bx, by, rng)
         X_levy = step_levy(X_levy, dt, eps, gx, gy, bx, by, Sx, Sy, rng, lam, sigma_L, mults, pm)
@@ -391,13 +347,9 @@ def run_simulation(seed, eps, dt, T, N, gx, gy, dx, dy, lam, sigma_L, mults, pm,
         X_mala, acc = step_mala(X_mala, mala_dt, eps, rng)
         acc_sum += acc
         acc_count += 1
-        X_malevy, acc_ml = step_malevy(X_malevy, dt, eps, rng, lam, sigma_L, mults, pm)
-        acc_sum_ml += acc_ml
-        acc_count_ml += 1
 
     acc_rate = acc_sum / max(acc_count, 1)
-    acc_rate_ml = acc_sum_ml / max(acc_count_ml, 1)
-    return history, X_diff, X_levy, X_flmc, X_mala, X_malevy, acc_rate, acc_rate_ml
+    return history, X_diff, X_levy, X_flmc, X_mala, acc_rate
 
 def aggregate_histories(histories, keys):
     stacked = {k: np.stack([np.array(h[k]) for h in histories], axis=0) for k in keys}
@@ -427,45 +379,45 @@ def main():
     histories = []
     first_final = None
     acc_rates = []
-    acc_rates_ml = []
     for seed in seeds:
-        history, X_diff, X_levy, X_flmc, X_mala, X_malevy, acc_rate, acc_rate_ml = run_simulation(
+        history, X_diff, X_levy, X_flmc, X_mala, acc_rate = run_simulation(
             seed, eps, dt, T, N, gx, gy, dx, dy, lam, sigma_L, mults, pm, pi, bx, by, Sx, Sy, alpha=alpha
         )
         histories.append(history)
         acc_rates.append(acc_rate)
-        acc_rates_ml.append(acc_rate_ml)
         if first_final is None:
-            first_final = (X_diff, X_levy, X_flmc, X_mala, X_malevy)
+            first_final = (X_diff, X_levy, X_flmc, X_mala)
 
     t = np.array(histories[0]['t'])
     keys = [
-        'w_d', 'w_l', 'w_flmc', 'w_m', 'w_ml',
-        'l1_d', 'l1_l', 'l1_flmc', 'l1_m', 'l1_ml',
-        'l2_d', 'l2_l', 'l2_flmc', 'l2_m', 'l2_ml'
+        'l1_d', 'l1_l', 'l1_flmc', 'l1_m',
+        'l2_d', 'l2_l', 'l2_flmc', 'l2_m'
     ]
     mean, std = aggregate_histories(histories, keys)
 
-    # Final Plots
-    out_prefix = "ring_final"
-    
-    # 1. Convergence Metrics Plot
-    plot_errors_over_time(t, mean, std, out_prefix)
-    
-    # 2. Spatial Error Map Plot
-    X_diff, X_levy, X_flmc, X_mala, X_malevy = first_final
+    out_dir = os.path.join(THIS_DIR, "ring_output")
+    os.makedirs(out_dir, exist_ok=True)
+    plot_metrics_figure(t, mean, std, out_dir)
+
+    X_diff, X_levy, X_flmc, X_mala = first_final
     dens_d = density_on_grid(X_diff, gx, gy)
     dens_l = density_on_grid(X_levy, gx, gy)
     dens_flmc = density_on_grid(X_flmc, gx, gy)
     dens_m = density_on_grid(X_mala, gx, gy)
-    dens_ml = density_on_grid(X_malevy, gx, gy)
-    plot_spatial_heatmaps(gx, gy, dens_d, dens_l, dens_flmc, dens_m, dens_ml, pi, out_prefix)
+    norm = shared_density_norm([pi, dens_d, dens_l, dens_flmc, dens_m], use_log=False, gamma=0.5)
+    init_point = np.array([-1.0, 0.0])
+    plot_density_figure(gx, gy, pi, "Ring: True Density", "true_density", out_dir, norm)
+    plot_density_figure(gx, gy, dens_d, "Ring: ULA Density", "ula_density", out_dir, norm, init_point=init_point)
+    plot_density_figure(gx, gy, dens_m, "Ring: MALA Density", "mala_density", out_dir, norm, init_point=init_point)
+    plot_density_figure(gx, gy, dens_flmc, "Ring: FLMC Density", "flmc_density", out_dir, norm, init_point=init_point)
+    plot_density_figure(gx, gy, dens_l, "Ring: LSBMC Density", "lsbmc_density", out_dir, norm, init_point=init_point)
     
     avg_acc = float(np.mean(acc_rates)) if acc_rates else 0.0
-    print(f"Done. Saved:\n1. {out_prefix}_errors_convergence.png\n2. {out_prefix}_spatial_error.png")
+    print(
+        "Done. Saved metrics and density figures to:\n"
+        f"{out_dir}"
+    )
     print(f"MALA mean acceptance rate: {avg_acc:.3f}")
-    avg_acc_ml = float(np.mean(acc_rates_ml)) if acc_rates_ml else 0.0
-    print(f"MALA-Levy mean acceptance rate: {avg_acc_ml:.3f}")
 
 if __name__ == "__main__":
     main()

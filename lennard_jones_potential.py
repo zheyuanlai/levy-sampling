@@ -2,9 +2,13 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import warnings
+from flmc_utils import c_alpha, sample_symmetric_alpha_stable
+
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 HAS_POT = None
 _OT_MODULE = None
@@ -217,74 +221,6 @@ def sample_from_pi_grid(rng, pi, gx, gy, n_samples):
         ],
         axis=1,
     )
-
-
-def _wasserstein2_1d_exact(x, y):
-    x = np.asarray(x, dtype=float).reshape(-1)
-    y = np.asarray(y, dtype=float).reshape(-1)
-    x = x[np.isfinite(x)]
-    y = y[np.isfinite(y)]
-    if x.size <= 1 or y.size <= 1:
-        return 0.0
-
-    x = np.sort(x)
-    y = np.sort(y)
-    n = max(x.size, y.size)
-    q = (np.arange(n, dtype=float) + 0.5) / n
-    qx = (np.arange(x.size, dtype=float) + 0.5) / x.size
-    qy = (np.arange(y.size, dtype=float) + 0.5) / y.size
-    xq = np.interp(q, qx, x)
-    yq = np.interp(q, qy, y)
-    return float(np.sqrt(np.mean((xq - yq) ** 2)))
-
-
-def _sanitize_point_cloud(X):
-    X = np.asarray(X, dtype=float)
-    if X.ndim == 1:
-        X = X[:, None]
-    if X.ndim != 2:
-        return np.zeros((0, 1), dtype=float)
-    keep = np.all(np.isfinite(X), axis=1)
-    return X[keep]
-
-
-def _sliced_wasserstein2(X, Y, rng, n_proj=96, max_points=None):
-    X = _sanitize_point_cloud(X)
-    Y = _sanitize_point_cloud(Y)
-    if X.shape[0] <= 1 or Y.shape[0] <= 1:
-        return 0.0
-
-    if max_points is not None:
-        m_eff = min(int(max_points), X.shape[0], Y.shape[0])
-        if X.shape[0] > m_eff:
-            X = X[rng.choice(X.shape[0], m_eff, replace=False)]
-        if Y.shape[0] > m_eff:
-            Y = Y[rng.choice(Y.shape[0], m_eff, replace=False)]
-
-    dim = X.shape[1]
-    dirs = rng.standard_normal((int(n_proj), dim))
-    dirs /= np.linalg.norm(dirs, axis=1, keepdims=True) + 1e-12
-    w2_sq = np.empty(int(n_proj), dtype=float)
-    for k in range(int(n_proj)):
-        px = X @ dirs[k]
-        py = Y @ dirs[k]
-        w = _wasserstein2_1d_exact(px, py)
-        w2_sq[k] = w * w
-    return float(np.sqrt(np.mean(w2_sq)))
-
-
-def wasserstein2(X, Y, rng, m=None):
-    X = _sanitize_point_cloud(X)
-    Y = _sanitize_point_cloud(Y)
-    if X.shape[0] <= 1 or Y.shape[0] <= 1:
-        return 0.0
-
-    # For 1D descriptors (e.g., N=2 pair distance), use exact empirical W2.
-    if X.shape[1] == 1 and Y.shape[1] == 1:
-        return _wasserstein2_1d_exact(X[:, 0], Y[:, 0])
-
-    # For multi-D descriptors, use sliced W2 for stable, deterministic tracking.
-    return _sliced_wasserstein2(X, Y, rng, n_proj=96, max_points=m)
 
 
 # ============================================================
@@ -810,6 +746,64 @@ def step_diff_lj7(
     return apply_box_constraint_flat(X_new, box_L, mode=box_mode)
 
 
+def step_flmc_lj7(
+    X,
+    dt,
+    alpha,
+    rng,
+    lj_eps,
+    sigma,
+    r_soft,
+    box_L,
+    box_mode="clip",
+):
+    grad = gradV_lj7_flat(X, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
+    drift = -0.5 * c_alpha(alpha) * grad
+    norm = np.linalg.norm(drift, axis=1, keepdims=True) + 1e-8
+    stable_noise = sample_symmetric_alpha_stable(rng, size=X.shape, alpha=alpha)
+    X_new = X + (dt * drift) / (1.0 + dt * norm) + (dt ** (1.0 / alpha)) * stable_noise
+    X_new = remove_center_of_mass_flat(X_new)
+    return apply_box_constraint_flat(X_new, box_L, mode=box_mode)
+
+
+def _tamed_lj7_mean(X, dt, lj_eps, sigma, r_soft):
+    grad = gradV_lj7_flat(X, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
+    drift = -0.5 * grad
+    norm = np.linalg.norm(drift, axis=1, keepdims=True) + 1e-8
+    return X + (dt * drift) / (1.0 + dt * norm)
+
+
+def step_mala_lj7(
+    X,
+    dt,
+    eps,
+    rng,
+    lj_eps,
+    sigma,
+    r_soft,
+    box_L,
+    box_mode="clip",
+):
+    mean = _tamed_lj7_mean(X, dt, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
+    proposal = mean + eps * np.sqrt(dt) * rng.standard_normal(X.shape)
+    proposal = remove_center_of_mass_flat(proposal)
+    proposal = apply_box_constraint_flat(proposal, box_L, mode=box_mode)
+
+    mean_y = _tamed_lj7_mean(proposal, dt, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
+    logp_x = -V_lj7_flat(X, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft) / (eps**2)
+    logp_y = -V_lj7_flat(proposal, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft) / (eps**2)
+
+    noise_var = max((eps**2) * dt, 1e-12)
+    log_q_y_given_x = -np.sum((proposal - mean) ** 2, axis=1) / (2.0 * noise_var)
+    log_q_x_given_y = -np.sum((X - mean_y) ** 2, axis=1) / (2.0 * noise_var)
+    log_alpha = (logp_y + log_q_x_given_y) - (logp_x + log_q_y_given_x)
+
+    accept = np.log(rng.random(X.shape[0])) < log_alpha
+    X_new = X.copy()
+    X_new[accept] = proposal[accept]
+    return X_new, float(accept.mean())
+
+
 def _sample_isotropic_dirs(rng, n, dim):
     vec = rng.standard_normal((n, dim))
     vec /= np.linalg.norm(vec, axis=1, keepdims=True) + 1e-12
@@ -969,6 +963,8 @@ def run_lj7_highdim_simulation(
     jump_anneal_tau=2.5,
     jump_sigma_anneal=0.35,
     jump_cap_anneal=0.25,
+    alpha=1.5,
+    mala_dt=None,
 ):
     rng = np.random.default_rng(seed)
     if init_mode == "expanded":
@@ -985,16 +981,22 @@ def run_lj7_highdim_simulation(
             N, sigma=sigma, rng=rng, noise_scale=0.18, random_rotate=True
         )
     X_levy = X_diff.copy()
+    X_flmc = X_diff.copy()
+    X_mala = X_diff.copy()
 
     history = {
         "t": [],
-        "w2_d": [],
-        "w2_l": [],
         "l1_d": [],
+        "l1_m": [],
+        "l1_f": [],
         "l1_l": [],
         "l2_d": [],
+        "l2_m": [],
+        "l2_f": [],
         "l2_l": [],
     }
+    if mala_dt is None:
+        mala_dt = dt
 
     steps = int(T / dt)
     eval_steps = _build_eval_steps(steps)
@@ -1008,24 +1010,56 @@ def run_lj7_highdim_simulation(
             history["t"].append(t)
 
             D_diff = pair_distance_descriptor_flat(X_diff)
+            D_mala = pair_distance_descriptor_flat(X_mala)
+            D_flmc = pair_distance_descriptor_flat(X_flmc)
             D_levy = pair_distance_descriptor_flat(X_levy)
-            history["w2_d"].append(wasserstein2(D_diff, D_ref, rng, m=None))
-            history["w2_l"].append(wasserstein2(D_levy, D_ref, rng, m=None))
 
             l1d, l2d = compute_pair_distance_hist_errors(
                 D_diff, pd_edges, pd_widths, pd_pdf_ref
+            )
+            l1m, l2m = compute_pair_distance_hist_errors(
+                D_mala, pd_edges, pd_widths, pd_pdf_ref
+            )
+            l1f, l2f = compute_pair_distance_hist_errors(
+                D_flmc, pd_edges, pd_widths, pd_pdf_ref
             )
             l1l, l2l = compute_pair_distance_hist_errors(
                 D_levy, pd_edges, pd_widths, pd_pdf_ref
             )
             history["l1_d"].append(l1d)
+            history["l1_m"].append(l1m)
+            history["l1_f"].append(l1f)
             history["l1_l"].append(l1l)
             history["l2_d"].append(l2d)
+            history["l2_m"].append(l2m)
+            history["l2_f"].append(l2f)
             history["l2_l"].append(l2l)
 
         X_diff = step_diff_lj7(
             X_diff,
             dt,
+            eps,
+            rng,
+            lj_eps=lj_eps,
+            sigma=sigma,
+            r_soft=r_soft,
+            box_L=box_L,
+            box_mode=box_mode,
+        )
+        X_flmc = step_flmc_lj7(
+            X_flmc,
+            dt,
+            alpha,
+            rng,
+            lj_eps=lj_eps,
+            sigma=sigma,
+            r_soft=r_soft,
+            box_L=box_L,
+            box_mode=box_mode,
+        )
+        X_mala, _ = step_mala_lj7(
+            X_mala,
+            mala_dt,
             eps,
             rng,
             lj_eps=lj_eps,
@@ -1076,8 +1110,8 @@ def run_lj7_highdim_simulation(
             "accept_rate_given_event": jump_accept_total / max(jump_event_total, 1),
             "accepted_event_rate": jump_accept_total / max(n_particle_updates, 1),
         }
-        return history, X_diff, X_levy, stats
-    return history, X_diff, X_levy
+        return history, X_diff, X_mala, X_flmc, X_levy, stats
+    return history, X_diff, X_mala, X_flmc, X_levy
 
 
 def aggregate_histories(histories, keys):
@@ -1097,50 +1131,49 @@ def _build_eval_steps(steps, n_linear=45, n_early=28, early_frac=0.18):
     return set(int(v) for v in points.tolist())
 
 
-def plot_highdim_errors_over_time(t, mean, std, out_prefix):
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+def save_figure_both(fig, out_base, dpi=200):
+    fig.savefig(f"{out_base}.png", dpi=dpi)
+    fig.savefig(f"{out_base}.pdf")
+    plt.close(fig)
 
-    axes[0].errorbar(
-        t, mean["w2_d"], yerr=std["w2_d"], fmt="b--", label="Diffusion", alpha=0.9, capsize=2
-    )
-    axes[0].errorbar(
-        t, mean["w2_l"], yerr=std["w2_l"], fmt="r-", label="LSB-MC", alpha=0.9, capsize=2
-    )
-    axes[0].set_title("Sliced W2")
+
+def plot_highdim_errors_over_time(t, mean, std, out_prefix):
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
+
+    methods_l1 = [
+        ("l1_d", "ULA", "C0"),
+        ("l1_m", "MALA", "C2"),
+        ("l1_f", "FLMC", "tab:orange"),
+        ("l1_l", "LSBMC", "C3"),
+    ]
+    for key, label, color in methods_l1:
+        axes[0].errorbar(t, mean[key], yerr=std[key], fmt="-", color=color, label=label, alpha=0.9, capsize=2)
+    axes[0].set_title("Pair-Distance L1 Error")
     axes[0].set_xlabel("Time")
     axes[0].grid(True, alpha=0.3)
     axes[0].legend()
 
-    axes[1].errorbar(
-        t, mean["l1_d"], yerr=std["l1_d"], fmt="b--", label="Diffusion", alpha=0.9, capsize=2
-    )
-    axes[1].errorbar(
-        t, mean["l1_l"], yerr=std["l1_l"], fmt="r-", label="LSB-MC", alpha=0.9, capsize=2
-    )
-    axes[1].set_title("Marginal L1 Error")
+    methods_l2 = [
+        ("l2_d", "ULA", "C0"),
+        ("l2_m", "MALA", "C2"),
+        ("l2_f", "FLMC", "tab:orange"),
+        ("l2_l", "LSBMC", "C3"),
+    ]
+    for key, label, color in methods_l2:
+        axes[1].errorbar(t, mean[key], yerr=std[key], fmt="-", color=color, label=label, alpha=0.9, capsize=2)
+    axes[1].set_title("Pair-Distance L2 Error")
     axes[1].set_xlabel("Time")
     axes[1].grid(True, alpha=0.3)
     axes[1].legend()
 
-    axes[2].errorbar(
-        t, mean["l2_d"], yerr=std["l2_d"], fmt="b--", label="Diffusion", alpha=0.9, capsize=2
-    )
-    axes[2].errorbar(
-        t, mean["l2_l"], yerr=std["l2_l"], fmt="r-", label="LSB-MC", alpha=0.9, capsize=2
-    )
-    axes[2].set_title("Marginal L2 Error")
-    axes[2].set_xlabel("Time")
-    axes[2].grid(True, alpha=0.3)
-    axes[2].legend()
-
+    fig.suptitle("Lennard-Jones: Metrics Comparison")
     plt.tight_layout()
-    plt.savefig(f"{out_prefix}_metrics.png", dpi=200)
-    plt.close()
+    save_figure_both(fig, out_prefix)
 
 
 def _parse_args():
     p = argparse.ArgumentParser(
-        description="LJ cluster diffusion vs Levy simulation on (R^d)^N."
+        description="LJ cluster benchmark with ULA, MALA, FLMC, and LSBMC on (R^d)^N."
     )
     p.add_argument(
         "--n-particles",
@@ -1314,6 +1347,7 @@ def main():
 
     num_seeds = int(args.num_seeds)
     seeds = list(range(num_seeds))
+    alpha = 1.5
 
     print(
         f"Configured LJ cluster: N={LJ7_N_PARTICLES}, d={LJ7_SPATIAL_DIM}, "
@@ -1324,7 +1358,7 @@ def main():
         f"(noise_ratio={args.noise_ratio:.3f})"
     )
     print(
-        f"Levy jump params: lam={lam:.3f}, sigma_L={sigma_L:.3f}, "
+        f"LSBMC jump params: lam={lam:.3f}, sigma_L={sigma_L:.3f}, "
         f"jump_cap={jump_cap:.3f}"
     )
     print(
@@ -1332,6 +1366,7 @@ def main():
         f"init_noise={init_noise:.3f}, local_jump_particles={local_jump_particles}, "
         f"jump_anneal_boost={jump_anneal_boost:.3f}, tau={jump_anneal_tau:.3f}"
     )
+    print(f"FLMC alpha={alpha:.2f}")
     print(f"Generating reference samples in R^{LJ7_DIM}...")
 
     rng_ref = np.random.default_rng(2026)
@@ -1359,11 +1394,11 @@ def main():
         D_ref, n_bins=120
     )
 
-    print(f"Running {num_seeds} seeds (Diffusion vs Levy PF)...")
+    print(f"Running {num_seeds} seeds (ULA / MALA / FLMC / LSBMC)...")
     histories = []
     jump_stats = []
     for seed in seeds:
-        history, _, _, stats = run_lj7_highdim_simulation(
+        history, _, _, _, _, stats = run_lj7_highdim_simulation(
             seed=seed,
             eps=eps,
             dt=dt,
@@ -1394,25 +1429,28 @@ def main():
             jump_anneal_tau=jump_anneal_tau,
             jump_sigma_anneal=jump_sigma_anneal,
             jump_cap_anneal=jump_cap_anneal,
+            alpha=alpha,
         )
         histories.append(history)
         jump_stats.append(stats)
 
     t = np.array(histories[0]["t"])
-    keys = ["w2_d", "w2_l", "l1_d", "l1_l", "l2_d", "l2_l"]
+    keys = ["l1_d", "l1_m", "l1_f", "l1_l", "l2_d", "l2_m", "l2_f", "l2_l"]
     mean, std = aggregate_histories(histories, keys)
 
-    out_prefix = f"lennard_jones_n{LJ7_N_PARTICLES}_d{LJ7_SPATIAL_DIM}_highdim"
+    out_dir = os.path.join(THIS_DIR, "lennard_jones_output")
+    os.makedirs(out_dir, exist_ok=True)
+    out_prefix = os.path.join(out_dir, f"lennard_jones_n{LJ7_N_PARTICLES}_d{LJ7_SPATIAL_DIM}_metrics")
     plot_highdim_errors_over_time(t, mean, std, out_prefix)
 
-    print(f"Done. Saved: {out_prefix}_metrics.png")
+    print(f"Done. Saved: {out_prefix}.png and {out_prefix}.pdf")
     if jump_stats:
         ev = float(np.mean([s["event_rate"] for s in jump_stats]))
         acc = float(np.mean([s["accept_rate_given_event"] for s in jump_stats]))
         aev = float(np.mean([s["accepted_event_rate"] for s in jump_stats]))
-        print(f"Levy jump event rate per particle-step: {ev:.4f}")
-        print(f"Levy jump accept rate given event: {acc:.4f}")
-        print(f"Levy accepted event rate per particle-step: {aev:.4f}")
+        print(f"LSBMC jump event rate per particle-step: {ev:.4f}")
+        print(f"LSBMC jump accept rate given event: {acc:.4f}")
+        print(f"LSBMC accepted event rate per particle-step: {aev:.4f}")
 
 
 if __name__ == "__main__":
