@@ -5,7 +5,7 @@
 Sampling from Boltzmann distributions of the form
 
 $$
-p_\infty(x) = Z^{-1} \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}
+p_\infty(x) = Z^{-1} \exp\left(-\frac{2V(x)}{\sigma^2}\right)
 $$
 
 via overdamped Langevin dynamics becomes prohibitively slow when the potential $V$ features multiple deep wells separated by high energy barriers. LSB-MC addresses this by augmenting the standard diffusion process with **compound Poisson jumps** and a **stationary Lévy-score correction**, enabling macroscopic spatial transitions while preserving the target invariant measure.
@@ -21,13 +21,13 @@ This repository implements four sampling algorithms targeting the same Boltzmann
 **Target Distribution**:
 
 $$
-p_\infty(x) = Z^{-1} \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}, \quad x \in \mathbb{R}^d
+p_\infty(x) = Z^{-1} \exp\left(-\frac{2V(x)}{\sigma^2}\right), \quad x \in \mathbb{R}^d
 $$
 
 **Continuous-Time SDE**:
 
 $$
-dX_t = -\nabla V(X_t) \, dt + \sigma \, dB_t
+dX_t = -\nabla V(X_t)  dt + \sigma  dB_t
 $$
 
 where $B_t$ is standard Brownian motion and $\sigma > 0$ is the noise intensity.
@@ -35,7 +35,7 @@ where $B_t$ is standard Brownian motion and $\sigma > 0$ is the noise intensity.
 **Discrete-Time Update** (Euler-Maruyama):
 
 $$
-X_{n+1} = X_n + \frac{dt \cdot (-\nabla V(X_n))}{1 + dt \|\nabla V(X_n)\|} + \sigma \sqrt{dt} \, Z_n, \quad Z_n \sim \mathcal{N}(0, I)
+X_{n+1} = X_n + \frac{dt \cdot (-\nabla V(X_n))}{1 + dt \|\nabla V(X_n)\|} + \sigma \sqrt{dt}  Z_n, \quad Z_n \sim \mathcal{N}(0, I)
 $$
 
 The denominator $1 + dt \|\nabla V(X_n)\|$ implements **taming** for numerical stability when gradients are large.
@@ -47,26 +47,26 @@ The denominator $1 + dt \|\nabla V(X_n)\|$ implements **taming** for numerical s
 **Target Distribution**: 
 
 $$
-p_\infty(x) = Z^{-1} \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}, \quad x \in \mathbb{R}^d
+p_\infty(x) = Z^{-1} \exp\left(-\frac{2V(x)}{\sigma^2}\right), \quad x \in \mathbb{R}^d
 $$
 
 **Proposal Distribution**:
 
 $$
-Y = X + \frac{1}{2} dt \, \nabla \log p_\infty(X) + \sqrt{dt} \, Z, \quad Z \sim \mathcal{N}(0, I)
+Y = X + \frac{1}{2} dt  \nabla \log p_\infty(X) + \sqrt{dt}  Z, \quad Z \sim \mathcal{N}(0, I)
 $$
 where $\nabla \log p_\infty(x) = -2\nabla V(x)/\sigma^2$.
 
 **Acceptance Probability**:
 
 $$
-\alpha(X, Y) = \min\left\{1, \frac{p_\infty(Y) \, q(X \mid Y)}{p_\infty(X) \, q(Y \mid X)}\right\}
+\alpha(X, Y) = \min\left(1, \frac{p_\infty(Y)  q(X \mid Y)}{p_\infty(X)  q(Y \mid X)}\right)
 $$
 
 where $q(Y \mid X)$ is the Gaussian proposal kernel:
 
 $$
-q(Y \mid X) \propto \exp\left\{-\frac{\|Y - X - \tfrac{1}{2}dt \, \nabla \log p_\infty(X)\|^2}{2dt}\right\}
+q(Y \mid X) \propto \exp\left(-\frac{\|Y - X - \tfrac{1}{2}dt  \nabla \log p_\infty(X)\|^2}{2dt}\right)
 $$
 
 **Discrete-Time Update**:
@@ -84,13 +84,13 @@ Adapted from [Fractional Langevin Monte Carlo: Exploring Levy Driven Stochastic 
 **Target Distribution**: 
 
 $$
-p_\infty(x) = Z^{-1} \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}, \quad x \in \mathbb{R}^d
+p_\infty(x) = Z^{-1} \exp\left(-\frac{2V(x)}{\sigma^2}\right), \quad x \in \mathbb{R}^d
 $$
 
 **Continuous-Time SDE**:
 
 $$
-dX_t = -c_\alpha \nabla V(X_t) \, dt + \sigma \, dt^{1/\alpha} \, dL_t^\alpha
+dX_t = -c_\alpha \nabla V(X_t)  dt + \sigma  dt^{1/\alpha}  dL_t^\alpha
 $$
 
 where:
@@ -100,7 +100,7 @@ where:
 **Discrete-Time Update**:
 
 $$
-X_{n+1} = X_n + \frac{dt \cdot (-c_\alpha \nabla V(X_n))}{1 + dt \|c_\alpha \nabla V(X_n)\|} + \sigma \, dt^{1/\alpha} \, Z_n
+X_{n+1} = X_n + \frac{dt \cdot (-c_\alpha \nabla V(X_n))}{1 + dt \|c_\alpha \nabla V(X_n)\|} + \sigma  dt^{1/\alpha}  Z_n
 $$
 
 where $Z_n$ is sampled from a symmetric $\alpha$-stable distribution using the **Chambers-Mallows-Stuck algorithm**.
@@ -118,32 +118,32 @@ where $Z_n$ is sampled from a symmetric $\alpha$-stable distribution using the *
 **Target Distribution**: 
 
 $$
-p_\infty(x) = Z^{-1} \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}, \quad x \in \mathbb{R}^d
+p_\infty(x) = Z^{-1} \exp\left(-\frac{2V(x)}{\sigma^2}\right), \quad x \in \mathbb{R}^d
 $$
 
 **Continuous-Time SDE**:
 
 $$
-dZ_t = \left(-\nabla V(Z_{t-}) + S_L^s(Z_{t-})\right) dt + \sigma \, dB_t + dL_t
+dZ_t = \left(-\nabla V(Z_{t-}) + S_L^s(Z_{t-})\right) dt + \sigma  dB_t + dL_t
 $$
 
 where:
 - $S_L^s(x)$ is the **stationary Lévy-score correction**:
 
 $$
-S_L^s(x) = -\int_0^1 \int_{\mathbb{R}^d \setminus \{0\}} r \exp\left\{-\frac{2(V(x - \theta r) - V(x))}{\sigma^2}\right\} \nu(dr) \, d\theta
+S_L^s(x) = -\int_0^1 \int_{\mathbb{R}^d \setminus \{0\}} r \exp\left(-\frac{2(V(x - \theta r) - V(x))}{\sigma^2}\right) \nu(dr)  d\theta
 $$
 
 - $\nu$ is the Lévy measure governing the jump law
 - $L_t$ is a pure-jump Lévy process with measure $\nu$
 
 **Compound Poisson Jump Law**:
-In this implementation, $\nu = \lambda \, \nu_J$ where:
+In this implementation, $\nu = \lambda  \nu_J$ where:
 - $\lambda > 0$ is the **jump intensity** (expected number of jumps per unit time)
 - $\nu_J$ is a **discrete mixture of isotropic jumps**:
 
 $$
-\nu_J = \sum_{k=1}^K p_k \, \delta_{m_k \sigma_L}
+\nu_J = \sum_{k=1}^K p_k  \delta_{m_k \sigma_L}
 $$
 
 with:
@@ -217,13 +217,13 @@ $$
 **Target Distribution**:
 
 $$
-p_\infty(x) \propto \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}
+p_\infty(x) \propto \exp\left(-\frac{2V(x)}{\sigma^2}\right)
 $$
 
 **SDE**:
 
 $$
-dX_t = (X_t - X_t^3) \, dt + \epsilon \, dB_t
+dX_t = (X_t - X_t^3)  dt + \epsilon  dB_t
 $$
 
 where $\epsilon = \sigma$ under the global convention.
@@ -265,15 +265,15 @@ $$
 **Target Distribution**:
 
 $$
-p_\infty(x, y) \propto \exp\left\{-\frac{2V(x, y)}{\sigma^2}\right\}
+p_\infty(x, y) \propto \exp\left(-\frac{2V(x, y)}{\sigma^2}\right)
 $$
 
 **SDE**:
 
 $$
 \begin{cases}
-dX_t = -\partial_x V(X_t, Y_t) \, dt + \sqrt{\epsilon} \, dB_t^{(1)} \\
-dY_t = -\partial_y V(X_t, Y_t) \, dt + \sqrt{\epsilon} \, dB_t^{(2)}
+dX_t = -\partial_x V(X_t, Y_t)  dt + \sqrt{\epsilon}  dB_t^{(1)} \\
+dY_t = -\partial_y V(X_t, Y_t)  dt + \sqrt{\epsilon}  dB_t^{(2)}
 \end{cases}
 $$
 
@@ -313,15 +313,15 @@ $$
 **Target Distribution**:
 
 $$
-p_\infty(x, y) \propto \exp\left\{-\frac{V(x, y)}{\epsilon^2}\right\}
+p_\infty(x, y) \propto \exp\left(-\frac{V(x, y)}{\epsilon^2}\right)
 $$
 
 **SDE**:
 
 $$
 \begin{cases}
-dX_t = -\tfrac{1}{2} \partial_x V(X_t, Y_t) \, dt + \epsilon \, dB_t^{(1)} \\
-dY_t = -\tfrac{1}{2} \partial_y V(X_t, Y_t) \, dt + \epsilon \, dB_t^{(2)}
+dX_t = -\tfrac{1}{2} \partial_x V(X_t, Y_t)  dt + \epsilon  dB_t^{(1)} \\
+dY_t = -\tfrac{1}{2} \partial_y V(X_t, Y_t)  dt + \epsilon  dB_t^{(2)}
 \end{cases}
 $$
 
@@ -361,15 +361,15 @@ with scale factor $s = 0.05$ and parameters:
 **Target Distribution**:
 
 $$
-p_\infty(x, y) \propto \exp\left\{-\frac{V(x, y)}{\epsilon^2}\right\}
+p_\infty(x, y) \propto \exp\left(-\frac{V(x, y)}{\epsilon^2}\right)
 $$
 
 **SDE**:
 
 $$
 \begin{cases}
-dX_t = -\tfrac{1}{2} \partial_x V(X_t, Y_t) \, dt + \epsilon \, dB_t^{(1)} \\
-dY_t = -\tfrac{1}{2} \partial_y V(X_t, Y_t) \, dt + \epsilon \, dB_t^{(2)}
+dX_t = -\tfrac{1}{2} \partial_x V(X_t, Y_t) dt + \epsilon dB_t^{(1)} \\
+dY_t = -\tfrac{1}{2} \partial_y V(X_t, Y_t) dt + \epsilon dB_t^{(2)}
 \end{cases}
 $$
 
@@ -408,16 +408,16 @@ and $r_{ij} = \|r_i - r_j\|_2$.
 **Target Distribution**:
 
 $$
-p_\infty(R) \propto \exp\left\{-\frac{V(R)}{\varepsilon^2}\right\}
+p_\infty(R) \propto \exp\left(-\frac{V(R)}{\varepsilon^2}\right)
 $$
 
 **SDE**:
 
 $$
 \begin{cases}
-dX_t^{(i)} = -\tfrac{1}{2} \partial_{x_i} V(R_t) \, dt + \varepsilon \, dB_t^{(i,1)} \\
-dY_t^{(i)} = -\tfrac{1}{2} \partial_{y_i} V(R_t) \, dt + \varepsilon \, dB_t^{(i,2)} \\
-dZ_t^{(i)} = -\tfrac{1}{2} \partial_{z_i} V(R_t) \, dt + \varepsilon \, dB_t^{(i,3)}
+dX_t^{(i)} = -\tfrac{1}{2} \partial_{x_i} V(R_t)  dt + \varepsilon  dB_t^{(i,1)} \\
+dY_t^{(i)} = -\tfrac{1}{2} \partial_{y_i} V(R_t)  dt + \varepsilon  dB_t^{(i,2)} \\
+dZ_t^{(i)} = -\tfrac{1}{2} \partial_{z_i} V(R_t)  dt + \varepsilon  dB_t^{(i,3)}
 \end{cases}, \quad i = 1, \ldots, N
 $$
 
@@ -458,13 +458,13 @@ $$
 **Target Distribution**:
 
 $$
-p_\infty(x) \propto \exp\left\{-\frac{2V(x)}{\epsilon^2}\right\}
+p_\infty(x) \propto \exp\left(-\frac{2V(x)}{\epsilon^2}\right)
 $$
 
 **SDE**:
 
 $$
-dX_t^{(i)} = -\partial_{x_i} V(X_t) \, dt + \epsilon \, dB_t^{(i)}, \quad i = 1, \ldots, 10
+dX_t^{(i)} = -\partial_{x_i} V(X_t)  dt + \epsilon  dB_t^{(i)}, \quad i = 1, \ldots, 10
 $$
 
 with gradient
