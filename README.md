@@ -3,9 +3,11 @@
 ## Overview
 
 Sampling from Boltzmann distributions of the form
+
 $$
 p_\infty(x) = Z^{-1} \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}
 $$
+
 via overdamped Langevin dynamics becomes prohibitively slow when the potential $V$ features multiple deep wells separated by high energy barriers. LSB-MC addresses this by augmenting the standard diffusion process with **compound Poisson jumps** and a **stationary Lévy-score correction**, enabling macroscopic spatial transitions while preserving the target invariant measure.
 
 ## Sampling Methods
@@ -17,20 +19,25 @@ This repository implements four sampling algorithms targeting the same Boltzmann
 ### 1. ULA (Unadjusted Langevin Algorithm)
 
 **Target Distribution**:
+
 $$
 p_\infty(x) = Z^{-1} \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}, \quad x \in \mathbb{R}^d
 $$
 
 **Continuous-Time SDE**:
+
 $$
 dX_t = -\nabla V(X_t) \, dt + \sigma \, dB_t
 $$
+
 where $B_t$ is standard Brownian motion and $\sigma > 0$ is the noise intensity.
 
 **Discrete-Time Update** (Euler-Maruyama):
+
 $$
 X_{n+1} = X_n + \frac{dt \cdot (-\nabla V(X_n))}{1 + dt \|\nabla V(X_n)\|} + \sigma \sqrt{dt} \, Z_n, \quad Z_n \sim \mathcal{N}(0, I)
 $$
+
 The denominator $1 + dt \|\nabla V(X_n)\|$ implements **taming** for numerical stability when gradients are large.
 
 ---
@@ -38,21 +45,26 @@ The denominator $1 + dt \|\nabla V(X_n)\|$ implements **taming** for numerical s
 ### 2. MALA (Metropolis-Adjusted Langevin Algorithm)
 
 **Target Distribution**: 
+
 $$
 p_\infty(x) = Z^{-1} \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}, \quad x \in \mathbb{R}^d
 $$
 
 **Proposal Distribution**:
+
 $$
 Y = X + \frac{1}{2} dt \, \nabla \log p_\infty(X) + \sqrt{dt} \, Z, \quad Z \sim \mathcal{N}(0, I)
 $$
 where $\nabla \log p_\infty(x) = -2\nabla V(x)/\sigma^2$.
 
 **Acceptance Probability**:
+
 $$
 \alpha(X, Y) = \min\left\{1, \frac{p_\infty(Y) \, q(X \mid Y)}{p_\infty(X) \, q(Y \mid X)}\right\}
 $$
+
 where $q(Y \mid X)$ is the Gaussian proposal kernel:
+
 $$
 q(Y \mid X) \propto \exp\left\{-\frac{\|Y - X - \tfrac{1}{2}dt \, \nabla \log p_\infty(X)\|^2}{2dt}\right\}
 $$
@@ -70,22 +82,27 @@ $$
 Adapted from [Fractional Langevin Monte Carlo: Exploring Levy Driven Stochastic Differential Equations for Markov Chain Monte Carlo](https://arxiv.org/abs/1706.03649) (ICML 2017).
 
 **Target Distribution**: 
+
 $$
 p_\infty(x) = Z^{-1} \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}, \quad x \in \mathbb{R}^d
 $$
 
 **Continuous-Time SDE**:
+
 $$
 dX_t = -c_\alpha \nabla V(X_t) \, dt + \sigma \, dt^{1/\alpha} \, dL_t^\alpha
 $$
+
 where:
 - $L_t^\alpha$ is a symmetric $\alpha$-stable Lévy process with tail index $\alpha \in (1, 2]$
 - $c_\alpha = \Gamma(\alpha - 1) / \Gamma(\alpha/2)^2$ is a normalization constant
 
 **Discrete-Time Update**:
+
 $$
 X_{n+1} = X_n + \frac{dt \cdot (-c_\alpha \nabla V(X_n))}{1 + dt \|c_\alpha \nabla V(X_n)\|} + \sigma \, dt^{1/\alpha} \, Z_n
 $$
+
 where $Z_n$ is sampled from a symmetric $\alpha$-stable distribution using the **Chambers-Mallows-Stuck algorithm**.
 
 **Alpha-Stable Noise**:
@@ -99,19 +116,24 @@ where $Z_n$ is sampled from a symmetric $\alpha$-stable distribution using the *
 ### 4. LSB-MC (Lévy-Score-Based Monte Carlo)
 
 **Target Distribution**: 
+
 $$
 p_\infty(x) = Z^{-1} \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}, \quad x \in \mathbb{R}^d
 $$
 
 **Continuous-Time SDE**:
+
 $$
 dZ_t = \left(-\nabla V(Z_{t-}) + S_L^s(Z_{t-})\right) dt + \sigma \, dB_t + dL_t
 $$
+
 where:
 - $S_L^s(x)$ is the **stationary Lévy-score correction**:
+
 $$
 S_L^s(x) = -\int_0^1 \int_{\mathbb{R}^d \setminus \{0\}} r \exp\left\{-\frac{2(V(x - \theta r) - V(x))}{\sigma^2}\right\} \nu(dr) \, d\theta
 $$
+
 - $\nu$ is the Lévy measure governing the jump law
 - $L_t$ is a pure-jump Lévy process with measure $\nu$
 
@@ -119,9 +141,11 @@ $$
 In this implementation, $\nu = \lambda \, \nu_J$ where:
 - $\lambda > 0$ is the **jump intensity** (expected number of jumps per unit time)
 - $\nu_J$ is a **discrete mixture of isotropic jumps**:
+
 $$
 \nu_J = \sum_{k=1}^K p_k \, \delta_{m_k \sigma_L}
 $$
+
 with:
   - $\{m_1, \ldots, m_K\}$: jump **multipliers** (e.g., $[1.0, 1.8, 2.6]$)
   - $\{p_1, \ldots, p_K\}$: probability masses ($\sum_k p_k = 1$)
@@ -130,9 +154,11 @@ with:
 **Jump Direction Sampling**:
 - **Low-dimensional (1D/2D)**: Jumps are sampled as $\pm m_k \sigma_L$ (random sign)
 - **High-dimensional ($d \geq 3$)**: Jumps are **genuinely isotropic** in $\mathbb{R}^d$:
+
 $$
 \text{Jump vector} = (m_k \sigma_L) \cdot U, \quad U \sim \text{Uniform}(\mathbb{S}^{d-1})
 $$
+
   This ensures rotational invariance (not coordinatewise composition).
 
 **Discrete-Time Update**:
@@ -177,24 +203,29 @@ All experiments compare the four methods (ULA, MALA, FLMC, LSB-MC) on benchmark 
 ### 1. Ginzburg–Landau Double-Well Potential (1D)
 
 **Mathematical Definition**:
+
 $$
 V(x) = \frac{1}{4} x^4 - \frac{1}{2} x^2
 $$
 
 **Gradient**:
+
 $$
 \nabla V(x) = x^3 - x = x(x^2 - 1)
 $$
 
 **Target Distribution**:
+
 $$
 p_\infty(x) \propto \exp\left\{-\frac{2V(x)}{\sigma^2}\right\}
 $$
 
 **SDE**:
+
 $$
 dX_t = (X_t - X_t^3) \, dt + \epsilon \, dB_t
 $$
+
 where $\epsilon = \sigma$ under the global convention.
 
 **Metrics**:
@@ -226,22 +257,26 @@ pm = [0.70, 0.22, 0.08]         # LSB-MC multiplier probabilities
 ### 2. Ring Potential (2D)
 
 **Mathematical Definition**:
+
 $$
 V(x, y) = \left(1 - x^2 - y^2\right)^2 + \frac{y^2}{x^2 + y^2}
 $$
 
 **Target Distribution**:
+
 $$
 p_\infty(x, y) \propto \exp\left\{-\frac{2V(x, y)}{\sigma^2}\right\}
 $$
 
 **SDE**:
+
 $$
 \begin{cases}
 dX_t = -\partial_x V(X_t, Y_t) \, dt + \sqrt{\epsilon} \, dB_t^{(1)} \\
 dY_t = -\partial_y V(X_t, Y_t) \, dt + \sqrt{\epsilon} \, dB_t^{(2)}
 \end{cases}
 $$
+
 where $\sigma = \sqrt{\epsilon}$ (matches global convention).
 
 **Metrics**:
@@ -270,23 +305,26 @@ pm = [0.70, 0.22, 0.08]           # LSB-MC multiplier probabilities
 ### 3. Four-Well Potential (2D)
 
 **Mathematical Definition**:
+
 $$
 V(x, y) = (x^2 - 1)^2 + (y^2 - 1)^2
 $$
 
 **Target Distribution**:
+
 $$
 p_\infty(x, y) \propto \exp\left\{-\frac{V(x, y)}{\epsilon^2}\right\}
 $$
 
 **SDE**:
+
 $$
 \begin{cases}
 dX_t = -\tfrac{1}{2} \partial_x V(X_t, Y_t) \, dt + \epsilon \, dB_t^{(1)} \\
 dY_t = -\tfrac{1}{2} \partial_y V(X_t, Y_t) \, dt + \epsilon \, dB_t^{(2)}
 \end{cases}
 $$
-Note the factor $1/2$ in the drift, corresponding to an effective potential $V_{\text{eff}} = V/2$.
+
 
 **Hyperparameters** (`fourwells.py`):
 ```python
@@ -306,9 +344,11 @@ pm = [0.70, 0.22, 0.08]
 ### 4. Müller–Brown Potential (2D)
 
 **Mathematical Definition**:
+
 $$
 V(x, y) = \sum_{i=1}^4 A_i \cdot s \cdot \exp\left( a_i (x - x_i)^2 + b_i (x - x_i)(y - y_i) + c_i (y - y_i)^2 \right)
 $$
+
 with scale factor $s = 0.05$ and parameters:
 
 | $i$ | $A_i$ | $a_i$ | $b_i$ | $c_i$ | $x_i$ | $y_i$ |
@@ -319,11 +359,13 @@ with scale factor $s = 0.05$ and parameters:
 | 4   | $-200$ | $-3$ | $0$ | $-3$ | $-0.8$ | $-0.5$ |
 
 **Target Distribution**:
+
 $$
 p_\infty(x, y) \propto \exp\left\{-\frac{V(x, y)}{\epsilon^2}\right\}
 $$
 
 **SDE**:
+
 $$
 \begin{cases}
 dX_t = -\tfrac{1}{2} \partial_x V(X_t, Y_t) \, dt + \epsilon \, dB_t^{(1)} \\
@@ -350,21 +392,27 @@ pm = [0.70, 0.22, 0.08]
 
 **Mathematical Definition**:
 For $N$ particles in $\mathbb{R}^3$, positions $R = (r_1, \ldots, r_N) \in (\mathbb{R}^3)^N$:
+
 $$
 V(R) = \sum_{1 \leq i < j \leq N} V_{\text{pair}}(r_{ij})
 $$
+
 where
+
 $$
 V_{\text{pair}}(r_{ij}) = 4\epsilon_{\text{LJ}} \left[ \left(\frac{\sigma}{r_{ij}}\right)^{12} - \left(\frac{\sigma}{r_{ij}}\right)^6 \right]
 $$
+
 and $r_{ij} = \|r_i - r_j\|_2$.
 
 **Target Distribution**:
+
 $$
 p_\infty(R) \propto \exp\left\{-\frac{V(R)}{\varepsilon^2}\right\}
 $$
 
 **SDE**:
+
 $$
 \begin{cases}
 dX_t^{(i)} = -\tfrac{1}{2} \partial_{x_i} V(R_t) \, dt + \varepsilon \, dB_t^{(i,1)} \\
@@ -402,20 +450,25 @@ pm = [0.70, 0.22, 0.08]
 ### 6. Ten-Dimensional Separable Double-Well
 
 **Mathematical Definition**:
+
 $$
 V(x) = \sum_{i=1}^{10} (x_i^2 - 1)^2
 $$
 
 **Target Distribution**:
+
 $$
 p_\infty(x) \propto \exp\left\{-\frac{2V(x)}{\epsilon^2}\right\}
 $$
 
 **SDE**:
+
 $$
 dX_t^{(i)} = -\partial_{x_i} V(X_t) \, dt + \epsilon \, dB_t^{(i)}, \quad i = 1, \ldots, 10
 $$
+
 with gradient
+
 $$
 \partial_{x_i} V(x) = 4 x_i (x_i^2 - 1)
 $$
