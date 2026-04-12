@@ -1,14 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
+from high_dim_output.benchmark_metrics import (
+    BENCHMARK_METHODS,
+    compute_benchmark_metrics,
+    get_default_benchmark_config,
+    hypercube_mode_descriptors,
+    init_benchmark_history,
+    make_metric_rng,
+    plot_benchmark_metrics_figure,
+    save_benchmark_metadata_json,
+    save_benchmark_metrics_csv,
+)
 from flmc_utils import step_flmc_nd
 
 
 EXPO_CLIP = 40.0
 POT_CLIP = 12.0
 STATE_CLIP = 25.0
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 # ============================================================
@@ -397,6 +410,9 @@ def run_simulation(
     n_theta,
     alpha,
     mala_dt=None,
+    benchmark_config=None,
+    benchmark_mode_descriptors=None,
+    return_benchmark_history=False,
 ):
     rng = np.random.default_rng(seed)
 
@@ -418,6 +434,22 @@ def run_simulation(
         "l1_d": [], "l1_m": [], "l1_f": [], "l1_l": [],
         "l2_d": [], "l2_m": [], "l2_f": [], "l2_l": []
     }
+    benchmark_metric_names = [
+        "benchmark_sinkhorn_ot_cost",
+        "benchmark_sinkhorn_divergence",
+        "benchmark_mmd_squared",
+        "benchmark_mmd",
+    ]
+    if benchmark_mode_descriptors is not None and benchmark_config is not None and bool(benchmark_config.get("emc_enabled", True)):
+        benchmark_metric_names.append("benchmark_emc")
+    benchmark_history = None
+    benchmark_eval_steps = set()
+    if benchmark_config is not None:
+        benchmark_history = init_benchmark_history(benchmark_metric_names)
+        benchmark_eval_steps = build_benchmark_eval_steps(
+            steps,
+            benchmark_config.get("benchmark_num_checkpoints", 7),
+        )
 
     acc_sum = 0.0
     acc_count = 0
@@ -444,6 +476,30 @@ def run_simulation(
             history["l2_d"].append(l2_d); history["l2_m"].append(l2_m)
             history["l2_f"].append(l2_f); history["l2_l"].append(l2_l)
 
+            if benchmark_history is not None and i in benchmark_eval_steps:
+                benchmark_history["t"].append(t)
+                method_samples = {
+                    "ula": X_diff,
+                    "mala": X_mala,
+                    "flmc": X_flmc,
+                    "lsbmc": X_levy,
+                }
+                for method_idx, (slug, _, _) in enumerate(BENCHMARK_METHODS):
+                    metric_rng = make_metric_rng(benchmark_config["metric_seed"], seed, i, method_idx)
+                    values = compute_benchmark_metrics(
+                        method_samples[slug],
+                        X_ref,
+                        benchmark_config,
+                        metric_rng,
+                        metric_prefix="benchmark",
+                        mode_descriptors=benchmark_mode_descriptors,
+                        context=f"high_dim seed={seed} t={t:.4f} method={slug}",
+                    )
+                    for metric_name in benchmark_metric_names:
+                        benchmark_history[f"{metric_name}_{slug}"].append(
+                            values.get(metric_name, float("nan"))
+                        )
+
             print(
                 f"[seed {seed}] t={t:.2f} | "
                 f"W2: D:{w2_d:.3f} M:{w2_m:.3f} F:{w2_f:.3f} L:{w2_l:.3f} | "
@@ -469,6 +525,8 @@ def run_simulation(
         )
 
     acc_rate = acc_sum / max(acc_count, 1)
+    if return_benchmark_history:
+        return history, benchmark_history, acc_rate
     return history, acc_rate
 
 
@@ -477,6 +535,11 @@ def aggregate_histories(histories, keys):
     mean = {k: stacked[k].mean(axis=0) for k in keys}
     std = {k: stacked[k].std(axis=0) for k in keys}
     return mean, std
+
+
+def build_benchmark_eval_steps(steps, num_checkpoints):
+    num_checkpoints = max(2, int(num_checkpoints))
+    return set(np.unique(np.linspace(0, steps, num_checkpoints, dtype=int)).tolist())
 
 
 def main():
@@ -501,6 +564,34 @@ def main():
 
     # FLMC parameter
     alpha = 1.75
+    benchmark_config = get_default_benchmark_config({
+        "benchmark_num_checkpoints": 21,
+        "sinkhorn_epsilon": 1.0,
+        "emc_enabled": True,
+        "emc_max_modes": 2048,
+    })
+    benchmark_mode_descriptors = None
+    emc_metadata = {
+        "emc_applicable": True,
+        "emc_enabled": False,
+        "emc_reason": "Skipped by default for the high-dimensional target.",
+    }
+    mode_count = 1 << dim
+    if bool(benchmark_config.get("emc_enabled", True)):
+        if mode_count <= int(benchmark_config["emc_max_modes"]):
+            benchmark_mode_descriptors = hypercube_mode_descriptors(dim)
+            emc_metadata = {
+                "emc_applicable": True,
+                "emc_enabled": True,
+                "mode_count": int(mode_count),
+            }
+        else:
+            emc_metadata = {
+                "emc_applicable": True,
+                "emc_enabled": False,
+                "mode_count": int(mode_count),
+                "emc_reason": "Mode count exceeds emc_max_modes.",
+            }
 
     rng_ref = np.random.default_rng(12345)
     print("Generating reference samples from pi(x) ∝ exp(-2V/sigma^2) ...")
@@ -508,9 +599,10 @@ def main():
 
     print(f"Running {num_seeds} seeds for {dim}D model with ULA / MALA / FLMC / LSBMC ...")
     histories = []
+    benchmark_histories = []
     acc_rates = []
     for seed in seeds:
-        h, acc_rate = run_simulation(
+        h, benchmark_history, acc_rate = run_simulation(
             seed=seed,
             sigma=sigma,
             dt=dt,
@@ -525,8 +617,12 @@ def main():
             n_dir_score=n_dir_score,
             n_theta=n_theta,
             alpha=alpha,
+            benchmark_config=benchmark_config,
+            benchmark_mode_descriptors=benchmark_mode_descriptors,
+            return_benchmark_history=True,
         )
         histories.append(h)
+        benchmark_histories.append(benchmark_history)
         acc_rates.append(acc_rate)
 
     t = np.asarray(histories[0]["t"], dtype=float)
@@ -536,8 +632,25 @@ def main():
         "l2_d", "l2_m", "l2_f", "l2_l"
     ]
     mean, std = aggregate_histories(histories, keys)
+    benchmark_metric_names = [
+        "benchmark_sinkhorn_ot_cost",
+        "benchmark_sinkhorn_divergence",
+        "benchmark_mmd_squared",
+        "benchmark_mmd",
+    ]
+    if benchmark_mode_descriptors is not None and bool(benchmark_config.get("emc_enabled", True)):
+        benchmark_metric_names.append("benchmark_emc")
+    benchmark_keys = [
+        f"{metric_name}_{slug}"
+        for metric_name in benchmark_metric_names
+        for slug, _, _ in BENCHMARK_METHODS
+    ]
+    benchmark_mean, benchmark_std = aggregate_histories(benchmark_histories, benchmark_keys)
+    benchmark_t = np.asarray(benchmark_histories[0]["t"], dtype=float)
 
-    out_prefix = "high_dim"
+    out_dir = os.path.join(THIS_DIR, "high_dim_output")
+    os.makedirs(out_dir, exist_ok=True)
+    out_prefix = os.path.join(out_dir, "high_dim")
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
     # Sliced W2
@@ -574,9 +687,45 @@ def main():
     plt.savefig(f"{out_prefix}_metrics.png", dpi=200)
     plt.savefig(f"{out_prefix}_metrics.pdf")
     plt.close()
+    benchmark_base = os.path.join(out_dir, "benchmark_metrics_high_dim")
+    benchmark_plot_metrics = ["benchmark_sinkhorn_divergence", "benchmark_mmd"]
+    if benchmark_mode_descriptors is not None and bool(benchmark_config.get("emc_enabled", True)):
+        benchmark_plot_metrics.append("benchmark_emc")
+    plot_benchmark_metrics_figure(
+        benchmark_t,
+        benchmark_mean,
+        benchmark_std,
+        benchmark_plot_metrics,
+        benchmark_base,
+        "High-Dimensional Target: Benchmark Metrics",
+        metric_labels={
+            "benchmark_sinkhorn_divergence": "Sinkhorn",
+            "benchmark_mmd": "MMD",
+            "benchmark_emc": "EMC",
+        },
+    )
+    save_benchmark_metrics_csv(
+        f"{benchmark_base}.csv",
+        benchmark_t,
+        benchmark_mean,
+        benchmark_std,
+        benchmark_metric_names,
+    )
+    save_benchmark_metadata_json(
+        os.path.join(out_dir, "metrics_benchmark_high_dim.json"),
+        "high_dim",
+        benchmark_config,
+        benchmark_metric_names,
+        mode_descriptors=benchmark_mode_descriptors,
+        extra_metadata={
+            **emc_metadata,
+            "benchmark_num_checkpoints": int(benchmark_t.size),
+        },
+    )
 
     avg_acc = float(np.mean(acc_rates)) if acc_rates else 0.0
     print(f"Done. Saved {out_prefix}_metrics.png and .pdf")
+    print(f"Saved benchmark metrics to: {benchmark_base}.png/.pdf/.csv")
     print(f"MALA mean acceptance rate: {avg_acc:.3f}")
 
 

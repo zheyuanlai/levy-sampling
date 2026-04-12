@@ -1,0 +1,19 @@
+{
+  "attempts_used": 316,
+  "benchmark": "LJ7(2d)",
+  "cluster_max_pair_distance": 3.6,
+  "descriptor_definition": "sorted pair distances of shape (21,)",
+  "descriptor_dim": 21,
+  "init_scale": 1.2,
+  "local_gtol": 1e-08,
+  "local_maxiter": 800,
+  "max_attempts": 4000,
+  "minima_filter": "Only compact bonded-cluster minima are retained. Candidates with max(sorted pair distance) above cluster_max_pair_distance are rejected to exclude nearly dissociated pseudo-minima from EMC preprocessing.",
+  "minima_tol": 0.0001,
+  "n_minima": 4,
+  "no_new_minima_patience": 300,
+  "r_min": 0.001,
+  "rejected_noncompact": 7,
+  "seed": 2026,
+  "temperature_reduced": 0.05
+}

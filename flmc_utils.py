@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-FLMC (Fractional Langevin Monte Carlo) Utilities
-
-This module provides core utilities for FLMC sampling, which uses alpha-stable
-Levy noise instead of compound Poisson jumps. FLMC is distinct from LSB-MC:
-- FLMC: uses alpha-stable noise, NO score correction
-- LSB-MC: uses compound Poisson jumps WITH score correction
-
-Reference: Deleted FLA.py (commit 843946a), adapted for current V-notation convention.
-"""
 
 import math
 from typing import Tuple
@@ -260,7 +250,8 @@ def step_flmc_nd(
     sigma: float,
     gradV_fn,
     rng: np.random.Generator,
-    clip_bounds: Tuple[float, float] = None
+    clip_bounds: Tuple[float, float] = None,
+    noise_cap: float | None = None,
 ) -> np.ndarray:
     """
     One step of FLMC for high-dimensional potential V(x).
@@ -277,14 +268,26 @@ def step_flmc_nd(
     This ensures rotational invariance, matching the structure of LSBMC jumps.
     The sigma factor ensures FLMC targets p_∞ ∝ exp(-2V/sigma²), matching ULA/MALA/LSBMC.
 
+    IMPORTANT — noise_cap for singular potentials:
+    Alpha-stable noise with alpha < 2 has heavy tails: individual samples can be
+    O(10^2)–O(10^4) with non-negligible probability. For singular potentials such as
+    Lennard-Jones (LJ ~ r^{-12}), an uncapped noise step can push atom pairs to
+    near-zero separations, producing astronomically large energies whose descriptors
+    lie far outside any reference cloud. This permanently inflates Sinkhorn/MMD even
+    after the subsequent tamed drift attempts recovery.  Set noise_cap to a value
+    comparable to the LSBMC jump_cap (e.g. 2.0 for LJ7(2d)) to avoid this.
+
     Args:
         x: Current positions (N, d)
         dt: Time step
         alpha: Tail index in (1, 2]
-        sigma: Noise scale (for target density, not used in FLMC update directly)
+        sigma: Noise scale
         gradV_fn: Gradient function gradV(X) returning (N, d) array
         rng: Random generator
         clip_bounds: Optional (min, max) bounds for clipping all coordinates
+        noise_cap: Optional cap on the Euclidean norm of the noise vector
+                   (applied before adding to state). Required for singular
+                   potentials like LJ to prevent atom-overlap blowups.
 
     Returns:
         Updated positions (N, d)
@@ -299,11 +302,20 @@ def step_flmc_nd(
     # Genuinely isotropic alpha-stable noise in R^d
     # Uses direction × radius decomposition to ensure rotational invariance
     stable_noise = sample_isotropic_alpha_stable_vector(rng, n_samples, dim, alpha)
+    noise_vec = sigma * (dt ** (1.0 / alpha)) * stable_noise
 
-    # Update with taming
+    # Cap noise norm for singular potentials (e.g. LJ).
+    # This truncates the heavy tail of the alpha-stable distribution in the
+    # direction sense only; the noise retains its heavy-tailed character for
+    # moderate-amplitude samples.
+    if noise_cap is not None:
+        noise_norm = np.linalg.norm(noise_vec, axis=1, keepdims=True)
+        noise_vec = noise_vec * np.minimum(1.0, float(noise_cap) / (noise_norm + 1e-12))
+
+    # Update with taming on drift
     # NOTE: sigma scaling ensures FLMC targets same distribution as ULA/MALA/LSBMC
     norm = np.linalg.norm(drift, axis=1, keepdims=True)
-    x_new = x + (dt * drift) / (1.0 + dt * norm) + sigma * (dt ** (1.0 / alpha)) * stable_noise
+    x_new = x + (dt * drift) / (1.0 + dt * norm) + noise_vec
 
     # Clip to bounds if provided
     if clip_bounds is not None:

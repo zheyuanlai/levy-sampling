@@ -5,6 +5,18 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from high_dim_output.benchmark_metrics import (
+    BENCHMARK_METHODS,
+    clip_samples_to_box,
+    compute_benchmark_metrics,
+    get_default_benchmark_config,
+    init_benchmark_history,
+    make_metric_rng,
+    plot_benchmark_metrics_figure,
+    sample_from_2d_grid_density,
+    save_benchmark_metadata_json,
+    save_benchmark_metrics_csv,
+)
 from flmc_utils import step_flmc_2d
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -332,6 +344,10 @@ def run_simulation(
     Sy,
     alpha=1.5,
     mala_dt=None,
+    benchmark_ref_samples=None,
+    benchmark_config=None,
+    benchmark_mode_descriptors=None,
+    return_benchmark_history=False,
 ):
     rng = np.random.default_rng(seed)
 
@@ -351,6 +367,18 @@ def run_simulation(
         "l2_flmc": [],
         "l2_m": [],
     }
+    benchmark_metric_names = [
+        "benchmark_sinkhorn_ot_cost",
+        "benchmark_sinkhorn_divergence",
+        "benchmark_mmd_squared",
+        "benchmark_mmd",
+        "benchmark_emc",
+    ]
+    benchmark_history = None
+    benchmark_lower = np.array([gx[0], gy[0]], dtype=float)
+    benchmark_upper = np.array([gx[-1], gy[-1]], dtype=float)
+    if benchmark_ref_samples is not None and benchmark_config is not None:
+        benchmark_history = init_benchmark_history(benchmark_metric_names)
     if mala_dt is None:
         mala_dt = dt
     acc_sum = 0.0
@@ -382,6 +410,30 @@ def run_simulation(
             history["l2_flmc"].append(l2f)
             history["l2_m"].append(l2m)
 
+            if benchmark_history is not None:
+                benchmark_history["t"].append(t)
+                method_samples = {
+                    "ula": clip_samples_to_box(X_diff, benchmark_lower, benchmark_upper),
+                    "mala": clip_samples_to_box(X_mala, benchmark_lower, benchmark_upper),
+                    "flmc": clip_samples_to_box(X_flmc, benchmark_lower, benchmark_upper),
+                    "lsbmc": clip_samples_to_box(X_levy, benchmark_lower, benchmark_upper),
+                }
+                for method_idx, (slug, _, _) in enumerate(BENCHMARK_METHODS):
+                    metric_rng = make_metric_rng(benchmark_config["metric_seed"], seed, i, method_idx)
+                    values = compute_benchmark_metrics(
+                        method_samples[slug],
+                        benchmark_ref_samples,
+                        benchmark_config,
+                        metric_rng,
+                        metric_prefix="benchmark",
+                        mode_descriptors=benchmark_mode_descriptors,
+                        context=f"fourwell seed={seed} t={t:.4f} method={slug}",
+                    )
+                    for metric_name in benchmark_metric_names:
+                        benchmark_history[f"{metric_name}_{slug}"].append(
+                            values.get(metric_name, float("nan"))
+                        )
+
         X_diff = step_diff(X_diff, dt, eps, gx, gy, bx, by, rng)
         X_levy = step_levy(X_levy, dt, eps, gx, gy, bx, by, Sx, Sy, rng, lam, sigma_L, mults, pm)
         X_flmc = step_flmc_2d(
@@ -398,6 +450,8 @@ def run_simulation(
         acc_count += 1
 
     acc_rate = acc_sum / max(acc_count, 1)
+    if return_benchmark_history:
+        return history, benchmark_history, X_diff, X_levy, X_flmc, X_mala, acc_rate
     return history, X_diff, X_levy, X_flmc, X_mala, acc_rate
 
 
@@ -420,12 +474,45 @@ def main():
     pi, bx, by, Sx, Sy = precompute_pi_b_S(eps, gx, gy, a, lam, sigma_L, mults, pm)
 
     alpha = 1.5
+    benchmark_config = get_default_benchmark_config({
+        "sinkhorn_method": "sinkhorn_stabilized",
+        "sinkhorn_epsilon": 0.25,
+        "sinkhorn_max_iter": 300,
+        "sinkhorn_tol": 1e-5,
+        "sinkhorn_subsample_size": 128,
+        "mmd_subsample_size": 192,
+        "emc_enabled": True,
+        "emc_tau": 0.5,
+    })
+    benchmark_mode_descriptors = np.array(
+        [
+            [-a, -a],
+            [-a, a],
+            [a, -a],
+            [a, a],
+        ],
+        dtype=float,
+    )
+    benchmark_ref_size = max(
+        1500,
+        int(benchmark_config["sinkhorn_subsample_size"]),
+        int(benchmark_config["mmd_subsample_size"]),
+    )
+    rng_benchmark = np.random.default_rng(benchmark_config["metric_seed"])
+    benchmark_ref = sample_from_2d_grid_density(
+        rng_benchmark,
+        pi,
+        gx,
+        gy,
+        benchmark_ref_size,
+    )
     print(f"Starting simulations over {num_seeds} seeds...")
     histories = []
+    benchmark_histories = []
     first_final = None
     acc_rates = []
     for seed in seeds:
-        history, X_diff, X_levy, X_flmc, X_mala, acc_rate = run_simulation(
+        history, benchmark_history, X_diff, X_levy, X_flmc, X_mala, acc_rate = run_simulation(
             seed,
             a,
             eps,
@@ -446,8 +533,13 @@ def main():
             Sx,
             Sy,
             alpha=alpha,
+            benchmark_ref_samples=benchmark_ref,
+            benchmark_config=benchmark_config,
+            benchmark_mode_descriptors=benchmark_mode_descriptors,
+            return_benchmark_history=True,
         )
         histories.append(history)
+        benchmark_histories.append(benchmark_history)
         acc_rates.append(acc_rate)
         if first_final is None:
             first_final = (X_diff, X_levy, X_flmc, X_mala)
@@ -464,10 +556,55 @@ def main():
         "l2_m",
     ]
     mean, std = aggregate_histories(histories, keys)
+    benchmark_metric_names = [
+        "benchmark_sinkhorn_ot_cost",
+        "benchmark_sinkhorn_divergence",
+        "benchmark_mmd_squared",
+        "benchmark_mmd",
+        "benchmark_emc",
+    ]
+    benchmark_keys = [
+        f"{metric_name}_{slug}"
+        for metric_name in benchmark_metric_names
+        for slug, _, _ in BENCHMARK_METHODS
+    ]
+    benchmark_mean, benchmark_std = aggregate_histories(benchmark_histories, benchmark_keys)
 
     out_dir = os.path.join(THIS_DIR, "fourwell_output")
     os.makedirs(out_dir, exist_ok=True)
     plot_metrics_figure(t, mean, std, out_dir)
+    benchmark_base = os.path.join(out_dir, "benchmark_metrics_fourwell")
+    plot_benchmark_metrics_figure(
+        t,
+        benchmark_mean,
+        benchmark_std,
+        ["benchmark_sinkhorn_divergence", "benchmark_mmd", "benchmark_emc"],
+        benchmark_base,
+        "Four-Well: Benchmark Metrics",
+        metric_labels={
+            "benchmark_sinkhorn_divergence": "Sinkhorn",
+            "benchmark_mmd": "MMD",
+            "benchmark_emc": "EMC",
+        },
+    )
+    save_benchmark_metrics_csv(
+        f"{benchmark_base}.csv",
+        t,
+        benchmark_mean,
+        benchmark_std,
+        benchmark_metric_names,
+    )
+    save_benchmark_metadata_json(
+        os.path.join(out_dir, "metrics_benchmark_fourwell.json"),
+        "fourwell",
+        benchmark_config,
+        benchmark_metric_names,
+        mode_descriptors=benchmark_mode_descriptors,
+        extra_metadata={
+            "benchmark_reference_size": int(benchmark_ref.shape[0]),
+            "mode_descriptor_source": "(±1, ±1)",
+        },
+    )
 
     X_diff, X_levy, X_flmc, X_mala = first_final
     d_dens = density_on_grid(X_diff, gx, gy)
@@ -485,6 +622,7 @@ def main():
     avg_acc = float(np.mean(acc_rates)) if acc_rates else 0.0
     print("Done. Saved metrics and density figures to:")
     print(out_dir)
+    print(f"Saved benchmark metrics to: {benchmark_base}.png/.pdf/.csv")
     print(f"MALA mean acceptance rate: {avg_acc:.3f}")
 
 

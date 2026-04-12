@@ -1,0 +1,18 @@
+{
+  "benchmark": "LJ7(2d)",
+  "burn_in_steps": 3000,
+  "caveat": "No finite mode set is imposed for LJ7(2d), so EMC is disabled. The reference cloud is an approximate descriptor-space equilibrium proxy built from many MALA chains started from compact configurations.",
+  "descriptor_dim": 21,
+  "dt": 0.001,
+  "init_noise": 0.08,
+  "init_scale": 1.1,
+  "mean_acceptance_rate": 0.8030557753164557,
+  "n_chains": 128,
+  "r_min": 0.001,
+  "reference_method": "multi-chain MALA from random rotated noisy compact LJ7 configurations",
+  "reference_size": 2048,
+  "seed": 2029,
+  "sigma_noise": 0.31622776601683794,
+  "temperature_reduced": 0.05,
+  "thin": 10
+}

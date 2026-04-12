@@ -2,32 +2,23 @@
 # -*- coding: utf-8 -*-
 """
 Ginzburg-Landau Double-Well Potential (1D)
-
-Manuscript: Section 5.1
-
-Potential: V(x) = (1/4)x^4 - (1/2)x^2
-SDE: dX_t = (X_t - X_t^3) dt + ε dB_t
-     (Note: drift = -∇V = X - X^3)
-
-Target density: p_∞(x) ∝ exp(-2V(x)/σ²) with σ = ε
-
-This script compares FOUR methods:
-1. ULA baseline (overdamped Langevin)
-2. MALA (Metropolis-adjusted Langevin algorithm)
-3. FLMC (Fractional Langevin Monte Carlo with alpha-stable noise)
-4. LSBMC (Levy-Score-Based Monte Carlo with compound Poisson jumps)
-
-Metrics:
-- W2 / L1 / L2 distributional errors
-- Average bias for observable = mean(x)
-  (Note: For symmetric double-well, mean(x) ≈ 0 at equilibrium.
-   Bias measures convergence to this equilibrium value.)
 """
 
 import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+from high_dim_output.benchmark_metrics import (
+    BENCHMARK_METHODS,
+    clip_samples_to_box,
+    compute_benchmark_metrics,
+    get_default_benchmark_config,
+    init_benchmark_history,
+    make_metric_rng,
+    plot_benchmark_metrics_figure,
+    save_benchmark_metadata_json,
+    save_benchmark_metrics_csv,
+)
 
 # Import FLMC utilities
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -480,6 +471,7 @@ def run_doublewell_experiment(
     seed: int = 42,
     output_dir: str = None,
     mala_dt: float = None,
+    benchmark_config: dict = None,
 ):
     """
     Run double-well experiment comparing ULA vs MALA vs FLMC vs LSBMC.
@@ -504,6 +496,18 @@ def run_doublewell_experiment(
         multipliers = [1.0, 1.8, 2.6]
     if pm is None:
         pm = [0.70, 0.22, 0.08]
+    if benchmark_config is None:
+        benchmark_config = get_default_benchmark_config({
+            "benchmark_num_repeats": 4,
+            "sinkhorn_method": "sinkhorn_stabilized",
+            "sinkhorn_epsilon": 0.1,
+            "sinkhorn_max_iter": 300,
+            "sinkhorn_tol": 1e-5,
+            "sinkhorn_subsample_size": 512,
+            "mmd_subsample_size": 768,
+            "emc_enabled": True,
+            "emc_tau": 0.5,
+        })
 
     print("=" * 70)
     print("GINZBURG-LANDAU DOUBLE-WELL (1D)")
@@ -554,6 +558,7 @@ def run_doublewell_experiment(
     # Reference samples for W2
     n_ref = 3000
     ref_samples = sample_from_target_1d(rng, pi, gx, n_ref)
+    benchmark_mode_descriptors = np.array([[-1.0], [1.0]], dtype=float)
 
     # History tracking
     steps = int(round(T / dt))
@@ -566,6 +571,14 @@ def run_doublewell_experiment(
         "w2_flmc": [], "l1_flmc": [], "l2_flmc": [], "bias_flmc": [],
         "w2_lsb": [], "l1_lsb": [], "l2_lsb": [], "bias_lsb": []
     }
+    benchmark_metric_names = [
+        "benchmark_sinkhorn_ot_cost",
+        "benchmark_sinkhorn_divergence",
+        "benchmark_mmd_squared",
+        "benchmark_mmd",
+        "benchmark_emc",
+    ]
+    benchmark_history = init_benchmark_history(benchmark_metric_names)
     acc_mala_sum = 0.0
     acc_mala_count = 0
 
@@ -617,6 +630,29 @@ def run_doublewell_experiment(
             history["l2_lsb"].append(l2_l)
             history["bias_lsb"].append(bias_l)
 
+            benchmark_history["t"].append(t)
+            method_samples = {
+                "ula": clip_samples_to_box(x_diff, gx[0], gx[-1]),
+                "mala": clip_samples_to_box(x_mala, gx[0], gx[-1]),
+                "flmc": clip_samples_to_box(x_flmc, gx[0], gx[-1]),
+                "lsbmc": clip_samples_to_box(x_lsb, gx[0], gx[-1]),
+            }
+            for method_idx, (slug, _, _) in enumerate(BENCHMARK_METHODS):
+                metric_rng = make_metric_rng(benchmark_config["metric_seed"], seed, i, method_idx)
+                values = compute_benchmark_metrics(
+                    method_samples[slug],
+                    ref_samples,
+                    benchmark_config,
+                    metric_rng,
+                    metric_prefix="benchmark",
+                    mode_descriptors=benchmark_mode_descriptors,
+                    context=f"doublewell seed={seed} t={t:.4f} method={slug}",
+                )
+                for metric_name in benchmark_metric_names:
+                    benchmark_history[f"{metric_name}_{slug}"].append(
+                        values.get(metric_name, float("nan"))
+                    )
+
             print(
                 f"t={t:6.2f} | W2: ula={w2_d:.4f}, mala={w2_m:.4f}, flmc={w2_f:.4f}, lsbmc={w2_l:.4f} | "
                 f"Bias: ula={bias_d:.4f}, mala={bias_m:.4f}, flmc={bias_f:.4f}, lsbmc={bias_l:.4f}"
@@ -650,7 +686,54 @@ def run_doublewell_experiment(
     if output_dir is not None:
         os.makedirs(output_dir, exist_ok=True)
         plot_results(history, gx, pi, x_diff, x_mala, x_flmc, x_lsb, output_dir)
+        benchmark_keys = [
+            f"{metric_name}_{slug}"
+            for metric_name in benchmark_metric_names
+            for slug, _, _ in BENCHMARK_METHODS
+        ]
+        benchmark_mean = {
+            key: np.asarray(benchmark_history[key], dtype=float)
+            for key in benchmark_keys
+        }
+        benchmark_std = {
+            key: np.zeros_like(benchmark_mean[key])
+            for key in benchmark_keys
+        }
+        t_benchmark = np.asarray(benchmark_history["t"], dtype=float)
+        benchmark_base = os.path.join(output_dir, "benchmark_metrics_doublewell")
+        plot_benchmark_metrics_figure(
+            t_benchmark,
+            benchmark_mean,
+            benchmark_std,
+            ["benchmark_sinkhorn_divergence", "benchmark_mmd", "benchmark_emc"],
+            benchmark_base,
+            "Double-Well: Benchmark Metrics",
+            metric_labels={
+                "benchmark_sinkhorn_divergence": "Sinkhorn",
+                "benchmark_mmd": "MMD",
+                "benchmark_emc": "EMC",
+            },
+        )
+        save_benchmark_metrics_csv(
+            f"{benchmark_base}.csv",
+            t_benchmark,
+            benchmark_mean,
+            benchmark_std,
+            benchmark_metric_names,
+        )
+        save_benchmark_metadata_json(
+            os.path.join(output_dir, "metrics_benchmark_doublewell.json"),
+            "doublewell",
+            benchmark_config,
+            benchmark_metric_names,
+            mode_descriptors=benchmark_mode_descriptors,
+            extra_metadata={
+                "benchmark_reference_size": int(ref_samples.shape[0]),
+                "mode_descriptor_source": "xi_1=-1, xi_2=+1",
+            },
+        )
         print(f"Figures saved to: {output_dir}")
+        print(f"Benchmark metrics saved to: {benchmark_base}.png/.pdf/.csv")
 
     return history
 

@@ -1,0 +1,52 @@
+{
+  "benchmark_config": {
+    "benchmark_num_checkpoints": 7,
+    "benchmark_num_repeats": 1,
+    "emc_enabled": true,
+    "emc_max_modes": 256,
+    "emc_tau": 0.2,
+    "metric_seed": 2026,
+    "mmd_bandwidth_base": 1.0,
+    "mmd_bandwidth_multiplier": 2.0,
+    "mmd_num_kernels": 10,
+    "mmd_subsample_size": 192,
+    "sinkhorn_backend": "auto",
+    "sinkhorn_epsilon": 0.25,
+    "sinkhorn_max_iter": 300,
+    "sinkhorn_method": "sinkhorn_stabilized",
+    "sinkhorn_subsample_size": 128,
+    "sinkhorn_tol": 1e-05
+  },
+  "benchmark_metric_names": [
+    "benchmark_sinkhorn_ot_cost",
+    "benchmark_sinkhorn_divergence",
+    "benchmark_mmd_squared",
+    "benchmark_mmd",
+    "benchmark_emc"
+  ],
+  "benchmark_reference_size": 1500,
+  "emc_applicable": true,
+  "emc_definition": "Normalized entropy of the aggregate soft mode-occupancy probabilities, so 0 indicates single-mode collapse and 1 indicates uniform coverage across the predefined mode descriptors.",
+  "emc_descriptor_description": "Four explicit local minima of the M\u00fcller-Brown potential.",
+  "mode_descriptors": [
+    [
+      0.01930266,
+      0.47927555
+    ],
+    [
+      0.96190327,
+      0.01893948
+    ],
+    [
+      -0.79793766,
+      -0.49426091
+    ],
+    [
+      -0.5001683,
+      1.49979865
+    ]
+  ],
+  "sinkhorn_divergence_definition": "Debiased Sinkhorn divergence built from the regularized OT objective.",
+  "sinkhorn_ot_cost_definition": "Regularized OT objective with entropy term, matching the configured benchmark formula.",
+  "target": "mueller"
+}

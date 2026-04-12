@@ -1,1459 +1,2038 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 import argparse
+import csv
+import json
 import os
-import numpy as np
-import matplotlib.pyplot as plt
 import warnings
-from flmc_utils import c_alpha, sample_symmetric_alpha_stable
+from dataclasses import dataclass
+
+import numpy as np
+from scipy.optimize import minimize
+
+from flmc_utils import step_flmc_nd
+from high_dim_output.benchmark_metrics import (
+    BENCHMARK_METHODS,
+    compute_benchmark_metrics,
+    get_default_benchmark_config,
+    init_benchmark_history,
+    make_metric_rng,
+    plot_benchmark_metrics_figure,
+    save_benchmark_metadata_json,
+    save_benchmark_metrics_csv,
+)
+
 
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_OUTPUT_DIR = os.path.join(THIS_DIR, "lennard_jones_output")
 
-HAS_POT = None
-_OT_MODULE = None
+N_ATOMS = 7
+SPATIAL_DIM = 2
+FLAT_DIM = N_ATOMS * SPATIAL_DIM
+DESCRIPTOR_DIM = N_ATOMS * (N_ATOMS - 1) // 2
+PAIR_I, PAIR_J = np.triu_indices(N_ATOMS, k=1)
+
+DEFAULT_T_STAR = 0.05
+DEFAULT_SIGMA_NOISE = float(np.sqrt(2.0 * DEFAULT_T_STAR))
+DEFAULT_R_MIN = 1e-3
+DEFAULT_CLUSTER_MAX_PAIR_DISTANCE = 3.6
+
+# Canonical ordered list of EMC checkpoint metrics.
+# Both run_simulation() and main() reference this constant so that the
+# metric name lists stay synchronized when metrics are added or removed.
+_EMC_METRIC_NAMES = [
+    "lj7_emc",
+    "lj7_assigned_fraction",
+    "lj7_hard_mode_coverage",
+    "lj7_conditional_mode_entropy",
+]
 
 
-EXPO_CLIP = 80.0
-LOGR_CLIP = 40.0
-S_CLIP = 120.0
-R2_EPS = 1e-12
+@dataclass(frozen=True)
+class LJ7Paths:
+    output_dir: str
+    minima_raw: str
+    minima_descriptors: str
+    minima_energies: str
+    minima_metadata: str
+    minima_summary: str
+    reference_descriptors: str
+    reference_metadata: str
+    benchmark_base: str
+    benchmark_metadata: str
+    emc_benchmark_base: str
+    mode_occupancy_final_by_seed: str
+    mode_occupancy_final_summary: str
 
 
-# ============================================================
-# 1. Lennard-Jones model (paper-aligned core)
-# ============================================================
+def get_lj7_paths(output_dir: str = DEFAULT_OUTPUT_DIR) -> LJ7Paths:
+    output_dir = os.path.abspath(output_dir)
+    return LJ7Paths(
+        output_dir=output_dir,
+        minima_raw=os.path.join(output_dir, "minima_raw.npy"),
+        minima_descriptors=os.path.join(output_dir, "minima_descriptors.npy"),
+        minima_energies=os.path.join(output_dir, "minima_energies.csv"),
+        minima_metadata=os.path.join(output_dir, "minima_metadata.json"),
+        minima_summary=os.path.join(output_dir, "minima_summary.csv"),
+        reference_descriptors=os.path.join(output_dir, "reference_descriptors_lj7_2d.npy"),
+        reference_metadata=os.path.join(output_dir, "reference_metadata_lj7_2d.json"),
+        benchmark_base=os.path.join(output_dir, "benchmark_metrics_lennard_jones_n7_d2"),
+        benchmark_metadata=os.path.join(output_dir, "metrics_benchmark_lennard_jones_n7_d2.json"),
+        emc_benchmark_base=os.path.join(output_dir, "emc_metrics_lennard_jones_n7_d2"),
+        mode_occupancy_final_by_seed=os.path.join(output_dir, "mode_occupancy_final_by_seed.csv"),
+        mode_occupancy_final_summary=os.path.join(output_dir, "mode_occupancy_final_summary.csv"),
+    )
 
-def V_pair(r, lj_eps=1.0, sigma=1.0):
-    """Lennard-Jones pair potential 4*eps*((sigma/r)^12-(sigma/r)^6)."""
-    r = np.asarray(r)
-    r_safe = np.maximum(r, np.sqrt(R2_EPS))
-    sr = sigma / r_safe
-    sr6 = sr**6
-    sr12 = sr6**2
-    return 4.0 * lj_eps * (sr12 - sr6)
+
+def ensure_output_dir(output_dir: str = DEFAULT_OUTPUT_DIR) -> LJ7Paths:
+    paths = get_lj7_paths(output_dir)
+    os.makedirs(paths.output_dir, exist_ok=True)
+    return paths
 
 
-def V_lj_cluster(R, lj_eps=1.0, sigma=1.0, r_soft=0.0):
-    """
-    Full N-particle LJ cluster potential.
+def resolve_unique_output_base(base_path: str) -> str:
+    """Avoid overwriting an existing benchmark figure/CSV bundle."""
+    if not (
+        os.path.exists(f"{base_path}.png")
+        or os.path.exists(f"{base_path}.pdf")
+        or os.path.exists(f"{base_path}.csv")
+    ):
+        return base_path
 
-    R shape:
-      - (N, d), or
-      - (B, N, d) for batched evaluations.
-    """
+    suffix = 1
+    while True:
+        candidate = f"{base_path}_run{suffix:02d}"
+        if not (
+            os.path.exists(f"{candidate}.png")
+            or os.path.exists(f"{candidate}.pdf")
+            or os.path.exists(f"{candidate}.csv")
+        ):
+            return candidate
+        suffix += 1
+
+
+def resolve_unique_json_path(path: str) -> str:
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(path)
+    suffix = 1
+    while True:
+        candidate = f"{stem}_run{suffix:02d}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+        suffix += 1
+
+
+def _ensure_state_batch(R: np.ndarray) -> tuple[np.ndarray, bool]:
     arr = np.asarray(R, dtype=float)
-    squeeze = False
-    if arr.ndim == 2:
-        arr = arr[None, ...]
-        squeeze = True
-    if arr.ndim != 3:
-        raise ValueError("R must have shape (N,d) or (B,N,d).")
+    if arr.ndim == 2 and arr.shape == (N_ATOMS, SPATIAL_DIM):
+        return arr[None, ...], True
+    if arr.ndim == 3 and arr.shape[1:] == (N_ATOMS, SPATIAL_DIM):
+        return arr, False
+    raise ValueError(f"Expected shape ({N_ATOMS}, {SPATIAL_DIM}) or (batch, {N_ATOMS}, {SPATIAL_DIM}).")
 
-    _, n_particles, _ = arr.shape
-    v = np.zeros(arr.shape[0], dtype=float)
-    soft2 = float(r_soft) ** 2
 
-    for i in range(n_particles):
-        for j in range(i + 1, n_particles):
-            dr = arr[:, i, :] - arr[:, j, :]
-            r2 = np.sum(dr * dr, axis=1) + soft2 + R2_EPS
-            inv_r2 = (sigma * sigma) / r2
-            inv_r6 = inv_r2**3
-            inv_r12 = inv_r6**2
-            v += 4.0 * lj_eps * (inv_r12 - inv_r6)
+def flatten_states(R: np.ndarray) -> np.ndarray:
+    batch, squeeze = _ensure_state_batch(R)
+    flat = batch.reshape(batch.shape[0], FLAT_DIM)
+    return flat[0] if squeeze else flat
 
-    if squeeze:
-        return float(v[0])
-    return v
 
-
-def gradV_lj_cluster(R, lj_eps=1.0, sigma=1.0, r_soft=0.0):
-    """
-    Gradient of full N-particle LJ cluster potential.
-
-    Returns array with same shape as R.
-    """
-    arr = np.asarray(R, dtype=float)
-    squeeze = False
-    if arr.ndim == 2:
-        arr = arr[None, ...]
-        squeeze = True
-    if arr.ndim != 3:
-        raise ValueError("R must have shape (N,d) or (B,N,d).")
-
-    _, n_particles, _ = arr.shape
-    grad = np.zeros_like(arr)
-    soft2 = float(r_soft) ** 2
-
-    for i in range(n_particles):
-        for j in range(i + 1, n_particles):
-            dr = arr[:, i, :] - arr[:, j, :]
-            r2 = np.sum(dr * dr, axis=1) + soft2 + R2_EPS
-            inv_r2 = (sigma * sigma) / r2
-            inv_r6 = inv_r2**3
-            inv_r12 = inv_r6**2
-            coef = 24.0 * lj_eps * (inv_r6 - 2.0 * inv_r12) / r2
-            force_ij = coef[:, None] * dr
-            grad[:, i, :] += force_ij
-            grad[:, j, :] -= force_ij
-
-    if squeeze:
-        return grad[0]
-    return grad
-
-
-def step_langevin_cluster(R, dt, eps, lj_eps=1.0, sigma=1.0, r_soft=0.0, rng=None):
-    """
-    Euler-Maruyama step for the paper SDE on (R^d)^N:
-      dR_t = -0.5 * grad V(R_t) dt + eps dB_t
-    """
-    if rng is None:
-        rng = np.random.default_rng()
-    arr = np.asarray(R, dtype=float)
-    grad = gradV_lj_cluster(arr, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    noise = eps * np.sqrt(dt) * rng.standard_normal(arr.shape)
-    return arr - 0.5 * dt * grad + noise
-
-
-# ============================================================
-# 2. Reduced 2D potential used by existing plotting scripts
-# ============================================================
-
-def V_lj_xy(x, y, lj_eps=1.0, sigma=1.0, r_soft=0.20):
-    x = np.asarray(x)
-    y = np.asarray(y)
-    r2 = x * x + y * y + float(r_soft) ** 2 + R2_EPS
-    inv_r2 = (sigma * sigma) / r2
-    inv_r6 = inv_r2**3
-    inv_r12 = inv_r6**2
-    return 4.0 * lj_eps * (inv_r12 - inv_r6)
-
-
-def gradV_lj_xy(x, y, lj_eps=1.0, sigma=1.0, r_soft=0.20):
-    x = np.asarray(x)
-    y = np.asarray(y)
-    r2 = x * x + y * y + float(r_soft) ** 2 + R2_EPS
-    inv_r2 = (sigma * sigma) / r2
-    inv_r6 = inv_r2**3
-    inv_r12 = inv_r6**2
-    coef = 24.0 * lj_eps * (inv_r6 - 2.0 * inv_r12) / r2
-    return coef * x, coef * y
-
-
-def logpi_lj_xy(x, y, eps, lj_eps=1.0, sigma=1.0, r_soft=0.20):
-    return -V_lj_xy(x, y, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft) / (eps**2)
-
-
-def grad_logpi_lj_xy(x, y, eps, lj_eps=1.0, sigma=1.0, r_soft=0.20):
-    gx, gy = gradV_lj_xy(x, y, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    return -gx / (eps**2), -gy / (eps**2)
-
-
-# ============================================================
-# 3. Utilities
-# ============================================================
-
-def bilinear_interp(x, y, gx, gy, F):
-    x = np.clip(x, gx[0], gx[-1])
-    y = np.clip(y, gy[0], gy[-1])
-    dx = gx[1] - gx[0]
-    dy = gy[1] - gy[0]
-    ix = np.clip(np.searchsorted(gx, x, side="right") - 1, 0, gx.size - 2)
-    iy = np.clip(np.searchsorted(gy, y, side="right") - 1, 0, gy.size - 2)
-    x1 = gx[ix]
-    y1 = gy[iy]
-    wx = (x - x1) / (dx + 1e-12)
-    wy = (y - y1) / (dy + 1e-12)
-    return (
-        (1.0 - wx) * (1.0 - wy) * F[iy, ix]
-        + wx * (1.0 - wy) * F[iy, ix + 1]
-        + (1.0 - wx) * wy * F[iy + 1, ix]
-        + wx * wy * F[iy + 1, ix + 1]
-    )
-
-
-def gaussian_kernel_1d(sigma, dx, truncate=4.0):
-    m = int(np.ceil(truncate * sigma / dx))
-    xs = np.arange(-m, m + 1) * dx
-    ker = np.exp(-0.5 * (xs / sigma) ** 2)
-    return ker / (np.sum(ker) * dx + 1e-300)
-
-
-def smooth2d_separable(P, ker_x, ker_y):
-    tmp = np.array([np.convolve(row, ker_x, mode="same") for row in P])
-    return np.array(
-        [np.convolve(tmp[:, j], ker_y, mode="same") for j in range(P.shape[1])]
-    ).T
-
-
-def density_on_grid(samples, gx, gy, do_smooth=True, smoothing_sigma=0.07):
-    dx = gx[1] - gx[0]
-    dy = gy[1] - gy[0]
-    bins_x = np.concatenate([gx - dx / 2.0, [gx[-1] + dx / 2.0]])
-    bins_y = np.concatenate([gy - dy / 2.0, [gy[-1] + dy / 2.0]])
-    H, _, _ = np.histogram2d(samples[:, 1], samples[:, 0], bins=[bins_y, bins_x])
-    P = H / (samples.shape[0] * dx * dy + 1e-12)
-    if do_smooth:
-        ker = gaussian_kernel_1d(smoothing_sigma, dx)
-        P = smooth2d_separable(P, ker, ker)
-    return np.maximum(P, 1e-300) / (P.sum() * dx * dy + 1e-300)
-
-
-def compute_errors(dens, pi, dx, dy):
-    abs_err = np.abs(dens - pi)
-    mae = np.sum(abs_err) * dx * dy
-    l2_err = np.sqrt(np.sum((dens - pi) ** 2) * dx * dy)
-    return abs_err, mae, l2_err
-
-
-def sample_from_pi_grid(rng, pi, gx, gy, n_samples):
-    dx = gx[1] - gx[0]
-    dy = gy[1] - gy[0]
-    w = (pi * dx * dy).ravel()
-    w = w / (w.sum() + 1e-300)
-    idx = rng.choice(w.size, size=n_samples, p=w)
-    iy, ix = np.unravel_index(idx, pi.shape)
-    return np.stack(
-        [
-            gx[ix] + (rng.random(n_samples) - 0.5) * dx,
-            gy[iy] + (rng.random(n_samples) - 0.5) * dy,
-        ],
-        axis=1,
-    )
-
-
-# ============================================================
-# 4. Precompute invariant density, drift and Levy score
-# ============================================================
-
-def precompute_pi_b_S(
-    eps,
-    gx,
-    gy,
-    lj_eps,
-    sigma,
-    r_soft,
-    lam,
-    sigma_L,
-    mults,
-    pm,
-    num_dirs=16,
-    jump_mu=0.0,
-    jump_kappa=0.0,
-):
-    X, Y = np.meshgrid(gx, gy, indexing="xy")
-    V = V_lj_xy(X, Y, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    logpi = -V / (eps**2)
-    logpi -= np.max(logpi)
-    pi = np.exp(np.clip(logpi, -EXPO_CLIP, 0.0))
-    pi /= np.sum(pi) * (gx[1] - gx[0]) * (gy[1] - gy[0]) + 1e-300
-
-    dVx, dVy = gradV_lj_xy(X, Y, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    bx, by = -0.5 * dVx, -0.5 * dVy
-
-    angles = np.linspace(0.0, 2.0 * np.pi, num_dirs, endpoint=False)
-    if jump_kappa > 1e-12:
-        w = np.exp(
-            np.clip(jump_kappa * np.cos(angles - jump_mu), -LOGR_CLIP, LOGR_CLIP)
-        )
-        dir_weights = w / (np.sum(w) + 1e-300)
-    else:
-        dir_weights = np.ones_like(angles) / len(angles)
-    dirs = np.stack([np.cos(angles), np.sin(angles)], axis=1)
-
-    Sx = np.zeros_like(pi)
-    Sy = np.zeros_like(pi)
-    thetas = np.linspace(0.05, 1.0, 17)
-
-    for k, pk in enumerate(pm):
-        z_mag = sigma_L * mults[k]
-        for d_idx, u in enumerate(dirs):
-            zx = z_mag * u[0]
-            zy = z_mag * u[1]
-            accx = np.zeros_like(pi)
-            accy = np.zeros_like(pi)
-            for th in thetas:
-                Vp = V_lj_xy(
-                    X + th * zx,
-                    Y + th * zy,
-                    lj_eps=lj_eps,
-                    sigma=sigma,
-                    r_soft=r_soft,
-                )
-                Vm = V_lj_xy(
-                    X - th * zx,
-                    Y - th * zy,
-                    lj_eps=lj_eps,
-                    sigma=sigma,
-                    r_soft=r_soft,
-                )
-                rp = np.exp(np.clip(-(Vp - V) / (eps**2), -LOGR_CLIP, LOGR_CLIP))
-                rm = np.exp(np.clip(-(Vm - V) / (eps**2), -LOGR_CLIP, LOGR_CLIP))
-                term = 0.5 * (rm - rp)
-                accx += term * zx
-                accy += term * zy
-            Sx += pk * dir_weights[d_idx] * (accx / len(thetas))
-            Sy += pk * dir_weights[d_idx] * (accy / len(thetas))
-
-    return (
-        pi,
-        bx,
-        by,
-        lam * np.clip(Sx, -S_CLIP, S_CLIP),
-        lam * np.clip(Sy, -S_CLIP, S_CLIP),
-    )
-
-
-# ============================================================
-# 5. Simulation kernels
-# ============================================================
-
-def step_diff(X, dt, eps, gx, gy, bx_g, by_g, rng):
-    bx = bilinear_interp(X[:, 0], X[:, 1], gx, gy, bx_g)
-    by = bilinear_interp(X[:, 0], X[:, 1], gx, gy, by_g)
-    norm = np.sqrt(bx * bx + by * by) + 1e-8
-    drift = dt * np.stack([bx, by], axis=1) / (1.0 + dt * norm)[:, None]
-    noise = eps * np.sqrt(dt) * rng.standard_normal(X.shape)
-    return X + drift + noise
-
-
-def _sample_jump_angles(rng, size, jump_mu, jump_kappa):
-    if jump_kappa > 1e-12:
-        return rng.vonmises(jump_mu, jump_kappa, size=size)
-    return rng.random(size) * 2.0 * np.pi
-
-
-def step_levy(
-    X,
-    dt,
-    eps,
-    gx,
-    gy,
-    bx_g,
-    by_g,
-    Sx_g,
-    Sy_g,
-    rng,
-    lam,
-    sigma_L,
-    mults,
-    pm,
-    jump_mu=0.0,
-    jump_kappa=0.0,
-    jump_cap=2.0,
-):
-    bx = bilinear_interp(X[:, 0], X[:, 1], gx, gy, bx_g)
-    by = bilinear_interp(X[:, 0], X[:, 1], gx, gy, by_g)
-    sx = bilinear_interp(X[:, 0], X[:, 1], gx, gy, Sx_g)
-    sy = bilinear_interp(X[:, 0], X[:, 1], gx, gy, Sy_g)
-    dx = bx - sx
-    dy = by - sy
-    norm = np.sqrt(dx * dx + dy * dy) + 1e-8
-    X_new = X + dt * np.stack([dx, dy], axis=1) / (1.0 + dt * norm)[:, None]
-    X_new += eps * np.sqrt(dt) * rng.standard_normal(X.shape)
-
-    n_jumps = rng.poisson(lam * dt, size=X.shape[0])
-    idx = np.where(n_jumps > 0)[0]
-    if idx.size > 0:
-        for i in idx:
-            k = int(n_jumps[i])
-            mags = sigma_L * rng.choice(mults, size=k, p=pm)
-            ang = _sample_jump_angles(rng, size=k, jump_mu=jump_mu, jump_kappa=jump_kappa)
-            jx = np.sum(mags * np.cos(ang))
-            jy = np.sum(mags * np.sin(ang))
-            if jump_cap is not None:
-                mag = np.sqrt(jx * jx + jy * jy) + 1e-12
-                if mag > jump_cap:
-                    scale = jump_cap / mag
-                    jx *= scale
-                    jy *= scale
-            X_new[i, 0] += jx
-            X_new[i, 1] += jy
-    return X_new
-
-
-def step_mala(X, dt, eps, lj_eps, sigma, r_soft, rng):
-    x = X[:, 0]
-    y = X[:, 1]
-    gx, gy = grad_logpi_lj_xy(
-        x, y, eps, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft
-    )
-    grad = np.stack([gx, gy], axis=1)
-
-    mean = X + 0.5 * dt * grad
-    proposal = mean + np.sqrt(dt) * rng.standard_normal(X.shape)
-
-    logp_x = logpi_lj_xy(x, y, eps, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    logp_y = logpi_lj_xy(
-        proposal[:, 0],
-        proposal[:, 1],
-        eps,
-        lj_eps=lj_eps,
-        sigma=sigma,
-        r_soft=r_soft,
-    )
-
-    gyx, gyy = grad_logpi_lj_xy(
-        proposal[:, 0],
-        proposal[:, 1],
-        eps,
-        lj_eps=lj_eps,
-        sigma=sigma,
-        r_soft=r_soft,
-    )
-    grad_y = np.stack([gyx, gyy], axis=1)
-    mean_y = proposal + 0.5 * dt * grad_y
-
-    log_q_y_given_x = -np.sum((proposal - mean) ** 2, axis=1) / (2.0 * dt)
-    log_q_x_given_y = -np.sum((X - mean_y) ** 2, axis=1) / (2.0 * dt)
-    log_alpha = (logp_y + log_q_x_given_y) - (logp_x + log_q_y_given_x)
-
-    accept = np.log(rng.random(X.shape[0])) < log_alpha
-    X_new = X.copy()
-    X_new[accept] = proposal[accept]
-    return X_new, float(accept.mean())
-
-
-def step_malevy(
-    X,
-    dt,
-    eps,
-    lj_eps,
-    sigma,
-    r_soft,
-    rng,
-    lam,
-    sigma_L,
-    mults,
-    pm,
-    jump_mu=0.0,
-    jump_kappa=0.0,
-    jump_cap=2.0,
-):
-    X_mid, _ = step_mala(X, dt, eps, lj_eps, sigma, r_soft, rng)
-    proposal = X_mid.copy()
-    n_jumps = rng.poisson(lam * dt, size=X.shape[0])
-    idx = np.where(n_jumps > 0)[0]
-    if idx.size > 0:
-        for i in idx:
-            k = int(n_jumps[i])
-            mags = sigma_L * rng.choice(mults, size=k, p=pm)
-            ang = _sample_jump_angles(rng, size=k, jump_mu=jump_mu, jump_kappa=jump_kappa)
-            jx = np.sum(mags * np.cos(ang))
-            jy = np.sum(mags * np.sin(ang))
-            if jump_cap is not None:
-                mag = np.sqrt(jx * jx + jy * jy) + 1e-12
-                if mag > jump_cap:
-                    scale = jump_cap / mag
-                    jx *= scale
-                    jy *= scale
-            proposal[i, 0] += jx
-            proposal[i, 1] += jy
-
-    logp_x = logpi_lj_xy(
-        X_mid[:, 0], X_mid[:, 1], eps, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft
-    )
-    logp_y = logpi_lj_xy(
-        proposal[:, 0], proposal[:, 1], eps, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft
-    )
-    log_alpha = logp_y - logp_x
-    accept = np.log(rng.random(X.shape[0])) < log_alpha
-    X_new = X_mid.copy()
-    X_new[accept] = proposal[accept]
-    return X_new, float(accept.mean())
-
-
-# ============================================================
-# 6. High-dimensional LJ-cluster helpers (default: N=7, d=3)
-# ============================================================
-
-DEFAULT_LJ_N_PARTICLES = 7
-DEFAULT_LJ_SPATIAL_DIM = 3
-
-LJ7_N_PARTICLES = DEFAULT_LJ_N_PARTICLES
-LJ7_SPATIAL_DIM = DEFAULT_LJ_SPATIAL_DIM
-LJ7_DIM = LJ7_N_PARTICLES * LJ7_SPATIAL_DIM
-PAIR_I, PAIR_J = np.triu_indices(LJ7_N_PARTICLES, k=1)
-
-
-def configure_lj7_geometry(
-    n_particles=DEFAULT_LJ_N_PARTICLES,
-    spatial_dim=DEFAULT_LJ_SPATIAL_DIM,
-):
-    """
-    Configure flattened-cluster helpers to work on (R^d)^N.
-    """
-    global LJ7_N_PARTICLES, LJ7_SPATIAL_DIM, LJ7_DIM, PAIR_I, PAIR_J
-    n = int(n_particles)
-    d = int(spatial_dim)
-    if n < 2:
-        raise ValueError("n_particles must be >= 2.")
-    if d < 1:
-        raise ValueError("spatial_dim must be >= 1.")
-    LJ7_N_PARTICLES = n
-    LJ7_SPATIAL_DIM = d
-    LJ7_DIM = n * d
-    PAIR_I, PAIR_J = np.triu_indices(n, k=1)
-
-
-def _to_lj7_cluster(X):
+def unflatten_states(X: np.ndarray) -> np.ndarray:
     arr = np.asarray(X, dtype=float)
-    if arr.ndim == 2 and arr.shape[1] == LJ7_DIM:
-        return arr.reshape(arr.shape[0], LJ7_N_PARTICLES, LJ7_SPATIAL_DIM)
-    if (
-        arr.ndim == 3
-        and arr.shape[1] == LJ7_N_PARTICLES
-        and arr.shape[2] == LJ7_SPATIAL_DIM
-    ):
-        return arr
-    raise ValueError(
-        f"Expected shape (batch, {LJ7_DIM}) or "
-        f"(batch, {LJ7_N_PARTICLES}, {LJ7_SPATIAL_DIM})."
+    if arr.ndim == 1 and arr.size == FLAT_DIM:
+        return arr.reshape(N_ATOMS, SPATIAL_DIM)
+    if arr.ndim == 2 and arr.shape[1] == FLAT_DIM:
+        return arr.reshape(arr.shape[0], N_ATOMS, SPATIAL_DIM)
+    raise ValueError(f"Expected shape ({FLAT_DIM},) or (batch, {FLAT_DIM}).")
+
+
+def remove_center_of_mass(R: np.ndarray) -> np.ndarray:
+    """
+    Project the free cluster into the COM=0 gauge.
+
+    This is mandatory for the benchmark because the raw LJ7(2d) system is
+    translation-invariant.
+    """
+    batch, squeeze = _ensure_state_batch(R)
+    centered = batch - np.mean(batch, axis=1, keepdims=True)
+    return centered[0] if squeeze else centered
+
+
+def sample_com_free_directions(
+    rng: np.random.Generator,
+    n_dirs: int,
+) -> np.ndarray:
+    """
+    Sample approximately isotropic directions in the COM=0 subspace.
+    """
+    directions = []
+    while len(directions) < int(n_dirs):
+        raw = rng.standard_normal((int(n_dirs), N_ATOMS, SPATIAL_DIM))
+        raw = remove_center_of_mass(raw)
+        norms = np.linalg.norm(raw.reshape(raw.shape[0], -1), axis=1)
+        mask = norms > 1e-12
+        if not np.any(mask):
+            continue
+        raw = raw[mask]
+        norms = norms[mask][:, None, None]
+        directions.extend((raw / norms).tolist())
+    return np.asarray(directions[: int(n_dirs)], dtype=float)
+
+
+def safe_pair_distances(R: np.ndarray, r_min: float = DEFAULT_R_MIN) -> np.ndarray:
+    batch, squeeze = _ensure_state_batch(R)
+    disp = batch[:, PAIR_I, :] - batch[:, PAIR_J, :]
+    norms = np.linalg.norm(disp, axis=2)
+    safe = np.maximum(norms, float(r_min))
+    return safe[0] if squeeze else safe
+
+
+def sorted_pair_distance_descriptor(R: np.ndarray, r_min: float = DEFAULT_R_MIN) -> np.ndarray:
+    dists = safe_pair_distances(R, r_min=r_min)
+    desc = np.sort(dists, axis=-1)
+    if desc.ndim == 1:
+        if desc.shape[0] != DESCRIPTOR_DIM:
+            raise ValueError("Descriptor dimension mismatch.")
+        return desc
+    if desc.shape[1] != DESCRIPTOR_DIM:
+        raise ValueError("Descriptor dimension mismatch.")
+    return desc
+
+
+def total_energy(R: np.ndarray, r_min: float = DEFAULT_R_MIN) -> np.ndarray:
+    batch, squeeze = _ensure_state_batch(R)
+    dists = safe_pair_distances(batch, r_min=r_min)
+    inv_r6 = dists ** (-6.0)
+    inv_r12 = inv_r6 ** 2
+    energy = 4.0 * np.sum(inv_r12 - inv_r6, axis=1)
+    return float(energy[0]) if squeeze else energy
+
+
+def grad_energy(R: np.ndarray, r_min: float = DEFAULT_R_MIN) -> np.ndarray:
+    batch, squeeze = _ensure_state_batch(R)
+    disp = batch[:, PAIR_I, :] - batch[:, PAIR_J, :]
+    dists = safe_pair_distances(batch, r_min=r_min)
+    inv_r2 = dists ** (-2.0)
+    inv_r6 = inv_r2 ** 3
+    inv_r12 = inv_r6 ** 2
+    coef = 24.0 * (inv_r6 - 2.0 * inv_r12) * inv_r2
+    pair_grad = coef[:, :, None] * disp
+
+    grad = np.zeros_like(batch)
+    for idx, (i, j) in enumerate(zip(PAIR_I, PAIR_J)):
+        grad[:, i, :] += pair_grad[:, idx, :]
+        grad[:, j, :] -= pair_grad[:, idx, :]
+
+    grad = remove_center_of_mass(grad)
+    return grad[0] if squeeze else grad
+
+
+def total_energy_flat(X: np.ndarray, r_min: float = DEFAULT_R_MIN) -> np.ndarray:
+    return total_energy(remove_center_of_mass(unflatten_states(X)), r_min=r_min)
+
+
+def grad_energy_flat(X: np.ndarray, r_min: float = DEFAULT_R_MIN) -> np.ndarray:
+    grad = grad_energy(remove_center_of_mass(unflatten_states(X)), r_min=r_min)
+    return flatten_states(grad)
+
+
+def tamed_increment(drift: np.ndarray, dt: float) -> np.ndarray:
+    batch, squeeze = _ensure_state_batch(drift)
+    norms = np.linalg.norm(batch.reshape(batch.shape[0], -1), axis=1)[:, None, None]
+    incr = float(dt) * batch / (1.0 + float(dt) * norms)
+    return incr[0] if squeeze else incr
+
+
+def _objective_value_and_grad(x_flat: np.ndarray, r_min: float) -> tuple[float, np.ndarray]:
+    state = remove_center_of_mass(unflatten_states(x_flat))
+    value = total_energy(state, r_min=r_min)
+    grad = flatten_states(grad_energy(state, r_min=r_min))
+    return float(value), np.asarray(grad, dtype=float)
+
+
+def local_minimize(
+    R0: np.ndarray,
+    r_min: float = DEFAULT_R_MIN,
+    maxiter: int = 800,
+    gtol: float = 1e-8,
+    ftol: float = 1e-12,
+) -> dict:
+    """
+    Local minimization wrapper around SciPy L-BFGS-B.
+    """
+    x0 = flatten_states(remove_center_of_mass(R0))
+    result = minimize(
+        fun=lambda x: _objective_value_and_grad(x, r_min=r_min),
+        x0=x0,
+        method="L-BFGS-B",
+        jac=True,
+        options={
+            "maxiter": int(maxiter),
+            "gtol": float(gtol),
+            "ftol": float(ftol),
+            "maxls": 50,
+        },
     )
-
-
-def _from_lj7_cluster(R):
-    arr = np.asarray(R, dtype=float)
-    if (
-        arr.ndim != 3
-        or arr.shape[1] != LJ7_N_PARTICLES
-        or arr.shape[2] != LJ7_SPATIAL_DIM
-    ):
-        raise ValueError(
-            f"Expected shape (batch, {LJ7_N_PARTICLES}, {LJ7_SPATIAL_DIM})."
-        )
-    return arr.reshape(arr.shape[0], LJ7_DIM)
-
-
-def _random_rotation_matrix(rng, dim):
-    if dim == 1:
-        return np.array([[-1.0 if rng.random() < 0.5 else 1.0]])
-    mat = rng.standard_normal((dim, dim))
-    q, r = np.linalg.qr(mat)
-    sgn = np.sign(np.diag(r))
-    sgn[sgn == 0.0] = 1.0
-    q = q * sgn
-    if np.linalg.det(q) < 0.0:
-        q[:, 0] *= -1.0
-    return q
-
-
-def _apply_random_rotations(R, rng):
-    for i in range(R.shape[0]):
-        q = _random_rotation_matrix(rng, LJ7_SPATIAL_DIM)
-        R[i] = R[i] @ q.T
-
-
-def _deterministic_unit_vectors(n, dim):
-    rng = np.random.default_rng(31 + 17 * n + dim)
-    vec = rng.standard_normal((n, dim))
-    vec /= np.linalg.norm(vec, axis=1, keepdims=True) + 1e-12
-    return vec
-
-
-def canonical_lj7_configuration(sigma=1.0):
-    """
-    Canonical near-equilibrium template.
-    - N=2: dimer at distance r0.
-    - N=3, d>=2: equilateral triangle.
-    - N=7, d>=3: pentagonal bipyramid.
-    - Otherwise: one center + deterministic shell.
-    """
-    r0 = (2.0 ** (1.0 / 6.0)) * sigma
-    n = LJ7_N_PARTICLES
-    d = LJ7_SPATIAL_DIM
-    R = np.zeros((n, d), dtype=float)
-
-    if n == 2:
-        R[0, 0] = -0.5 * r0
-        R[1, 0] = 0.5 * r0
-        return R
-
-    if n == 3 and d >= 2:
-        R[0, :2] = [0.0, 0.0]
-        R[1, :2] = [r0, 0.0]
-        R[2, :2] = [0.5 * r0, 0.5 * np.sqrt(3.0) * r0]
-        R -= np.mean(R, axis=0, keepdims=True)
-        return R
-
-    if n == 7 and d >= 3:
-        # Pentagonal bipyramid with nearest-neighbor distance ~r0.
-        a = r0 / (2.0 * np.sin(np.pi / 5.0))
-        h2 = max(r0 * r0 - a * a, 1e-12)
-        h = np.sqrt(h2)
-        for k in range(5):
-            ang = 2.0 * np.pi * (k / 5.0)
-            R[k, 0] = a * np.cos(ang)
-            R[k, 1] = a * np.sin(ang)
-        R[5, 2] = h
-        R[6, 2] = -h
-        R -= np.mean(R, axis=0, keepdims=True)
-        return R
-
-    if n > 1:
-        dirs = _deterministic_unit_vectors(n - 1, d)
-        R[1:, :] = r0 * dirs
-    R -= np.mean(R, axis=0, keepdims=True)
-    return R
-
-
-def init_lj7_ensemble(n_samples, sigma, rng, noise_scale=0.15, random_rotate=True):
-    base = canonical_lj7_configuration(sigma=sigma)
-    R = np.repeat(base[None, :, :], n_samples, axis=0)
-    R += noise_scale * rng.standard_normal(
-        (n_samples, LJ7_N_PARTICLES, LJ7_SPATIAL_DIM)
-    )
-
-    if random_rotate:
-        _apply_random_rotations(R, rng)
-
-    # Remove translation mode by fixing center of mass at 0.
-    R -= np.mean(R, axis=1, keepdims=True)
-    return _from_lj7_cluster(R)
-
-
-def init_lj7_out_of_equilibrium(
-    n_samples,
-    sigma,
-    rng,
-    scale=1.8,
-    noise_scale=0.05,
-    random_rotate=True,
-):
-    """
-    Deliberately off-target initialization: expanded shell.
-    """
-    base = canonical_lj7_configuration(sigma=sigma * scale)
-    R = np.repeat(base[None, :, :], n_samples, axis=0)
-    R += noise_scale * rng.standard_normal(
-        (n_samples, LJ7_N_PARTICLES, LJ7_SPATIAL_DIM)
-    )
-
-    if random_rotate:
-        _apply_random_rotations(R, rng)
-
-    R -= np.mean(R, axis=1, keepdims=True)
-    return _from_lj7_cluster(R)
-
-
-def remove_center_of_mass_flat(X):
-    R = _to_lj7_cluster(X).copy()
-    R -= np.mean(R, axis=1, keepdims=True)
-    return _from_lj7_cluster(R)
-
-
-def clip_flat_state(X, box_L):
-    return np.clip(X, -box_L, box_L)
-
-
-def reflect_flat_state(X, box_L):
-    """
-    Reflective box map into [-box_L, box_L] per coordinate.
-    This avoids boundary mass pile-up induced by hard clipping.
-    """
-    if box_L is None:
-        return np.asarray(X, dtype=float)
-    L = float(box_L)
-    if L <= 0.0:
-        return np.asarray(X, dtype=float)
-    z = (np.asarray(X, dtype=float) + L) % (4.0 * L)
-    return np.where(z <= 2.0 * L, z, 4.0 * L - z) - L
-
-
-def apply_box_constraint_flat(X, box_L, mode="reflect"):
-    if mode == "clip":
-        return clip_flat_state(X, box_L)
-    return reflect_flat_state(X, box_L)
-
-
-def pair_distance_descriptor_flat(X):
-    """
-    Symmetry-invariant descriptor for cluster configurations:
-    sorted pairwise distances (dimension C(N,2)).
-    """
-    R = _to_lj7_cluster(X)
-    dR = R[:, PAIR_I, :] - R[:, PAIR_J, :]
-    dists = np.linalg.norm(dR, axis=2)
-    return np.sort(dists, axis=1)
-
-
-def build_pair_distance_reference_histogram(
-    D_ref, n_bins=120, q_low=1e-3, q_high=1.0 - 1e-3
-):
-    vals = np.asarray(D_ref, dtype=float).reshape(-1)
-    vals = vals[np.isfinite(vals)]
-    if vals.size == 0:
-        raise ValueError("D_ref has no finite values for histogram construction.")
-    lo, hi = np.quantile(vals, [q_low, q_high])
-    span = max(hi - lo, 1e-6)
-    edges = np.linspace(lo - 0.1 * span, hi + 0.1 * span, n_bins + 1)
-    widths = np.diff(edges)
-    pdf_ref = _safe_hist_pdf(vals, edges)
-    return edges, widths, pdf_ref
-
-
-def _safe_hist_pdf(vals, edges):
-    vals = np.asarray(vals, dtype=float).reshape(-1)
-    vals = vals[np.isfinite(vals)]
-    widths = np.diff(edges)
-    if vals.size == 0:
-        return np.zeros_like(widths)
-
-    lo = float(edges[0])
-    hi = float(edges[-1])
-    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-        return np.zeros_like(widths)
-
-    # Keep all mass inside [lo, hi] to avoid empty in-range histograms.
-    vals = np.clip(vals, lo + 1e-12, hi - 1e-12)
-    counts, _ = np.histogram(vals, bins=edges, density=False)
-    total = float(np.sum(counts))
-    if total <= 0.0:
-        return np.zeros_like(widths)
-    return counts.astype(float) / (total * widths + 1e-300)
-
-
-def compute_pair_distance_hist_errors(D, edges, widths, pdf_ref):
-    vals = np.asarray(D, dtype=float).reshape(-1)
-    pdf = _safe_hist_pdf(vals, edges)
-    diff = pdf - pdf_ref
-    l1 = np.sum(np.abs(diff) * widths)
-    l2 = np.sqrt(np.sum(diff**2 * widths))
-    return float(l1), float(l2)
-
-
-def V_lj7_flat(X, lj_eps=1.0, sigma=1.0, r_soft=0.0):
-    R = _to_lj7_cluster(X)
-    return V_lj_cluster(R, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-
-
-def gradV_lj7_flat(X, lj_eps=1.0, sigma=1.0, r_soft=0.0):
-    R = _to_lj7_cluster(X)
-    G = gradV_lj_cluster(R, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    return _from_lj7_cluster(G)
-
-
-def step_diff_lj7(
-    X, dt, eps, rng, lj_eps, sigma, r_soft, box_L, box_mode="clip"
-):
-    grad = gradV_lj7_flat(X, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    drift = -0.5 * grad
-    norm = np.linalg.norm(drift, axis=1) + 1e-8
-    X_new = X + dt * drift / (1.0 + dt * norm)[:, None]
-    X_new += eps * np.sqrt(dt) * rng.standard_normal(X.shape)
-    X_new = remove_center_of_mass_flat(X_new)
-    return apply_box_constraint_flat(X_new, box_L, mode=box_mode)
-
-
-def step_flmc_lj7(
-    X,
-    dt,
-    alpha,
-    rng,
-    lj_eps,
-    sigma,
-    r_soft,
-    box_L,
-    box_mode="clip",
-):
-    grad = gradV_lj7_flat(X, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    drift = -0.5 * c_alpha(alpha) * grad
-    norm = np.linalg.norm(drift, axis=1, keepdims=True) + 1e-8
-    stable_noise = sample_symmetric_alpha_stable(rng, size=X.shape, alpha=alpha)
-    X_new = X + (dt * drift) / (1.0 + dt * norm) + (dt ** (1.0 / alpha)) * stable_noise
-    X_new = remove_center_of_mass_flat(X_new)
-    return apply_box_constraint_flat(X_new, box_L, mode=box_mode)
-
-
-def _tamed_lj7_mean(X, dt, lj_eps, sigma, r_soft):
-    grad = gradV_lj7_flat(X, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    drift = -0.5 * grad
-    norm = np.linalg.norm(drift, axis=1, keepdims=True) + 1e-8
-    return X + (dt * drift) / (1.0 + dt * norm)
-
-
-def step_mala_lj7(
-    X,
-    dt,
-    eps,
-    rng,
-    lj_eps,
-    sigma,
-    r_soft,
-    box_L,
-    box_mode="clip",
-):
-    mean = _tamed_lj7_mean(X, dt, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    proposal = mean + eps * np.sqrt(dt) * rng.standard_normal(X.shape)
-    proposal = remove_center_of_mass_flat(proposal)
-    proposal = apply_box_constraint_flat(proposal, box_L, mode=box_mode)
-
-    mean_y = _tamed_lj7_mean(proposal, dt, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-    logp_x = -V_lj7_flat(X, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft) / (eps**2)
-    logp_y = -V_lj7_flat(proposal, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft) / (eps**2)
-
-    noise_var = max((eps**2) * dt, 1e-12)
-    log_q_y_given_x = -np.sum((proposal - mean) ** 2, axis=1) / (2.0 * noise_var)
-    log_q_x_given_y = -np.sum((X - mean_y) ** 2, axis=1) / (2.0 * noise_var)
-    log_alpha = (logp_y + log_q_x_given_y) - (logp_x + log_q_y_given_x)
-
-    accept = np.log(rng.random(X.shape[0])) < log_alpha
-    X_new = X.copy()
-    X_new[accept] = proposal[accept]
-    return X_new, float(accept.mean())
-
-
-def _sample_isotropic_dirs(rng, n, dim):
-    vec = rng.standard_normal((n, dim))
-    vec /= np.linalg.norm(vec, axis=1, keepdims=True) + 1e-12
-    return vec
-
-
-def step_levy_lj7(
-    X,
-    dt,
-    eps,
-    rng,
-    lj_eps,
-    sigma,
-    r_soft,
-    lam,
-    sigma_L,
-    mults,
-    pm,
-    box_L,
-    jump_cap=4.0,
-    use_jump_mh=True,
-    return_stats=False,
-    local_jump_particles=1,
-    box_mode="clip",
-):
-    X_new = step_diff_lj7(
-        X,
-        dt,
-        eps,
-        rng,
-        lj_eps=lj_eps,
-        sigma=sigma,
-        r_soft=r_soft,
-        box_L=box_L,
-        box_mode=box_mode,
-    )
-
-    n_jumps = rng.poisson(lam * dt, size=X.shape[0])
-    idx = np.where(n_jumps > 0)[0]
-    if idx.size == 0:
-        if return_stats:
-            return X_new, 0, 0
-        return X_new
-
-    X_prop = X_new[idx].copy()
-    for k_row, i in enumerate(idx):
-        k = int(n_jumps[i])
-        mags = sigma_L * rng.choice(mults, size=k, p=pm)
-        delta = np.zeros((LJ7_N_PARTICLES, LJ7_SPATIAL_DIM), dtype=float)
-        n_local = min(LJ7_N_PARTICLES, max(1, int(local_jump_particles)))
-        dirs = _sample_isotropic_dirs(rng, k, LJ7_SPATIAL_DIM)
-        for _ in range(k):
-            mag = float(mags[_])
-            ids = rng.choice(LJ7_N_PARTICLES, size=n_local, replace=False)
-            # Split one jump event across a few particles for higher MH acceptance.
-            step_mag = mag / np.sqrt(float(n_local))
-            delta[ids, :] += step_mag * dirs[_]
-        jump_vec = delta.reshape(-1)
-        if jump_cap is not None:
-            jn = np.linalg.norm(jump_vec) + 1e-12
-            if jn > jump_cap:
-                jump_vec *= jump_cap / jn
-        X_prop[k_row] += jump_vec
-
-    X_prop = remove_center_of_mass_flat(X_prop)
-    X_prop = apply_box_constraint_flat(X_prop, box_L, mode=box_mode)
-
-    if use_jump_mh:
-        e_cur = V_lj7_flat(X_new[idx], lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-        e_prop = V_lj7_flat(X_prop, lj_eps=lj_eps, sigma=sigma, r_soft=r_soft)
-        log_alpha = -(e_prop - e_cur) / (eps**2)
-        accept = np.log(rng.random(idx.size)) < log_alpha
-        n_accept = int(np.sum(accept))
-        if np.any(accept):
-            X_new[idx[accept]] = X_prop[accept]
-    else:
-        X_new[idx] = X_prop
-        n_accept = int(idx.size)
-
-    if return_stats:
-        return X_new, int(idx.size), n_accept
-    return X_new
-
-
-def sample_reference_lj7(
-    rng,
-    n_ref,
-    eps,
-    lj_eps,
-    sigma,
-    r_soft,
-    lam,
-    sigma_L,
-    mults,
-    pm,
-    dt_ref=0.0005,
-    warmup_steps=20000,
-    box_L=4.5,
-    jump_cap=4.0,
-    local_jump_particles=1,
-    use_jump_mh=True,
-    box_mode="clip",
-):
-    X_ref = init_lj7_ensemble(
-        n_ref, sigma=sigma, rng=rng, noise_scale=0.22, random_rotate=True
-    )
-    for _ in range(warmup_steps):
-        X_ref = step_levy_lj7(
-            X_ref,
-            dt_ref,
-            eps,
-            rng,
-            lj_eps=lj_eps,
-            sigma=sigma,
-            r_soft=r_soft,
-            lam=lam,
-            sigma_L=sigma_L,
-            mults=mults,
-            pm=pm,
-            box_L=box_L,
-            jump_cap=jump_cap,
-            local_jump_particles=local_jump_particles,
-            use_jump_mh=use_jump_mh,
-            box_mode=box_mode,
-        )
-    return X_ref
-
-
-def run_lj7_highdim_simulation(
-    seed,
-    eps,
-    dt,
-    T,
-    N,
-    lj_eps,
-    sigma,
-    r_soft,
-    lam,
-    sigma_L,
-    mults,
-    pm,
-    box_L,
-    X_ref,
-    D_ref,
-    pd_edges,
-    pd_widths,
-    pd_pdf_ref,
-    jump_cap=4.0,
-    init_mode="expanded",
-    init_scale=1.8,
-    init_noise=0.05,
-    return_jump_stats=False,
-    local_jump_particles=1,
-    use_jump_mh=True,
-    box_mode="clip",
-    jump_anneal_boost=0.0,
-    jump_anneal_tau=2.5,
-    jump_sigma_anneal=0.35,
-    jump_cap_anneal=0.25,
-    alpha=1.5,
-    mala_dt=None,
-):
-    rng = np.random.default_rng(seed)
-    if init_mode == "expanded":
-        X_diff = init_lj7_out_of_equilibrium(
-            N,
-            sigma=sigma,
-            rng=rng,
-            scale=init_scale,
-            noise_scale=init_noise,
-            random_rotate=True,
-        )
-    else:
-        X_diff = init_lj7_ensemble(
-            N, sigma=sigma, rng=rng, noise_scale=0.18, random_rotate=True
-        )
-    X_levy = X_diff.copy()
-    X_flmc = X_diff.copy()
-    X_mala = X_diff.copy()
-
-    history = {
-        "t": [],
-        "l1_d": [],
-        "l1_m": [],
-        "l1_f": [],
-        "l1_l": [],
-        "l2_d": [],
-        "l2_m": [],
-        "l2_f": [],
-        "l2_l": [],
+    coords = remove_center_of_mass(unflatten_states(result.x))
+    return {
+        "coords": coords,
+        "energy": float(total_energy(coords, r_min=r_min)),
+        "descriptor": sorted_pair_distance_descriptor(coords, r_min=r_min),
+        "success": bool(result.success),
+        "status": int(result.status),
+        "message": str(result.message),
+        "nit": int(getattr(result, "nit", 0)),
+        "nfev": int(getattr(result, "nfev", 0)),
     }
-    if mala_dt is None:
-        mala_dt = dt
 
-    steps = int(T / dt)
-    eval_steps = _build_eval_steps(steps)
-    jump_event_total = 0
-    jump_accept_total = 0
-    n_particle_updates = 0
 
-    for i in range(steps + 1):
-        if i in eval_steps:
-            t = i * dt
-            history["t"].append(t)
+def random_initial_configuration(
+    rng: np.random.Generator,
+    init_scale: float = 1.2,
+) -> np.ndarray:
+    """
+    Diverse random starts for minima discovery.
+    """
+    scale = float(init_scale) * np.exp(float(rng.normal(loc=0.0, scale=0.35)))
+    if rng.random() < 0.5:
+        R = rng.standard_normal((N_ATOMS, SPATIAL_DIM))
+    else:
+        ang = rng.uniform(0.0, 2.0 * np.pi, size=N_ATOMS)
+        rad = scale * (0.6 + 0.8 * rng.random(N_ATOMS))
+        R = np.stack([rad * np.cos(ang), rad * np.sin(ang)], axis=1)
+    R += 0.15 * scale * rng.standard_normal((N_ATOMS, SPATIAL_DIM))
+    return remove_center_of_mass(R)
 
-            D_diff = pair_distance_descriptor_flat(X_diff)
-            D_mala = pair_distance_descriptor_flat(X_mala)
-            D_flmc = pair_distance_descriptor_flat(X_flmc)
-            D_levy = pair_distance_descriptor_flat(X_levy)
 
-            l1d, l2d = compute_pair_distance_hist_errors(
-                D_diff, pd_edges, pd_widths, pd_pdf_ref
-            )
-            l1m, l2m = compute_pair_distance_hist_errors(
-                D_mala, pd_edges, pd_widths, pd_pdf_ref
-            )
-            l1f, l2f = compute_pair_distance_hist_errors(
-                D_flmc, pd_edges, pd_widths, pd_pdf_ref
-            )
-            l1l, l2l = compute_pair_distance_hist_errors(
-                D_levy, pd_edges, pd_widths, pd_pdf_ref
-            )
-            history["l1_d"].append(l1d)
-            history["l1_m"].append(l1m)
-            history["l1_f"].append(l1f)
-            history["l1_l"].append(l1l)
-            history["l2_d"].append(l2d)
-            history["l2_m"].append(l2m)
-            history["l2_f"].append(l2f)
-            history["l2_l"].append(l2l)
+def _descriptor_is_duplicate(
+    descriptor: np.ndarray,
+    existing: list[dict],
+    minima_tol: float,
+) -> int | None:
+    for idx, item in enumerate(existing):
+        dist = np.linalg.norm(descriptor - item["descriptor"])
+        if dist < float(minima_tol):
+            return idx
+    return None
 
-        X_diff = step_diff_lj7(
-            X_diff,
-            dt,
-            eps,
-            rng,
-            lj_eps=lj_eps,
-            sigma=sigma,
-            r_soft=r_soft,
-            box_L=box_L,
-            box_mode=box_mode,
+
+def is_compact_cluster_descriptor(
+    descriptor: np.ndarray,
+    cluster_max_pair_distance: float = DEFAULT_CLUSTER_MAX_PAIR_DISTANCE,
+) -> bool:
+    """
+    Reject nearly dissociated pseudo-minima during minima preprocessing.
+
+    The free LJ7 cluster is not coercive in the relative coordinates, so local
+    optimization can terminate at diffuse configurations with tiny gradients.
+    EMC should be anchored to the four bonded minima only, hence the compact
+    cluster filter in descriptor space.
+    """
+    return float(np.max(descriptor)) <= float(cluster_max_pair_distance)
+
+
+def load_or_discover_lj7_minima(
+    output_dir: str = DEFAULT_OUTPUT_DIR,
+    cluster_max_pair_distance: float = DEFAULT_CLUSTER_MAX_PAIR_DISTANCE,
+    force: bool = False,
+    verbose: bool = True,
+) -> dict:
+    """
+    Load the minima bundle if it already exists on disk, otherwise run
+    discover_four_minima() and save it.
+
+    This is the canonical entry point for EMC preprocessing.  It wraps
+    discover_four_minima() so that callers do not need to remember the
+    load/discover branching logic themselves.
+
+    Parameters
+    ----------
+    output_dir : str
+        Directory that contains (or will contain) the minima bundle files.
+    cluster_max_pair_distance : float
+        Passed to discover_four_minima() when discovery is required.
+    force : bool
+        If True, ignore cached files and rediscover minima from scratch.
+    verbose : bool
+        Print progress messages during discovery.
+
+    Returns
+    -------
+    dict with keys 'paths', 'raw', 'descriptors', 'energies', 'metadata'.
+    """
+    return discover_four_minima(
+        output_dir=output_dir,
+        cluster_max_pair_distance=cluster_max_pair_distance,
+        force=force,
+        verbose=verbose,
+    )
+
+
+def assign_descriptors_to_minima(
+    descriptors: np.ndarray,
+    minima_descriptors: np.ndarray,
+    cluster_max_pair_distance: float,
+    assignment_radius: float | None = None,
+) -> dict:
+    """
+    Assign each sample descriptor to one of the four LJ7(2d) minima.
+
+    The assignment is done in the sorted pair-distance descriptor space (R^21)
+    that is invariant to translation, rotation, and atom relabeling.
+
+    Steps:
+    1. Compact-cluster filter: if max(descriptor) > cluster_max_pair_distance
+       the sample is marked unassigned (label = -1) because it is likely a
+       nearly dissociated configuration that does not belong to any bonded well.
+    2. Nearest-minimum distance: compute Euclidean distance to each of the
+       four minima descriptors.
+    3. Radius test: assign to the nearest minimum only if the distance is
+       within assignment_radius.  Samples between wells are marked unassigned
+       rather than forced into the nearest basin.
+
+    Parameters
+    ----------
+    descriptors : np.ndarray of shape (n, 21)
+        Sorted pair-distance descriptors of the current sampler ensemble.
+    minima_descriptors : np.ndarray of shape (4, 21)
+        Sorted pair-distance descriptors of the four compact minima.
+    cluster_max_pair_distance : float
+        Compact-cluster filter threshold (same value used during discovery).
+    assignment_radius : float or None
+        Radius in descriptor space for hard assignment.  If None, chosen
+        automatically as:
+            assignment_radius = 0.35 * min_{a != b} ||d_a - d_b||_2
+        The factor 0.35 places the boundary at 35 % of the minimum separation
+        between any two minima, ensuring non-overlapping Voronoi-like balls.
+
+    Returns
+    -------
+    dict with keys:
+        "labels"            : int array of shape (n,), values in {-1,0,1,2,3}
+        "nearest_distances" : float array of shape (n,), Euclidean distance to
+                              the nearest minimum (-1 entries have inf or the
+                              distance to nearest, depending on filter outcome)
+        "assignment_radius" : float (auto-computed or as provided)
+        "assigned_fraction" : float in [0, 1]
+        "counts"            : int array of shape (4,), per-mode assigned counts
+    """
+    descriptors = np.asarray(descriptors, dtype=float)
+    minima_descriptors = np.asarray(minima_descriptors, dtype=float)
+    n = descriptors.shape[0]
+    n_modes = minima_descriptors.shape[0]
+
+    # Auto assignment radius: 35 % of minimum inter-minimum separation
+    if assignment_radius is None:
+        sep = float("inf")
+        for a in range(n_modes):
+            for b in range(n_modes):
+                if a != b:
+                    d = float(np.linalg.norm(minima_descriptors[a] - minima_descriptors[b]))
+                    if d < sep:
+                        sep = d
+        assignment_radius = 0.35 * sep
+
+    labels = np.full(n, -1, dtype=int)
+    nearest_distances = np.full(n, float("inf"), dtype=float)
+
+    for i in range(n):
+        desc = descriptors[i]
+        # Compact-cluster filter: reject near-dissociated configurations
+        if float(np.max(desc)) > float(cluster_max_pair_distance):
+            continue
+        # Distance to each minimum
+        dists = np.array(
+            [float(np.linalg.norm(desc - minima_descriptors[k])) for k in range(n_modes)]
         )
-        X_flmc = step_flmc_lj7(
-            X_flmc,
-            dt,
-            alpha,
-            rng,
-            lj_eps=lj_eps,
-            sigma=sigma,
-            r_soft=r_soft,
-            box_L=box_L,
-            box_mode=box_mode,
+        nearest_idx = int(np.argmin(dists))
+        nearest_dist = float(dists[nearest_idx])
+        nearest_distances[i] = nearest_dist
+        if nearest_dist <= float(assignment_radius):
+            labels[i] = nearest_idx
+
+    assigned_fraction = float(np.sum(labels >= 0)) / float(n) if n > 0 else 0.0
+    counts = np.array(
+        [int(np.sum(labels == k)) for k in range(n_modes)], dtype=int
+    )
+    return {
+        "labels": labels,
+        "nearest_distances": nearest_distances,
+        "assignment_radius": float(assignment_radius),
+        "assigned_fraction": assigned_fraction,
+        "counts": counts,
+    }
+
+
+def quench_and_assign_states_to_minima(
+    states: np.ndarray,
+    minima_descriptors: np.ndarray,
+    r_min: float = DEFAULT_R_MIN,
+    cluster_max_pair_distance: float = DEFAULT_CLUSTER_MAX_PAIR_DISTANCE,
+    assignment_radius: float | None = None,
+    local_maxiter: int = 400,
+    local_gtol: float = 1e-6,
+) -> dict:
+    """
+    Assign sampler states to the four LJ7(2d) minima via local minimization.
+
+    Each state is quenched (locally minimized from its current position) before
+    assignment.  The quenched descriptor — not the raw sample descriptor — is
+    then compared to the four canonical minima descriptors.  This makes
+    assignment independent of the instantaneous thermal fluctuations and instead
+    reflects which basin of attraction the sample currently occupies.
+
+    Why quench-based assignment is scientifically stronger than raw descriptor
+    nearest-ball assignment:
+    - The sorted pair-distance descriptor of a thermally excited sample can sit
+      far from every minimum descriptor even when the sample is firmly inside one
+      basin.  With a finite assignment radius, such samples are marked unassigned
+      (label = -1), underestimating well occupancy.
+    - Quenching maps each sample deterministically to the nearest local minimum
+      of the PES, which is the correct definition of "which basin does this point
+      belong to."  The quenched descriptor is much closer to its canonical
+      minimum than the raw descriptor, so assignment is more reliable.
+    - Basin boundaries in coordinate space do not correspond to spheres in
+      descriptor space, so sphere-based assignment is geometry-blind.  Quenching
+      respects the true geometry of the PES.
+
+    Performance note:
+    This function calls local_minimize() once per sample.  For n=256 samples at
+    each of 21 checkpoints × 4 methods × 5 seeds, roughly 108 k quenches are
+    run.  Each quench is a 14-D L-BFGS-B minimization with maxiter=400; in
+    practice, well-initialized samples converge in far fewer iterations.  Runtime
+    is typically 1–5 s per checkpoint depending on hardware.
+
+    Parameters
+    ----------
+    states : np.ndarray of shape (n, 7, 2) or (n, 14)
+        Current sampler ensemble in coordinate space.
+    minima_descriptors : np.ndarray of shape (4, 21)
+        Sorted pair-distance descriptors of the four compact minima.
+    r_min : float
+        Soft lower bound on pair distances used in local_minimize().
+    cluster_max_pair_distance : float
+        Compact-cluster filter: quenched configurations with max pair distance
+        above this threshold are marked unassigned.
+    assignment_radius : float or None
+        Radius in quenched-descriptor space for well assignment.  If None,
+        auto-computed as 0.35 × min inter-minimum separation (same rule as
+        assign_descriptors_to_minima).
+    local_maxiter : int
+        Maximum L-BFGS-B iterations per quench.
+    local_gtol : float
+        Gradient tolerance for the L-BFGS-B quench.
+
+    Returns
+    -------
+    dict with keys:
+        "labels"               : int array of shape (n,), values in {-1,0,1,2,3}
+        "nearest_distances"    : float array of shape (n,)
+        "assignment_radius"    : float
+        "assigned_fraction"    : float in [0, 1]
+        "counts"               : int array of shape (4,)
+        "quenched_descriptors" : np.ndarray of shape (n, 21)
+        "quenched_energies"    : np.ndarray of shape (n,)
+    """
+    # Accept either (n, N_ATOMS, SPATIAL_DIM) or (n, FLAT_DIM)
+    arr = np.asarray(states, dtype=float)
+    if arr.ndim == 2 and arr.shape[1] == FLAT_DIM:
+        arr = unflatten_states(arr)
+    elif arr.ndim != 3 or arr.shape[1:] != (N_ATOMS, SPATIAL_DIM):
+        raise ValueError(
+            f"states must have shape (n, {N_ATOMS}, {SPATIAL_DIM}) or (n, {FLAT_DIM})."
         )
-        X_mala, _ = step_mala_lj7(
-            X_mala,
-            mala_dt,
-            eps,
-            rng,
-            lj_eps=lj_eps,
-            sigma=sigma,
-            r_soft=r_soft,
-            box_L=box_L,
-            box_mode=box_mode,
+    n = arr.shape[0]
+    minima_descriptors = np.asarray(minima_descriptors, dtype=float)
+    n_modes = minima_descriptors.shape[0]
+
+    # Auto assignment radius
+    if assignment_radius is None:
+        sep = float("inf")
+        for a in range(n_modes):
+            for b in range(n_modes):
+                if a != b:
+                    d = float(np.linalg.norm(minima_descriptors[a] - minima_descriptors[b]))
+                    if d < sep:
+                        sep = d
+        assignment_radius = 0.35 * sep
+
+    quenched_descriptors = np.zeros((n, int(DESCRIPTOR_DIM)), dtype=float)
+    quenched_energies = np.zeros(n, dtype=float)
+    labels = np.full(n, -1, dtype=int)
+    nearest_distances = np.full(n, float("inf"), dtype=float)
+
+    for i in range(n):
+        result = local_minimize(
+            arr[i],
+            r_min=float(r_min),
+            maxiter=int(local_maxiter),
+            gtol=float(local_gtol),
         )
-        t_cur = i * dt
-        if jump_anneal_boost > 0.0 and jump_anneal_tau > 0.0:
-            a = np.exp(-t_cur / jump_anneal_tau)
-            lam_t = lam * (1.0 + jump_anneal_boost * a)
-            sigma_t = sigma_L * (1.0 + jump_sigma_anneal * jump_anneal_boost * a)
-            if jump_cap is None:
-                jump_cap_t = None
-            else:
-                jump_cap_t = jump_cap * (1.0 + jump_cap_anneal * jump_anneal_boost * a)
+        q_desc = result["descriptor"]
+        q_energy = result["energy"]
+        quenched_descriptors[i] = q_desc
+        quenched_energies[i] = q_energy
+
+        # Compact-cluster filter on quenched descriptor
+        if float(np.max(q_desc)) > float(cluster_max_pair_distance):
+            continue
+
+        dists = np.array(
+            [float(np.linalg.norm(q_desc - minima_descriptors[k])) for k in range(n_modes)]
+        )
+        nearest_idx = int(np.argmin(dists))
+        nearest_dist = float(dists[nearest_idx])
+        nearest_distances[i] = nearest_dist
+        if nearest_dist <= float(assignment_radius):
+            labels[i] = nearest_idx
+
+    assigned_fraction = float(np.sum(labels >= 0)) / float(n) if n > 0 else 0.0
+    counts = np.array(
+        [int(np.sum(labels == k)) for k in range(n_modes)], dtype=int
+    )
+    return {
+        "labels": labels,
+        "nearest_distances": nearest_distances,
+        "assignment_radius": float(assignment_radius),
+        "assigned_fraction": assigned_fraction,
+        "counts": counts,
+        "quenched_descriptors": quenched_descriptors,
+        "quenched_energies": quenched_energies,
+    }
+
+
+def compute_emc_from_labels(labels: np.ndarray, n_modes: int = 4) -> float:
+    """
+    Entropic Mode Coverage (EMC) scalar in [0, 1].
+
+    Formula:
+        Let f   = assigned_fraction = (# samples with label >= 0) / n
+        Let p_k = (# samples in mode k among assigned) / (# assigned)
+        Let H   = -sum_k p_k log(p_k)   (Shannon entropy, sum over nonzero p_k)
+        EMC     = f * exp(H) / n_modes
+
+    Interpretation:
+    - exp(H) / n_modes lies in [1/n_modes, 1]:
+        * Equals 1 when assigned mass is uniform across all modes.
+        * Equals 1/n_modes when all assigned mass collapses to one mode.
+    - Multiplying by f penalises methods that scatter many samples outside
+      all bonded wells (non-compact configurations), reflecting the fact that
+      unassigned samples contribute neither to exploration nor to coverage.
+    - EMC = 1 iff every sample is assigned AND distributed uniformly.
+    - EMC = 0 iff no sample is assigned.
+
+    Scientific note:
+    EMC is an *exploration* metric that measures diversity across bonded wells
+    under the compact-cluster constraint.  It is NOT a standalone equilibrium-
+    fidelity metric and does not verify within-well density accuracy.  Report
+    together with Sinkhorn / MMD.
+    """
+    labels = np.asarray(labels, dtype=int)
+    n = labels.size
+    if n == 0:
+        return 0.0
+    n_assigned = int(np.sum(labels >= 0))
+    if n_assigned == 0:
+        return 0.0
+    assigned_fraction = float(n_assigned) / float(n)
+    assigned_labels = labels[labels >= 0]
+    counts = np.array([int(np.sum(assigned_labels == k)) for k in range(n_modes)])
+    p = counts.astype(float) / float(n_assigned)
+    nonzero = p[p > 0.0]
+    H = float(-np.sum(nonzero * np.log(nonzero)))
+    return float(assigned_fraction * np.exp(H) / float(n_modes))
+
+
+def compute_hard_mode_coverage(
+    labels: np.ndarray,
+    n_modes: int = 4,
+    min_fraction: float = 0.01,
+) -> float:
+    """
+    Hard mode coverage: fraction of modes with empirical occupancy >= min_fraction.
+
+    A mode is 'covered' when at least min_fraction of *all* samples (not just
+    assigned ones) land in it.  This is deliberately conservative: a method
+    that assigns 99 % of its mass to one well and 1 % elsewhere gets partial
+    credit only if the secondary wells each exceed the threshold individually.
+
+    Parameters
+    ----------
+    labels : int array of shape (n,)
+        As returned by assign_descriptors_to_minima.  Unassigned samples
+        (label = -1) do not count toward any mode.
+    n_modes : int
+        Total number of modes.
+    min_fraction : float
+        Threshold fraction over all n samples required to count a mode as covered.
+
+    Returns
+    -------
+    float in [0, 1]: covered_modes / n_modes
+    """
+    labels = np.asarray(labels, dtype=int)
+    n = labels.size
+    if n == 0:
+        return 0.0
+    covered = sum(
+        1 for k in range(n_modes)
+        if float(np.sum(labels == k)) / float(n) >= float(min_fraction)
+    )
+    return float(covered) / float(n_modes)
+
+
+def compute_conditional_mode_entropy(labels: np.ndarray, n_modes: int = 4) -> float:
+    """
+    Conditional mode entropy: exp(H) / n_modes conditioned on assigned samples.
+
+    This is the intra-basin diversity component of EMC, isolated from the
+    assigned-fraction penalty.  It answers the question: given that a sample
+    IS assigned to a well, how uniformly are the assigned samples spread across
+    the four wells?
+
+    Formula:
+        Let p_k = (# assigned in mode k) / (# assigned)
+        H = -sum_k p_k log(p_k)   (over nonzero p_k)
+        return exp(H) / n_modes
+
+    - Returns 1.0 when assigned mass is exactly uniform across all modes.
+    - Returns 1/n_modes when all assigned mass collapses to one mode.
+    - Returns 0.0 when no sample is assigned.
+
+    Relationship to EMC:
+        EMC = assigned_fraction * compute_conditional_mode_entropy(labels)
+    """
+    labels = np.asarray(labels, dtype=int)
+    n_assigned = int(np.sum(labels >= 0))
+    if n_assigned == 0:
+        return 0.0
+    assigned_labels = labels[labels >= 0]
+    counts = np.array([int(np.sum(assigned_labels == k)) for k in range(n_modes)])
+    p = counts.astype(float) / float(n_assigned)
+    nonzero = p[p > 0.0]
+    H = float(-np.sum(nonzero * np.log(nonzero)))
+    return float(np.exp(H) / float(n_modes))
+
+
+def compute_mode_occupancy(labels: np.ndarray, n_modes: int = 4) -> np.ndarray:
+    """
+    Return empirical fraction of all samples (assigned or not) in each mode.
+
+    Unassigned samples (label = -1) are not counted in any mode, so the
+    returned array will not sum to 1 when some samples are unassigned.
+
+    Returns
+    -------
+    np.ndarray of shape (n_modes,) with values in [0, 1].
+    """
+    labels = np.asarray(labels, dtype=int)
+    n = labels.size
+    if n == 0:
+        return np.zeros(n_modes, dtype=float)
+    return np.array(
+        [float(np.sum(labels == k)) / float(n) for k in range(n_modes)],
+        dtype=float,
+    )
+
+
+def save_minima_bundle(
+    minima: list[dict],
+    output_dir: str = DEFAULT_OUTPUT_DIR,
+    metadata: dict | None = None,
+) -> LJ7Paths:
+    paths = ensure_output_dir(output_dir)
+    minima_sorted = sorted(
+        minima,
+        key=lambda item: (float(item["energy"]), item["descriptor"].tolist()),
+    )
+    raw = np.stack([item["coords"] for item in minima_sorted], axis=0)
+    descriptors = np.stack([item["descriptor"] for item in minima_sorted], axis=0)
+
+    np.save(paths.minima_raw, raw)
+    np.save(paths.minima_descriptors, descriptors)
+
+    with open(paths.minima_energies, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["index", "energy"])
+        for idx, item in enumerate(minima_sorted):
+            writer.writerow([idx, float(item["energy"])])
+
+    payload = {
+        "n_minima": int(raw.shape[0]),
+        "descriptor_dim": int(descriptors.shape[1]),
+    }
+    if metadata:
+        payload.update(metadata)
+    with open(paths.minima_metadata, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+    return paths
+
+
+def load_minima_bundle(output_dir: str = DEFAULT_OUTPUT_DIR) -> dict:
+    paths = get_lj7_paths(output_dir)
+    with open(paths.minima_metadata, "r", encoding="utf-8") as handle:
+        metadata = json.load(handle)
+    raw = np.load(paths.minima_raw)
+    descriptors = np.load(paths.minima_descriptors)
+    energies = []
+    with open(paths.minima_energies, "r", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            energies.append(float(row["energy"]))
+    return {
+        "paths": paths,
+        "raw": raw,
+        "descriptors": descriptors,
+        "energies": np.asarray(energies, dtype=float),
+        "metadata": metadata,
+    }
+
+
+def discover_four_minima(
+    output_dir: str = DEFAULT_OUTPUT_DIR,
+    seed: int = 2026,
+    init_scale: float = 1.2,
+    r_min: float = DEFAULT_R_MIN,
+    minima_tol: float = 1e-4,
+    cluster_max_pair_distance: float = DEFAULT_CLUSTER_MAX_PAIR_DISTANCE,
+    max_attempts: int = 4000,
+    no_new_minima_patience: int = 300,
+    local_maxiter: int = 800,
+    local_gtol: float = 1e-8,
+    force: bool = False,
+    verbose: bool = True,
+) -> dict:
+    paths = ensure_output_dir(output_dir)
+    if (
+        not force
+        and os.path.exists(paths.minima_raw)
+        and os.path.exists(paths.minima_descriptors)
+        and os.path.exists(paths.minima_energies)
+        and os.path.exists(paths.minima_metadata)
+    ):
+        return load_minima_bundle(output_dir)
+
+    rng = np.random.default_rng(int(seed))
+    unique_minima: list[dict] = []
+    extra_distinct = []
+    attempts_since_new = 0
+    total_attempts = 0
+    rejected_noncompact = 0
+
+    for attempt_idx in range(int(max_attempts)):
+        total_attempts += 1
+        R0 = random_initial_configuration(rng, init_scale=init_scale)
+        result = local_minimize(
+            R0,
+            r_min=r_min,
+            maxiter=local_maxiter,
+            gtol=local_gtol,
+        )
+        if not is_compact_cluster_descriptor(
+            result["descriptor"],
+            cluster_max_pair_distance=cluster_max_pair_distance,
+        ):
+            rejected_noncompact += 1
+            continue
+        duplicate_idx = _descriptor_is_duplicate(
+            result["descriptor"],
+            unique_minima,
+            minima_tol=minima_tol,
+        )
+        if duplicate_idx is None:
+            unique_minima.append(result)
+            attempts_since_new = 0
+            if verbose:
+                print(
+                    f"[minima] new minimum #{len(unique_minima)} at attempt {attempt_idx + 1} "
+                    f"with energy {result['energy']:.10f}",
+                    flush=True,
+                )
+            if len(unique_minima) > 4:
+                extra_distinct.append(result)
         else:
-            lam_t = lam
-            sigma_t = sigma_L
-            jump_cap_t = jump_cap
-        X_levy, n_event, n_accept = step_levy_lj7(
-            X_levy,
-            dt,
-            eps,
-            rng,
-            lj_eps=lj_eps,
-            sigma=sigma,
-            r_soft=r_soft,
-            lam=lam_t,
-            sigma_L=sigma_t,
-            mults=mults,
-            pm=pm,
-            box_L=box_L,
-            jump_cap=jump_cap_t,
-            local_jump_particles=local_jump_particles,
-            use_jump_mh=use_jump_mh,
-            box_mode=box_mode,
-            return_stats=True,
+            attempts_since_new += 1
+            current = unique_minima[duplicate_idx]
+            if result["energy"] < current["energy"]:
+                unique_minima[duplicate_idx] = result
+
+        if len(unique_minima) >= 4 and attempts_since_new >= int(no_new_minima_patience):
+            break
+
+    unique_minima = sorted(
+        unique_minima,
+        key=lambda item: (float(item["energy"]), item["descriptor"].tolist()),
+    )
+    if extra_distinct:
+        # More than 4 compact minima found.  Keep the 4 with lowest energy.
+        # This can happen if minima_tol is tight relative to the descriptor-space
+        # separation between nearly degenerate structures.  We warn but continue.
+        warnings.warn(
+            f"More than 4 distinct compact minima found ({len(unique_minima)} total). "
+            "Keeping the 4 lowest-energy ones. Consider increasing minima_tol if this "
+            "is unexpected.",
+            RuntimeWarning,
         )
-        jump_event_total += n_event
-        jump_accept_total += n_accept
-        n_particle_updates += X_levy.shape[0]
+        unique_minima = unique_minima[:4]
+    if len(unique_minima) < 4:
+        raise RuntimeError(
+            f"Expected at least 4 distinct minima, found only {len(unique_minima)} after "
+            f"{total_attempts} attempts. Increase max_attempts, decrease minima_tol, or "
+            "relax cluster_max_pair_distance."
+        )
 
-    if return_jump_stats:
-        stats = {
-            "event_rate": jump_event_total / max(n_particle_updates, 1),
-            "accept_rate_given_event": jump_accept_total / max(jump_event_total, 1),
-            "accepted_event_rate": jump_accept_total / max(n_particle_updates, 1),
-        }
-        return history, X_diff, X_mala, X_flmc, X_levy, stats
-    return history, X_diff, X_mala, X_flmc, X_levy
+    metadata = {
+        "benchmark": "LJ7(2d)",
+        "temperature_reduced": DEFAULT_T_STAR,
+        "seed": int(seed),
+        "r_min": float(r_min),
+        "minima_tol": float(minima_tol),
+        "cluster_max_pair_distance": float(cluster_max_pair_distance),
+        "init_scale": float(init_scale),
+        "max_attempts": int(max_attempts),
+        "attempts_used": int(total_attempts),
+        "rejected_noncompact": int(rejected_noncompact),
+        "no_new_minima_patience": int(no_new_minima_patience),
+        "local_maxiter": int(local_maxiter),
+        "local_gtol": float(local_gtol),
+        "descriptor_definition": "sorted pair distances of shape (21,)",
+        "minima_filter": (
+            "Only compact bonded-cluster minima are retained. Candidates with "
+            "max(sorted pair distance) above cluster_max_pair_distance are rejected "
+            "to exclude nearly dissociated pseudo-minima from EMC preprocessing."
+        ),
+    }
+    save_minima_bundle(unique_minima, output_dir=output_dir, metadata=metadata)
+    return load_minima_bundle(output_dir)
 
 
-def aggregate_histories(histories, keys):
-    stacked = {k: np.stack([np.array(h[k]) for h in histories], axis=0) for k in keys}
-    mean = {k: stacked[k].mean(axis=0) for k in keys}
-    std = {k: stacked[k].std(axis=0) for k in keys}
+def brownian_noise(
+    rng: np.random.Generator,
+    n_samples: int,
+    sigma_noise: float,
+    dt: float,
+) -> np.ndarray:
+    noise = rng.standard_normal((int(n_samples), N_ATOMS, SPATIAL_DIM))
+    return sigma_noise * np.sqrt(float(dt)) * noise
+
+
+def step_ula(
+    states: np.ndarray,
+    dt: float,
+    sigma_noise: float,
+    r_min: float,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    drift = -grad_energy(states, r_min=r_min)
+    proposal = states + tamed_increment(drift, dt) + brownian_noise(
+        rng,
+        n_samples=states.shape[0],
+        sigma_noise=sigma_noise,
+        dt=dt,
+    )
+    return remove_center_of_mass(proposal)
+
+
+def step_mala(
+    states: np.ndarray,
+    dt: float,
+    temperature: float,
+    sigma_noise: float,
+    r_min: float,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, float]:
+    drift_x = -grad_energy(states, r_min=r_min)
+    mean_x = states + tamed_increment(drift_x, dt)
+    proposal = mean_x + brownian_noise(
+        rng,
+        n_samples=states.shape[0],
+        sigma_noise=sigma_noise,
+        dt=dt,
+    )
+    proposal = remove_center_of_mass(proposal)
+
+    drift_y = -grad_energy(proposal, r_min=r_min)
+    mean_y = proposal + tamed_increment(drift_y, dt)
+
+    e_x = total_energy(states, r_min=r_min)
+    e_y = total_energy(proposal, r_min=r_min)
+
+    noise_var = max((sigma_noise ** 2) * float(dt), 1e-12)
+    diff_fwd = proposal - mean_x
+    diff_bwd = states - mean_y
+    log_q_y_given_x = -np.sum(diff_fwd.reshape(diff_fwd.shape[0], -1) ** 2, axis=1) / (2.0 * noise_var)
+    log_q_x_given_y = -np.sum(diff_bwd.reshape(diff_bwd.shape[0], -1) ** 2, axis=1) / (2.0 * noise_var)
+    log_alpha = (-e_y / float(temperature) + log_q_x_given_y) - (
+        -e_x / float(temperature) + log_q_y_given_x
+    )
+    accept = np.log(rng.random(states.shape[0])) < log_alpha
+    updated = states.copy()
+    updated[accept] = proposal[accept]
+    return updated, float(np.mean(accept))
+
+
+def step_flmc(
+    states: np.ndarray,
+    dt: float,
+    sigma_noise: float,
+    alpha: float,
+    r_min: float,
+    rng: np.random.Generator,
+    jump_cap: float | None = 2.0,
+) -> np.ndarray:
+    """
+    FLMC step for LJ7(2d).
+
+    jump_cap caps the Euclidean norm of the alpha-stable noise vector in the
+    14D coordinate space (before COM removal).  LJ is singular at r→0, so
+    uncapped heavy-tailed noise can in principle drive atoms to near-zero
+    separations; the cap prevents that in edge cases.
+
+    EFFECTIVE TEMPERATURE WARNING:
+    For alpha < 2, the per-step noise magnitude scales as sigma * dt^(1/alpha),
+    whereas ULA noise scales as sigma * sqrt(dt).  The ratio is dt^(1/alpha - 1/2),
+    which for alpha=1.5 and dt=2e-4 gives:
+        dt^(2/3 - 1/2) = dt^(1/6) ≈ 0.24
+    FLMC per-step noise is therefore ~4x smaller than ULA per-step noise at this dt.
+    This means FLMC effectively samples at a much colder temperature than intended,
+    which can cause distribution collapse toward the nearest minimum and poor
+    Sinkhorn / MMD scores vs. an equal-weight multi-basin reference.
+    This is a fundamental property of alpha-stable FLMC at finite dt with alpha < 2,
+    not a code error.  It should be reported explicitly in benchmark comparisons.
+    """
+    flat = flatten_states(states)
+    flat_new = step_flmc_nd(
+        x=flat,
+        dt=float(dt),
+        alpha=float(alpha),
+        sigma=float(sigma_noise),
+        gradV_fn=lambda arr: grad_energy_flat(arr, r_min=r_min),
+        rng=rng,
+        clip_bounds=None,
+        noise_cap=None if jump_cap is None else float(jump_cap),
+    )
+    return remove_center_of_mass(unflatten_states(flat_new))
+
+
+def levy_score_integral(
+    states: np.ndarray,
+    temperature: float,
+    lam: float,
+    sigma_L: float,
+    multipliers: np.ndarray,
+    pm: np.ndarray,
+    rng: np.random.Generator,
+    r_min: float,
+    n_dir_score: int,
+    n_theta: int,
+    score_clip: float | None = None,
+) -> np.ndarray:
+    """
+    Monte Carlo estimate of the stationary Lévy-score correction.
+
+    Manuscript formula (Eq. 27):
+        S_L^s(x) = -λ ∫₀¹ ∫ r exp{-(E(x-θr)-E(x))/T*} ν_norm(dr) dθ
+
+    where ν_norm is the normalised jump measure (prob over multipliers × uniform on sphere).
+
+    SIGN CONVENTION — returned value and how it enters the drift:
+    This function returns `code_score`, which satisfies `code_score = -S_L^s`.
+    The LSB-MC SDE drift is `-∇V + S_L^s = -∇V - code_score`.
+    In step_lsbmc this appears as `drift - score`, where `drift = -∇V`.
+    Therefore `drift - score` is mathematically correct.
+
+    SYMMETRISED ESTIMATOR:
+    For each randomly sampled direction r from the full sphere, the identity
+        E_r[r · exp(-(E(x-θr)-E(x))/T*)] = E_r[0.5*(ratio_minus - ratio_plus)*r]
+    holds because ratio_plus(r) = ratio_minus(-r), making the raw estimator
+    antisymmetric in r while the symmetrised version is equivalent in expectation.
+    The symmetrised form halves the estimator variance without introducing bias.
+    """
+    states = remove_center_of_mass(states)
+    n_samples = states.shape[0]
+    energies_0 = total_energy(states, r_min=r_min)
+    theta = np.linspace(0.0, 1.0, int(n_theta))
+    weights = np.ones_like(theta)
+    weights[0] = 0.5
+    weights[-1] = 0.5
+    weights /= np.sum(weights)
+
+    directions = sample_com_free_directions(rng, int(n_dir_score))
+    score = np.zeros_like(states)
+    for mult, prob in zip(np.asarray(multipliers, dtype=float), np.asarray(pm, dtype=float)):
+        jump = float(sigma_L) * float(mult) * directions
+        for direction in jump:
+            accum = np.zeros_like(states)
+            for th, w_th in zip(theta, weights):
+                plus = remove_center_of_mass(states + float(th) * direction[None, :, :])
+                minus = remove_center_of_mass(states - float(th) * direction[None, :, :])
+                e_plus = total_energy(plus, r_min=r_min)
+                e_minus = total_energy(minus, r_min=r_min)
+                ratio_plus = np.exp(np.clip(-(e_plus - energies_0) / float(temperature), -80.0, 80.0))
+                ratio_minus = np.exp(np.clip(-(e_minus - energies_0) / float(temperature), -80.0, 80.0))
+                term = 0.5 * (ratio_minus - ratio_plus)
+                accum += float(w_th) * term[:, None, None] * direction[None, :, :]
+            score += float(prob) / float(n_dir_score) * accum
+
+    score *= float(lam)
+    if score_clip is not None:
+        score = np.clip(score, -float(score_clip), float(score_clip))
+    return remove_center_of_mass(score)
+
+
+def step_lsbmc(
+    states: np.ndarray,
+    dt: float,
+    temperature: float,
+    sigma_noise: float,
+    lam: float,
+    sigma_L: float,
+    multipliers: np.ndarray,
+    pm: np.ndarray,
+    r_min: float,
+    rng: np.random.Generator,
+    n_dir_score: int = 4,
+    n_theta: int = 5,
+    jump_cap: float | None = 1.25,
+    score_clip: float | None = 25.0,
+) -> np.ndarray:
+    drift = -grad_energy(states, r_min=r_min)
+    score = levy_score_integral(
+        states,
+        temperature=temperature,
+        lam=lam,
+        sigma_L=sigma_L,
+        multipliers=multipliers,
+        pm=pm,
+        rng=rng,
+        r_min=r_min,
+        n_dir_score=n_dir_score,
+        n_theta=n_theta,
+        score_clip=score_clip,
+    )
+    proposal = states + tamed_increment(drift - score, dt) + brownian_noise(
+        rng,
+        n_samples=states.shape[0],
+        sigma_noise=sigma_noise,
+        dt=dt,
+    )
+
+    jump_counts = rng.poisson(float(lam) * float(dt), size=states.shape[0])
+    active = np.where(jump_counts > 0)[0]
+    if active.size > 0:
+        for idx in active:
+            total_jump = np.zeros((N_ATOMS, SPATIAL_DIM), dtype=float)
+            for _ in range(int(jump_counts[idx])):
+                mult = float(rng.choice(multipliers, p=pm))
+                direction = sample_com_free_directions(rng, 1)[0]
+                total_jump += float(sigma_L) * mult * direction
+            if jump_cap is not None:
+                norm = np.linalg.norm(total_jump.reshape(-1))
+                if norm > float(jump_cap):
+                    total_jump *= float(jump_cap) / (norm + 1e-12)
+            proposal[idx] += total_jump
+
+    return remove_center_of_mass(proposal)
+
+
+def aggregate_histories(histories: list[dict], keys: list[str]) -> tuple[dict, dict]:
+    stacked = {k: np.stack([np.asarray(h[k], dtype=float) for h in histories], axis=0) for k in keys}
+    mean = {k: np.nanmean(stacked[k], axis=0) for k in keys}
+    std = {k: np.nanstd(stacked[k], axis=0) for k in keys}
     return mean, std
 
 
-def _build_eval_steps(steps, n_linear=45, n_early=28, early_frac=0.18):
-    if steps <= 2:
-        return {0, int(steps)}
-    linear = np.linspace(0, steps, int(n_linear), dtype=int)
-    early_max = max(2, int(np.ceil(early_frac * steps)))
-    early = np.rint(np.geomspace(1.0, float(early_max), int(n_early))).astype(int)
-    points = np.unique(np.concatenate(([0, steps], linear, early)))
-    return set(int(v) for v in points.tolist())
+def build_benchmark_eval_steps(total_steps: int, num_checkpoints: int) -> set[int]:
+    num_checkpoints = max(2, int(num_checkpoints))
+    return set(np.unique(np.linspace(0, int(total_steps), num_checkpoints, dtype=int)).tolist())
 
 
-def save_figure_both(fig, out_base, dpi=200):
-    fig.savefig(f"{out_base}.png", dpi=dpi)
-    fig.savefig(f"{out_base}.pdf")
+def canonical_cluster_configuration() -> np.ndarray:
+    bond = 2.0 ** (1.0 / 6.0)
+    angles = np.linspace(0.0, 2.0 * np.pi, 6, endpoint=False)
+    outer = bond * np.stack([np.cos(angles), np.sin(angles)], axis=1)
+    center = np.zeros((1, SPATIAL_DIM), dtype=float)
+    return remove_center_of_mass(np.concatenate([center, outer], axis=0))
+
+
+def random_rotate_states(states: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    batch, squeeze = _ensure_state_batch(states)
+    angles = rng.uniform(0.0, 2.0 * np.pi, size=batch.shape[0])
+    cos_a = np.cos(angles)
+    sin_a = np.sin(angles)
+    rotated = batch.copy()
+    x = batch[:, :, 0]
+    y = batch[:, :, 1]
+    rotated[:, :, 0] = cos_a[:, None] * x - sin_a[:, None] * y
+    rotated[:, :, 1] = sin_a[:, None] * x + cos_a[:, None] * y
+    return rotated[0] if squeeze else rotated
+
+
+def initial_ensemble(
+    n_samples: int,
+    rng: np.random.Generator,
+    init_scale: float = 1.35,
+    init_noise: float = 0.08,
+) -> np.ndarray:
+    base = canonical_cluster_configuration()
+    scales = float(init_scale) * np.exp(0.18 * rng.standard_normal((int(n_samples), 1, 1)))
+    states = scales * np.repeat(base[None, :, :], int(n_samples), axis=0)
+    states += float(init_noise) * rng.standard_normal(states.shape)
+    states = random_rotate_states(states, rng)
+    return remove_center_of_mass(states)
+
+
+def load_reference_bundle(output_dir: str = DEFAULT_OUTPUT_DIR) -> dict:
+    paths = get_lj7_paths(output_dir)
+    with open(paths.reference_metadata, "r", encoding="utf-8") as handle:
+        metadata = json.load(handle)
+    return {
+        "paths": paths,
+        "descriptors": np.load(paths.reference_descriptors),
+        "metadata": metadata,
+    }
+
+
+def generate_reference_descriptors(
+    output_dir: str = DEFAULT_OUTPUT_DIR,
+    seed: int = 2027,
+    temperature: float = DEFAULT_T_STAR,
+    dt: float = 2.0e-4,
+    burn_in_steps: int = 8000,
+    thin: int = 20,
+    reference_size: int = 2048,
+    n_chains: int = 128,
+    init_scale: float = 1.10,
+    init_noise: float = 0.08,
+    r_min: float = DEFAULT_R_MIN,
+    force: bool = False,
+    verbose: bool = True,
+) -> dict:
+    paths = ensure_output_dir(output_dir)
+    if not force and os.path.exists(paths.reference_descriptors) and os.path.exists(paths.reference_metadata):
+        return load_reference_bundle(output_dir)
+
+    rng = np.random.default_rng(int(seed))
+    sigma_noise = float(np.sqrt(2.0 * float(temperature)))
+    n_chains = max(1, min(int(n_chains), int(reference_size)))
+    samples_per_chain = int(np.ceil(float(reference_size) / float(n_chains)))
+    total_steps = int(burn_in_steps) + samples_per_chain * int(thin)
+    states = initial_ensemble(
+        n_samples=n_chains,
+        rng=rng,
+        init_scale=init_scale,
+        init_noise=init_noise,
+    )
+    collected = []
+    acceptance = []
+
+    for step_idx in range(total_steps):
+        states, acc = step_mala(
+            states,
+            dt=dt,
+            temperature=temperature,
+            sigma_noise=sigma_noise,
+            r_min=r_min,
+            rng=rng,
+        )
+        acceptance.append(acc)
+        if step_idx >= int(burn_in_steps) and (step_idx - int(burn_in_steps)) % int(thin) == 0:
+            collected.append(sorted_pair_distance_descriptor(states, r_min=r_min))
+
+    reference_descriptors = np.concatenate(collected, axis=0)[: int(reference_size)]
+    np.save(paths.reference_descriptors, reference_descriptors)
+    metadata = {
+        "benchmark": "LJ7(2d)",
+        "reference_method": "multi-chain MALA from random rotated noisy compact LJ7 configurations",
+        "seed": int(seed),
+        "temperature_reduced": float(temperature),
+        "sigma_noise": float(sigma_noise),
+        "dt": float(dt),
+        "burn_in_steps": int(burn_in_steps),
+        "thin": int(thin),
+        "reference_size": int(reference_descriptors.shape[0]),
+        "n_chains": int(n_chains),
+        "init_scale": float(init_scale),
+        "init_noise": float(init_noise),
+        "r_min": float(r_min),
+        "descriptor_dim": int(reference_descriptors.shape[1]),
+        "mean_acceptance_rate": float(np.mean(acceptance)) if acceptance else float("nan"),
+        "caveat": (
+            "No finite mode set is imposed for LJ7(2d), so EMC is disabled. "
+            "The reference cloud is an approximate descriptor-space equilibrium proxy "
+            "built from many MALA chains started from compact configurations."
+        ),
+    }
+    with open(paths.reference_metadata, "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2, sort_keys=True)
+    if verbose:
+        print(f"[reference] saved {reference_descriptors.shape[0]} descriptor samples")
+    return {
+        "paths": paths,
+        "descriptors": reference_descriptors,
+        "metadata": metadata,
+    }
+
+
+def run_simulation(
+    seed: int,
+    temperature: float,
+    dt: float,
+    total_time: float,
+    n_samples: int,
+    r_min: float,
+    alpha: float,
+    lam: float,
+    sigma_L: float,
+    jump_multipliers: tuple[float, ...],
+    jump_weights: tuple[float, ...],
+    init_scale: float,
+    init_noise: float,
+    benchmark_ref_samples: np.ndarray | None = None,
+    benchmark_config: dict | None = None,
+    n_dir_score: int = 4,
+    n_theta: int = 5,
+    jump_cap: float | None = 1.25,
+    flmc_jump_cap: float | None = 2.0,
+    score_clip: float | None = 25.0,
+    return_benchmark_history: bool = False,
+    # EMC parameters (optional; no-op when emc_enabled=False)
+    minima_descriptors: np.ndarray | None = None,
+    cluster_max_pair_distance: float = DEFAULT_CLUSTER_MAX_PAIR_DISTANCE,
+    assignment_radius: float | None = None,
+    emc_enabled: bool = False,
+    emc_hard_coverage_threshold: float = 0.01,
+    emc_assignment_mode: str = "quench",
+    emc_quench_maxiter: int = 400,
+    emc_quench_gtol: float = 1e-6,
+) -> tuple:
+    rng = np.random.default_rng(int(seed))
+    sigma_noise = float(np.sqrt(2.0 * float(temperature)))
+    multipliers = np.asarray(jump_multipliers, dtype=float)
+    weights = np.asarray(jump_weights, dtype=float)
+    weights /= np.sum(weights)
+
+    initial = initial_ensemble(
+        n_samples=int(n_samples),
+        rng=rng,
+        init_scale=init_scale,
+        init_noise=init_noise,
+    )
+    states = {
+        "ula": initial.copy(),
+        "mala": initial.copy(),
+        "flmc": initial.copy(),
+        "lsbmc": initial.copy(),
+    }
+
+    sinkhorn_mmd_metric_names = [
+        "pairdist_benchmark_sinkhorn_ot_cost",
+        "pairdist_benchmark_sinkhorn_divergence",
+        "pairdist_benchmark_mmd_squared",
+        "pairdist_benchmark_mmd",
+    ]
+    _run_emc = emc_enabled and minima_descriptors is not None
+    emc_metric_names: list[str] = list(_EMC_METRIC_NAMES) if _run_emc else []
+    benchmark_metric_names = sinkhorn_mmd_metric_names + emc_metric_names
+
+    benchmark_history = None
+    benchmark_eval_steps = set()
+    if benchmark_ref_samples is not None and benchmark_config is not None:
+        benchmark_history = init_benchmark_history(benchmark_metric_names)
+        benchmark_eval_steps = build_benchmark_eval_steps(
+            int(np.round(float(total_time) / float(dt))),
+            benchmark_config.get("benchmark_num_checkpoints", 21),
+        )
+
+    steps = int(np.round(float(total_time) / float(dt)))
+    mala_acceptance = []
+
+    for step_idx in range(steps + 1):
+        if benchmark_history is not None and step_idx in benchmark_eval_steps:
+            t_val = float(step_idx) * float(dt)
+            benchmark_history["t"].append(t_val)
+            descriptors = {
+                slug: sorted_pair_distance_descriptor(state, r_min=r_min)
+                for slug, state in states.items()
+            }
+            for method_idx, (slug, _, _) in enumerate(BENCHMARK_METHODS):
+                # --- Sinkhorn / MMD metrics (unchanged) ---
+                metric_rng = make_metric_rng(benchmark_config["metric_seed"], seed, step_idx, method_idx)
+                values = compute_benchmark_metrics(
+                    descriptors[slug],
+                    benchmark_ref_samples,
+                    benchmark_config,
+                    metric_rng,
+                    metric_prefix="pairdist_benchmark",
+                    context=f"lennard_jones seed={seed} t={t_val:.5f} method={slug}",
+                )
+                for metric_name in sinkhorn_mmd_metric_names:
+                    benchmark_history[f"{metric_name}_{slug}"].append(values.get(metric_name, float("nan")))
+
+                # --- EMC metrics (additional; quench-based or raw descriptor) ---
+                if _run_emc:
+                    if emc_assignment_mode == "quench":
+                        assignment = quench_and_assign_states_to_minima(
+                            states[slug],
+                            minima_descriptors,
+                            r_min=float(r_min),
+                            cluster_max_pair_distance=float(cluster_max_pair_distance),
+                            assignment_radius=assignment_radius,
+                            local_maxiter=int(emc_quench_maxiter),
+                            local_gtol=float(emc_quench_gtol),
+                        )
+                    else:  # "raw"
+                        assignment = assign_descriptors_to_minima(
+                            descriptors[slug],
+                            minima_descriptors,
+                            cluster_max_pair_distance=float(cluster_max_pair_distance),
+                            assignment_radius=assignment_radius,
+                        )
+                    labels = assignment["labels"]
+                    benchmark_history[f"lj7_emc_{slug}"].append(
+                        compute_emc_from_labels(labels)
+                    )
+                    benchmark_history[f"lj7_assigned_fraction_{slug}"].append(
+                        assignment["assigned_fraction"]
+                    )
+                    benchmark_history[f"lj7_hard_mode_coverage_{slug}"].append(
+                        compute_hard_mode_coverage(labels, min_fraction=float(emc_hard_coverage_threshold))
+                    )
+                    benchmark_history[f"lj7_conditional_mode_entropy_{slug}"].append(
+                        compute_conditional_mode_entropy(labels)
+                    )
+
+        if step_idx == steps:
+            break
+
+        states["ula"] = step_ula(
+            states["ula"],
+            dt=dt,
+            sigma_noise=sigma_noise,
+            r_min=r_min,
+            rng=rng,
+        )
+        states["mala"], acc = step_mala(
+            states["mala"],
+            dt=dt,
+            temperature=temperature,
+            sigma_noise=sigma_noise,
+            r_min=r_min,
+            rng=rng,
+        )
+        mala_acceptance.append(acc)
+        states["flmc"] = step_flmc(
+            states["flmc"],
+            dt=dt,
+            sigma_noise=sigma_noise,
+            alpha=alpha,
+            r_min=r_min,
+            rng=rng,
+            jump_cap=flmc_jump_cap,
+        )
+        states["lsbmc"] = step_lsbmc(
+            states["lsbmc"],
+            dt=dt,
+            temperature=temperature,
+            sigma_noise=sigma_noise,
+            lam=lam,
+            sigma_L=sigma_L,
+            multipliers=multipliers,
+            pm=weights,
+            r_min=r_min,
+            rng=rng,
+            n_dir_score=n_dir_score,
+            n_theta=n_theta,
+            jump_cap=jump_cap,
+            score_clip=score_clip,
+        )
+
+    acc_rate = float(np.mean(mala_acceptance)) if mala_acceptance else float("nan")
+    if return_benchmark_history:
+        return benchmark_history, states["ula"], states["lsbmc"], states["flmc"], states["mala"], acc_rate
+    return states["ula"], states["lsbmc"], states["flmc"], states["mala"], acc_rate
+
+
+def plot_emc_metrics_figure(
+    t: np.ndarray,
+    mean: dict,
+    std: dict,
+    output_base: str,
+    title: str,
+    methods: list | None = None,
+) -> None:
+    """
+    Save a three-panel figure showing EMC, hard mode coverage, and assigned
+    fraction over time, one curve per sampler method.
+
+    Parameters
+    ----------
+    t : np.ndarray
+        Evaluation time points.
+    mean : dict
+        Keys of the form "{metric_name}_{slug}", values are mean arrays.
+    std : dict
+        Same structure as mean but for standard deviations.
+    output_base : str
+        Output path without extension; saves both .png and .pdf.
+    title : str
+        Figure title.
+    methods : list or None
+        List of (slug, label, color) tuples.  Defaults to BENCHMARK_METHODS.
+    """
+    import matplotlib.pyplot as plt
+
+    if methods is None:
+        methods = BENCHMARK_METHODS
+
+    panel_keys = [
+        ("lj7_emc", "EMC", [0.0, 1.0]),
+        ("lj7_conditional_mode_entropy", "Cond. Mode Entropy", [0.0, 1.0]),
+        ("lj7_hard_mode_coverage", "Hard Mode Coverage", [0.0, 1.0]),
+        ("lj7_assigned_fraction", "Assigned Fraction", [0.0, 1.0]),
+    ]
+    n_panels = len(panel_keys)
+    t = np.asarray(t, dtype=float)
+
+    fig, axes = plt.subplots(1, n_panels, figsize=(5.5 * n_panels, 4.2))
+    if n_panels == 1:
+        axes = [axes]
+
+    for ax, (metric_name, ylabel, ylim) in zip(axes, panel_keys):
+        for slug, label, color in methods:
+            key = f"{metric_name}_{slug}"
+            if key not in mean:
+                continue
+            mu = np.asarray(mean[key], dtype=float)
+            sigma = np.asarray(std[key], dtype=float)
+            ax.plot(t, mu, label=label, color=color, linewidth=1.6)
+            ax.fill_between(t, mu - sigma, mu + sigma, alpha=0.18, color=color)
+        ax.set_xlabel("time")
+        ax.set_ylabel(ylabel)
+        ax.set_ylim(ylim)
+        ax.set_title(ylabel)
+        ax.legend(fontsize=8)
+        ax.grid(True, linewidth=0.4, alpha=0.5)
+
+    fig.suptitle(title, fontsize=11)
+    fig.tight_layout()
+    fig.savefig(f"{output_base}.png", dpi=150, bbox_inches="tight")
+    fig.savefig(f"{output_base}.pdf", bbox_inches="tight")
     plt.close(fig)
 
 
-def plot_highdim_errors_over_time(t, mean, std, out_prefix):
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
-
-    methods_l1 = [
-        ("l1_d", "ULA", "C0"),
-        ("l1_m", "MALA", "C2"),
-        ("l1_f", "FLMC", "tab:orange"),
-        ("l1_l", "LSBMC", "C3"),
-    ]
-    for key, label, color in methods_l1:
-        axes[0].errorbar(t, mean[key], yerr=std[key], fmt="-", color=color, label=label, alpha=0.9, capsize=2)
-    axes[0].set_title("Pair-Distance L1 Error")
-    axes[0].set_xlabel("Time")
-    axes[0].grid(True, alpha=0.3)
-    axes[0].legend()
-
-    methods_l2 = [
-        ("l2_d", "ULA", "C0"),
-        ("l2_m", "MALA", "C2"),
-        ("l2_f", "FLMC", "tab:orange"),
-        ("l2_l", "LSBMC", "C3"),
-    ]
-    for key, label, color in methods_l2:
-        axes[1].errorbar(t, mean[key], yerr=std[key], fmt="-", color=color, label=label, alpha=0.9, capsize=2)
-    axes[1].set_title("Pair-Distance L2 Error")
-    axes[1].set_xlabel("Time")
-    axes[1].grid(True, alpha=0.3)
-    axes[1].legend()
-
-    fig.suptitle("Lennard-Jones: Metrics Comparison")
-    plt.tight_layout()
-    save_figure_both(fig, out_prefix)
-
-
-def _parse_args():
-    p = argparse.ArgumentParser(
-        description="LJ cluster benchmark with ULA, MALA, FLMC, and LSBMC on (R^d)^N."
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="LJ7(2d) benchmark with pair-distance metrics and Sinkhorn/MMD.")
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--seed", type=int, default=2028)
+    parser.add_argument("--num-seeds", type=int, default=5)
+    parser.add_argument("--T-star", type=float, default=DEFAULT_T_STAR)
+    parser.add_argument("--dt", type=float, default=1.0e-3)
+    parser.add_argument("--total-time", type=float, default=1.0)
+    parser.add_argument("--n-samples", type=int, default=256)
+    parser.add_argument("--reference-size", type=int, default=2048)
+    parser.add_argument("--reference-chains", type=int, default=128)
+    parser.add_argument("--reference-burn-in", type=int, default=3000)
+    parser.add_argument("--reference-thin", type=int, default=10)
+    parser.add_argument("--reference-force", action="store_true")
+    parser.add_argument("--init-scale", type=float, default=1.35)
+    parser.add_argument("--init-noise", type=float, default=0.08)
+    parser.add_argument("--reference-init-scale", type=float, default=1.10)
+    parser.add_argument("--reference-init-noise", type=float, default=0.08)
+    parser.add_argument("--r-min", type=float, default=DEFAULT_R_MIN)
+    parser.add_argument("--alpha", type=float, default=1.5)
+    parser.add_argument("--lam", type=float, default=1.5)
+    parser.add_argument("--sigma-L", type=float, default=0.60)
+    parser.add_argument("--n-dir-score", type=int, default=4)
+    parser.add_argument("--n-theta", type=int, default=5)
+    parser.add_argument("--jump-cap", type=float, default=1.25)
+    parser.add_argument("--flmc-jump-cap", type=float, default=2.0)
+    parser.add_argument("--score-clip", type=float, default=25.0)
+    parser.add_argument("--eval-checkpoints", type=int, default=21)
+    parser.add_argument("--metric-seed", type=int, default=2029)
+    parser.add_argument("--benchmark-num-repeats", type=int, default=2)
+    parser.add_argument("--sinkhorn-epsilon", type=float, default=0.08)
+    parser.add_argument("--sinkhorn-max-iter", type=int, default=300)
+    parser.add_argument("--sinkhorn-tol", type=float, default=1e-5)
+    parser.add_argument("--sinkhorn-subsample-size", type=int, default=192)
+    parser.add_argument("--mmd-num-kernels", type=int, default=10)
+    parser.add_argument("--mmd-subsample-size", type=int, default=256)
+    parser.add_argument("--mmd-bandwidth-base", type=float, default=1.0)
+    parser.add_argument("--mmd-bandwidth-multiplier", type=float, default=2.0)
+    # --- EMC flags ---
+    parser.add_argument(
+        "--emc-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable EMC (Entropic Mode Coverage) metric for LJ7(2d). Default: True.",
     )
-    p.add_argument(
-        "--n-particles",
+    parser.add_argument(
+        "--emc-assignment-radius",
+        type=float,
+        default=None,
+        help=(
+            "Hard radius in descriptor space for well assignment. "
+            "Default: None (auto = 0.35 * min inter-minimum separation)."
+        ),
+    )
+    parser.add_argument(
+        "--emc-hard-coverage-threshold",
+        type=float,
+        default=0.01,
+        help=(
+            "Minimum fraction of all samples required for a mode to count as "
+            "covered in the hard mode coverage metric. Default: 0.01."
+        ),
+    )
+    parser.add_argument(
+        "--minima-force",
+        action="store_true",
+        default=False,
+        help="Force rediscovery of the four LJ7(2d) minima even if cached files exist.",
+    )
+    parser.add_argument(
+        "--emc-assignment-mode",
+        choices=["quench", "raw"],
+        default="quench",
+        help=(
+            "EMC well assignment mode.  'quench' runs local_minimize() from each "
+            "sample and assigns the quenched descriptor to the nearest minimum "
+            "(basin-of-attraction assignment; scientifically preferred).  'raw' "
+            "assigns the raw sample descriptor using a nearest-ball test.  "
+            "Default: quench."
+        ),
+    )
+    parser.add_argument(
+        "--emc-quench-maxiter",
         type=int,
-        default=3,
-        help="Cluster size N. Start with 2 or 3 before trying 7.",
+        default=400,
+        help="Maximum L-BFGS-B iterations per sample quench (quench mode only). Default: 400.",
     )
-    p.add_argument(
-        "--spatial-dim",
-        type=int,
-        default=3,
-        help="Spatial dimension d for each particle coordinate.",
-    )
-    p.add_argument(
-        "--lj-eps",
+    parser.add_argument(
+        "--emc-quench-gtol",
         type=float,
-        default=2.0,
-        help="Lennard-Jones energy scale epsilon_LJ.",
+        default=1e-6,
+        help="Gradient tolerance for per-sample quench (quench mode only). Default: 1e-6.",
     )
-    p.add_argument(
-        "--noise-ratio",
-        type=float,
-        default=0.05,
-        help="Set eps = noise_ratio * epsilon_LJ (try 0.10 or 0.05).",
-    )
-    p.add_argument("--dt", type=float, default=0.0015, help="Time step.")
-    p.add_argument("--T", type=float, default=12.0, help="Final time horizon.")
-    p.add_argument(
-        "--n-samples",
-        type=int,
-        default=2200,
-        help="Number of particles in Monte Carlo ensemble.",
-    )
-    p.add_argument("--n-ref", type=int, default=2500, help="Reference sample size.")
-    p.add_argument(
-        "--warmup-steps", type=int, default=24000, help="Reference warm-up steps."
-    )
-    p.add_argument("--num-seeds", type=int, default=5, help="Number of random seeds.")
-    p.add_argument(
-        "--lam",
-        type=float,
-        default=None,
-        help="Jump intensity. Default adapts to n-particles.",
-    )
-    p.add_argument(
-        "--sigma-L",
-        type=float,
-        default=None,
-        help="Base jump magnitude. Default adapts to n-particles.",
-    )
-    p.add_argument(
-        "--jump-cap",
-        type=float,
-        default=None,
-        help="Cap on flattened jump norm. Default adapts to n-particles.",
-    )
-    p.add_argument(
-        "--local-jump-particles",
-        type=int,
-        default=None,
-        help="How many particles share each jump event. Default adapts to n-particles.",
-    )
-    p.add_argument(
-        "--init-mode",
-        type=str,
-        default="expanded",
-        choices=["expanded", "equilibrium"],
-        help="Initial ensemble mode.",
-    )
-    p.add_argument(
-        "--init-scale",
-        type=float,
-        default=None,
-        help="Expansion factor for expanded init. Default adapts to n-particles.",
-    )
-    p.add_argument(
-        "--init-noise",
-        type=float,
-        default=None,
-        help="Initialization perturbation scale. Default adapts to n-particles.",
-    )
-    p.add_argument(
-        "--jump-anneal-boost",
-        type=float,
-        default=None,
-        help="Early-time jump-rate boost. Default adapts to n-particles.",
-    )
-    p.add_argument(
-        "--jump-anneal-tau",
-        type=float,
-        default=None,
-        help="Decay timescale for jump annealing. Default adapts to n-particles.",
-    )
-    p.add_argument(
-        "--jump-sigma-anneal",
-        type=float,
-        default=None,
-        help="Relative jump-size anneal factor. Default adapts to n-particles.",
-    )
-    p.add_argument(
-        "--jump-cap-anneal",
-        type=float,
-        default=None,
-        help="Relative jump-cap anneal factor. Default adapts to n-particles.",
-    )
-    return p.parse_args()
+    return parser
 
 
-def main():
-    args = _parse_args()
-    configure_lj7_geometry(args.n_particles, args.spatial_dim)
+def main(argv: list[str] | None = None) -> dict:
+    args = build_parser().parse_args(argv)
+    out_dir = os.path.abspath(args.output_dir)
+    paths = ensure_output_dir(out_dir)
 
-    lj_eps, sigma, r_soft = float(args.lj_eps), 1.0, 0.20
-    eps = float(args.noise_ratio) * lj_eps
-    if args.noise_ratio > 0.20:
-        warnings.warn(
-            "noise_ratio > 0.2 may overly flatten low LJ barriers; "
-            "consider 0.10 or 0.05.",
-            RuntimeWarning,
+    # -----------------------------------------------------------------------
+    # A. EMC preprocessing: load or discover the four compact LJ7(2d) minima
+    # -----------------------------------------------------------------------
+    emc_enabled = bool(args.emc_enabled)
+    minima_bundle = None
+    minima_descriptors_arr = None
+    emc_assignment_radius: float | None = None
+    assignment_radius_mode = "disabled"
+    assignment_radius_value: float | None = None
+
+    if emc_enabled:
+        print("[emc] loading or discovering four LJ7(2d) compact minima ...")
+        minima_bundle = load_or_discover_lj7_minima(
+            output_dir=out_dir,
+            cluster_max_pair_distance=DEFAULT_CLUSTER_MAX_PAIR_DISTANCE,
+            force=bool(args.minima_force),
+            verbose=True,
         )
-    dt = float(args.dt)
-    T = float(args.T)
-    N = int(args.n_samples)
-    box_L = 4.5
+        minima_descriptors_arr = minima_bundle["descriptors"]
+        n_modes = minima_descriptors_arr.shape[0]
 
-    if args.lam is None:
-        lam = 8.0 if LJ7_N_PARTICLES <= 3 else 20.0
-    else:
-        lam = float(args.lam)
-    if args.sigma_L is None:
-        sigma_L = 0.12 if LJ7_N_PARTICLES <= 3 else 0.20
-    else:
-        sigma_L = float(args.sigma_L)
-    mults = [1.0, 2.0, 3.5]
-    pm = [0.78, 0.18, 0.04]
-    if args.jump_cap is None:
-        jump_cap = 0.60 if LJ7_N_PARTICLES <= 3 else 1.10
-    else:
-        jump_cap = float(args.jump_cap)
-    if args.local_jump_particles is None:
-        local_jump_particles = 2 if LJ7_N_PARTICLES <= 3 else 1
-    else:
-        local_jump_particles = max(1, int(args.local_jump_particles))
-    use_jump_mh = True
-    box_mode = "clip"
-    if args.jump_anneal_boost is None:
-        jump_anneal_boost = 2.0 if LJ7_N_PARTICLES <= 3 else 0.0
-    else:
-        jump_anneal_boost = float(args.jump_anneal_boost)
-    if args.jump_anneal_tau is None:
-        jump_anneal_tau = 1.5 if LJ7_N_PARTICLES <= 3 else 2.2
-    else:
-        jump_anneal_tau = float(args.jump_anneal_tau)
-    if args.jump_sigma_anneal is None:
-        jump_sigma_anneal = 0.45 if LJ7_N_PARTICLES <= 3 else 0.35
-    else:
-        jump_sigma_anneal = float(args.jump_sigma_anneal)
-    if args.jump_cap_anneal is None:
-        jump_cap_anneal = 0.35 if LJ7_N_PARTICLES <= 3 else 0.25
-    else:
-        jump_cap_anneal = float(args.jump_cap_anneal)
-    init_mode = args.init_mode
-    if args.init_scale is None:
-        init_scale = 2.6 if LJ7_N_PARTICLES <= 3 else 1.9
-    else:
-        init_scale = float(args.init_scale)
-    if args.init_noise is None:
-        init_noise = 0.05 if LJ7_N_PARTICLES <= 3 else 0.06
-    else:
-        init_noise = float(args.init_noise)
-
-    num_seeds = int(args.num_seeds)
-    seeds = list(range(num_seeds))
-    alpha = 1.5
-
-    print(
-        f"Configured LJ cluster: N={LJ7_N_PARTICLES}, d={LJ7_SPATIAL_DIM}, "
-        f"flat_dim={LJ7_DIM}"
-    )
-    print(
-        f"Using epsilon_LJ={lj_eps:.3f}, eps={eps:.3f} "
-        f"(noise_ratio={args.noise_ratio:.3f})"
-    )
-    print(
-        f"LSBMC jump params: lam={lam:.3f}, sigma_L={sigma_L:.3f}, "
-        f"jump_cap={jump_cap:.3f}"
-    )
-    print(
-        f"Init/anneal: mode={init_mode}, init_scale={init_scale:.3f}, "
-        f"init_noise={init_noise:.3f}, local_jump_particles={local_jump_particles}, "
-        f"jump_anneal_boost={jump_anneal_boost:.3f}, tau={jump_anneal_tau:.3f}"
-    )
-    print(f"FLMC alpha={alpha:.2f}")
-    print(f"Generating reference samples in R^{LJ7_DIM}...")
-
-    rng_ref = np.random.default_rng(2026)
-    X_ref = sample_reference_lj7(
-        rng_ref,
-        n_ref=int(args.n_ref),
-        eps=eps,
-        lj_eps=lj_eps,
-        sigma=sigma,
-        r_soft=r_soft,
-        lam=lam,
-        sigma_L=sigma_L,
-        mults=mults,
-        pm=pm,
-        dt_ref=0.0005,
-        warmup_steps=int(args.warmup_steps),
-        box_L=box_L,
-        jump_cap=jump_cap,
-        local_jump_particles=local_jump_particles,
-        use_jump_mh=use_jump_mh,
-        box_mode=box_mode,
-    )
-    D_ref = pair_distance_descriptor_flat(X_ref)
-    pd_edges, pd_widths, pd_pdf_ref = build_pair_distance_reference_histogram(
-        D_ref, n_bins=120
-    )
-
-    print(f"Running {num_seeds} seeds (ULA / MALA / FLMC / LSBMC)...")
-    histories = []
-    jump_stats = []
-    for seed in seeds:
-        history, _, _, _, _, stats = run_lj7_highdim_simulation(
-            seed=seed,
-            eps=eps,
-            dt=dt,
-            T=T,
-            N=N,
-            lj_eps=lj_eps,
-            sigma=sigma,
-            r_soft=r_soft,
-            lam=lam,
-            sigma_L=sigma_L,
-            mults=mults,
-            pm=pm,
-            box_L=box_L,
-            X_ref=X_ref,
-            D_ref=D_ref,
-            pd_edges=pd_edges,
-            pd_widths=pd_widths,
-            pd_pdf_ref=pd_pdf_ref,
-            jump_cap=jump_cap,
-            init_mode=init_mode,
-            init_scale=init_scale,
-            init_noise=init_noise,
-            return_jump_stats=True,
-            local_jump_particles=local_jump_particles,
-            use_jump_mh=use_jump_mh,
-            box_mode=box_mode,
-            jump_anneal_boost=jump_anneal_boost,
-            jump_anneal_tau=jump_anneal_tau,
-            jump_sigma_anneal=jump_sigma_anneal,
-            jump_cap_anneal=jump_cap_anneal,
-            alpha=alpha,
+        # Resolve assignment radius
+        if args.emc_assignment_radius is not None:
+            emc_assignment_radius = float(args.emc_assignment_radius)
+            assignment_radius_mode = "manual"
+            assignment_radius_value = emc_assignment_radius
+        else:
+            # Auto: 0.35 × minimum pairwise descriptor separation
+            sep = float("inf")
+            for a in range(n_modes):
+                for b in range(n_modes):
+                    if a != b:
+                        d = float(
+                            np.linalg.norm(minima_descriptors_arr[a] - minima_descriptors_arr[b])
+                        )
+                        if d < sep:
+                            sep = d
+            emc_assignment_radius = 0.35 * sep
+            assignment_radius_mode = "auto"
+            assignment_radius_value = emc_assignment_radius
+        print(
+            f"[emc] assignment_radius = {emc_assignment_radius:.6f} ({assignment_radius_mode}), "
+            f"n_modes = {n_modes}"
         )
-        histories.append(history)
-        jump_stats.append(stats)
 
-    t = np.array(histories[0]["t"])
-    keys = ["l1_d", "l1_m", "l1_f", "l1_l", "l2_d", "l2_m", "l2_f", "l2_l"]
-    mean, std = aggregate_histories(histories, keys)
+        # Save minima_summary.csv
+        with open(paths.minima_summary, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["minimum_index", "energy", "max_pair_distance", "descriptor_norm"])
+            for idx in range(n_modes):
+                desc = minima_descriptors_arr[idx]
+                writer.writerow([
+                    idx,
+                    float(minima_bundle["energies"][idx]),
+                    float(np.max(desc)),
+                    float(np.linalg.norm(desc)),
+                ])
+        print(f"[emc] saved minima summary to {paths.minima_summary}")
 
-    out_dir = os.path.join(THIS_DIR, "lennard_jones_output")
-    os.makedirs(out_dir, exist_ok=True)
-    out_prefix = os.path.join(out_dir, f"lennard_jones_n{LJ7_N_PARTICLES}_d{LJ7_SPATIAL_DIM}_metrics")
-    plot_highdim_errors_over_time(t, mean, std, out_prefix)
+    # -----------------------------------------------------------------------
+    # Benchmark configuration (Sinkhorn / MMD; emc_enabled flag passed through)
+    # -----------------------------------------------------------------------
+    benchmark_config = get_default_benchmark_config({
+        "metric_seed": int(args.metric_seed),
+        "benchmark_num_checkpoints": int(args.eval_checkpoints),
+        "benchmark_num_repeats": int(args.benchmark_num_repeats),
+        "sinkhorn_method": "sinkhorn_stabilized",
+        "sinkhorn_epsilon": float(args.sinkhorn_epsilon),
+        "sinkhorn_max_iter": int(args.sinkhorn_max_iter),
+        "sinkhorn_tol": float(args.sinkhorn_tol),
+        "sinkhorn_subsample_size": int(args.sinkhorn_subsample_size),
+        "mmd_num_kernels": int(args.mmd_num_kernels),
+        "mmd_subsample_size": int(args.mmd_subsample_size),
+        "mmd_bandwidth_base": float(args.mmd_bandwidth_base),
+        "mmd_bandwidth_multiplier": float(args.mmd_bandwidth_multiplier),
+        "emc_enabled": emc_enabled,
+    })
 
-    print(f"Done. Saved: {out_prefix}.png and {out_prefix}.pdf")
-    if jump_stats:
-        ev = float(np.mean([s["event_rate"] for s in jump_stats]))
-        acc = float(np.mean([s["accept_rate_given_event"] for s in jump_stats]))
-        aev = float(np.mean([s["accepted_event_rate"] for s in jump_stats]))
-        print(f"LSBMC jump event rate per particle-step: {ev:.4f}")
-        print(f"LSBMC jump accept rate given event: {acc:.4f}")
-        print(f"LSBMC accepted event rate per particle-step: {aev:.4f}")
+    reference_size = max(
+        int(args.reference_size),
+        int(benchmark_config["sinkhorn_subsample_size"]),
+        int(benchmark_config["mmd_subsample_size"]),
+    )
+    reference = generate_reference_descriptors(
+        output_dir=out_dir,
+        seed=int(args.seed) + 1,
+        temperature=float(args.T_star),
+        dt=float(args.dt),
+        burn_in_steps=int(args.reference_burn_in),
+        thin=int(args.reference_thin),
+        reference_size=reference_size,
+        n_chains=int(args.reference_chains),
+        init_scale=float(args.reference_init_scale),
+        init_noise=float(args.reference_init_noise),
+        r_min=float(args.r_min),
+        force=bool(args.reference_force),
+        verbose=True,
+    )
+    reference_descriptors = reference["descriptors"]
+
+    # -----------------------------------------------------------------------
+    # D. Run simulations (with EMC computed at every checkpoint)
+    # -----------------------------------------------------------------------
+    emc_assignment_mode = str(args.emc_assignment_mode)
+    benchmark_histories = []
+    acc_rates = []
+    # Collect final states from every seed for multi-seed occupancy reporting.
+    final_states_all_seeds: list[dict] = []
+
+    for seed_offset in range(int(args.num_seeds)):
+        (
+            benchmark_history,
+            states_ula,
+            states_lsbmc,
+            states_flmc,
+            states_mala,
+            acc_rate,
+        ) = run_simulation(
+            seed=int(args.seed) + seed_offset,
+            temperature=float(args.T_star),
+            dt=float(args.dt),
+            total_time=float(args.total_time),
+            n_samples=int(args.n_samples),
+            r_min=float(args.r_min),
+            alpha=float(args.alpha),
+            lam=float(args.lam),
+            sigma_L=float(args.sigma_L),
+            jump_multipliers=(1.0, 1.7, 2.4),
+            jump_weights=(0.70, 0.22, 0.08),
+            init_scale=float(args.init_scale),
+            init_noise=float(args.init_noise),
+            benchmark_ref_samples=reference_descriptors,
+            benchmark_config=benchmark_config,
+            n_dir_score=int(args.n_dir_score),
+            n_theta=int(args.n_theta),
+            jump_cap=float(args.jump_cap),
+            flmc_jump_cap=float(args.flmc_jump_cap),
+            score_clip=float(args.score_clip),
+            return_benchmark_history=True,
+            # EMC
+            minima_descriptors=minima_descriptors_arr,
+            cluster_max_pair_distance=DEFAULT_CLUSTER_MAX_PAIR_DISTANCE,
+            assignment_radius=emc_assignment_radius,
+            emc_enabled=emc_enabled,
+            emc_hard_coverage_threshold=float(args.emc_hard_coverage_threshold),
+            emc_assignment_mode=emc_assignment_mode,
+            emc_quench_maxiter=int(args.emc_quench_maxiter),
+            emc_quench_gtol=float(args.emc_quench_gtol),
+        )
+        benchmark_histories.append(benchmark_history)
+        acc_rates.append(acc_rate)
+        final_states_all_seeds.append({
+            "seed": int(args.seed) + seed_offset,
+            "ula": states_ula,
+            "mala": states_mala,
+            "flmc": states_flmc,
+            "lsbmc": states_lsbmc,
+        })
+        print(f"[benchmark] completed seed {int(args.seed) + seed_offset}")
+
+    # -----------------------------------------------------------------------
+    # Aggregate histories
+    # -----------------------------------------------------------------------
+    sinkhorn_mmd_metric_names = [
+        "pairdist_benchmark_sinkhorn_ot_cost",
+        "pairdist_benchmark_sinkhorn_divergence",
+        "pairdist_benchmark_mmd_squared",
+        "pairdist_benchmark_mmd",
+    ]
+    emc_metric_names: list[str] = (
+        list(_EMC_METRIC_NAMES) if (emc_enabled and minima_descriptors_arr is not None) else []
+    )
+    all_metric_names = sinkhorn_mmd_metric_names + emc_metric_names
+
+    all_keys = [
+        f"{metric_name}_{slug}"
+        for metric_name in all_metric_names
+        for slug, _, _ in BENCHMARK_METHODS
+    ]
+    benchmark_mean, benchmark_std = aggregate_histories(benchmark_histories, all_keys)
+    benchmark_t = np.asarray(benchmark_histories[0]["t"], dtype=float)
+
+    benchmark_base = resolve_unique_output_base(paths.benchmark_base)
+    benchmark_metadata_path = resolve_unique_json_path(paths.benchmark_metadata)
+
+    # -----------------------------------------------------------------------
+    # Main benchmark figure: Sinkhorn / MMD / EMC (3-panel when EMC enabled)
+    # -----------------------------------------------------------------------
+    main_metric_names = [
+        "pairdist_benchmark_sinkhorn_divergence",
+        "pairdist_benchmark_mmd",
+    ]
+    main_metric_labels = {
+        "pairdist_benchmark_sinkhorn_divergence": "Pair-Distance Sinkhorn",
+        "pairdist_benchmark_mmd": "Pair-Distance MMD",
+    }
+    if emc_enabled and emc_metric_names:
+        main_metric_names.append("lj7_emc")
+        main_metric_labels["lj7_emc"] = "EMC"
+    plot_benchmark_metrics_figure(
+        benchmark_t,
+        benchmark_mean,
+        benchmark_std,
+        main_metric_names,
+        benchmark_base,
+        "Lennard-Jones LJ7(2d): Benchmark Metrics",
+        metric_labels=main_metric_labels,
+    )
+    save_benchmark_metrics_csv(
+        f"{benchmark_base}.csv",
+        benchmark_t,
+        benchmark_mean,
+        benchmark_std,
+        all_metric_names,
+    )
+
+    # -----------------------------------------------------------------------
+    # F. EMC figure (additional; only when EMC is enabled)
+    # -----------------------------------------------------------------------
+    emc_figure_base: str | None = None
+    if emc_enabled and emc_metric_names:
+        emc_figure_base = resolve_unique_output_base(paths.emc_benchmark_base)
+        plot_emc_metrics_figure(
+            benchmark_t,
+            benchmark_mean,
+            benchmark_std,
+            emc_figure_base,
+            "Lennard-Jones LJ7(2d): EMC Metrics",
+        )
+        print(f"[emc] saved EMC figure to {emc_figure_base}.png/.pdf")
+
+    # -----------------------------------------------------------------------
+    # C/E. Save per-seed and summary mode occupancy CSVs across all seeds
+    # -----------------------------------------------------------------------
+    if emc_enabled and minima_descriptors_arr is not None and final_states_all_seeds:
+        # Helper: compute assignment for one method's final states
+        def _final_assignment(final_states_dict: dict, slug: str) -> dict:
+            if emc_assignment_mode == "quench":
+                return quench_and_assign_states_to_minima(
+                    final_states_dict[slug],
+                    minima_descriptors_arr,
+                    r_min=float(args.r_min),
+                    cluster_max_pair_distance=DEFAULT_CLUSTER_MAX_PAIR_DISTANCE,
+                    assignment_radius=emc_assignment_radius,
+                    local_maxiter=int(args.emc_quench_maxiter),
+                    local_gtol=float(args.emc_quench_gtol),
+                )
+            else:
+                descs = sorted_pair_distance_descriptor(
+                    final_states_dict[slug], r_min=float(args.r_min)
+                )
+                return assign_descriptors_to_minima(
+                    descs,
+                    minima_descriptors_arr,
+                    cluster_max_pair_distance=DEFAULT_CLUSTER_MAX_PAIR_DISTANCE,
+                    assignment_radius=emc_assignment_radius,
+                )
+
+        # Accumulate per-(seed, method) rows
+        by_seed_rows: list[dict] = []
+        for fs in final_states_all_seeds:
+            seed_val = fs["seed"]
+            for slug, _, _ in BENCHMARK_METHODS:
+                assignment = _final_assignment(fs, slug)
+                labels = assignment["labels"]
+                occ = compute_mode_occupancy(labels)
+                row = {
+                    "seed": seed_val,
+                    "method": slug,
+                    "mode_0": float(occ[0]),
+                    "mode_1": float(occ[1]),
+                    "mode_2": float(occ[2]),
+                    "mode_3": float(occ[3]),
+                    "assigned_fraction": float(assignment["assigned_fraction"]),
+                    "emc": float(compute_emc_from_labels(labels)),
+                    "hard_mode_coverage": float(
+                        compute_hard_mode_coverage(labels, min_fraction=float(args.emc_hard_coverage_threshold))
+                    ),
+                    "conditional_mode_entropy": float(compute_conditional_mode_entropy(labels)),
+                }
+                by_seed_rows.append(row)
+
+        # Write mode_occupancy_final_by_seed.csv
+        by_seed_cols = [
+            "seed", "method",
+            "mode_0", "mode_1", "mode_2", "mode_3",
+            "assigned_fraction", "emc", "hard_mode_coverage", "conditional_mode_entropy",
+        ]
+        with open(paths.mode_occupancy_final_by_seed, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=by_seed_cols)
+            writer.writeheader()
+            writer.writerows(by_seed_rows)
+        print(f"[emc] saved per-seed mode occupancy to {paths.mode_occupancy_final_by_seed}")
+
+        # Write mode_occupancy_final_summary.csv (mean ± std over seeds per method)
+        scalar_cols = ["mode_0", "mode_1", "mode_2", "mode_3",
+                       "assigned_fraction", "emc", "hard_mode_coverage", "conditional_mode_entropy"]
+        summary_cols = ["method"]
+        for c in scalar_cols:
+            summary_cols += [f"{c}_mean", f"{c}_std"]
+
+        with open(paths.mode_occupancy_final_summary, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=summary_cols)
+            writer.writeheader()
+            for slug, _, _ in BENCHMARK_METHODS:
+                slug_rows = [r for r in by_seed_rows if r["method"] == slug]
+                summary_row: dict = {"method": slug}
+                for c in scalar_cols:
+                    vals = np.array([r[c] for r in slug_rows], dtype=float)
+                    summary_row[f"{c}_mean"] = float(np.mean(vals))
+                    summary_row[f"{c}_std"] = float(np.std(vals))
+                writer.writerow(summary_row)
+        print(f"[emc] saved summary mode occupancy to {paths.mode_occupancy_final_summary}")
+
+    # -----------------------------------------------------------------------
+    # Benchmark metadata JSON
+    # -----------------------------------------------------------------------
+    emc_extra: dict = {
+        "emc_enabled": emc_enabled,
+        "emc_definition": "assigned_fraction * exp(H(p_assigned)) / n_modes",
+        "emc_note_exploration": (
+            "EMC is an exploration metric, not an equilibrium-fidelity metric. "
+            "It measures diversity of basin visits during the finite-time run "
+            "from the compact canonical initialization.  Use Sinkhorn/MMD for "
+            "distribution-fidelity assessment."
+        ),
+        "emc_note_near_one": (
+            "EMC near 1 requires BOTH a high assigned fraction (most samples "
+            "land in a bonded well) AND near-uniform occupancy across all four "
+            "wells.  Either condition alone is insufficient."
+        ),
+        "conditional_mode_entropy_definition": "exp(H(p_assigned)) / n_modes",
+        "hard_mode_coverage_threshold": float(args.emc_hard_coverage_threshold),
+        "emc_assignment_mode": emc_assignment_mode,
+    }
+    if emc_enabled and minima_descriptors_arr is not None:
+        emc_extra.update({
+            "minima_descriptors_path": os.path.relpath(paths.minima_descriptors, paths.output_dir),
+            "cluster_max_pair_distance": float(DEFAULT_CLUSTER_MAX_PAIR_DISTANCE),
+            "assignment_radius_mode": assignment_radius_mode,
+            "assignment_radius_value": assignment_radius_value,
+            "n_modes": int(minima_descriptors_arr.shape[0]),
+            "emc_applicable": True,
+            "emc_assignment_mode_note": (
+                "quench: each sample is locally minimized before assignment — "
+                "approximates basin-of-attraction assignment.  "
+                "raw: raw sample descriptor is assigned using a nearest-ball test."
+            ) if emc_assignment_mode == "quench" else (
+                "raw: raw sample descriptor assigned via nearest-ball in descriptor space."
+            ),
+        })
+        if emc_assignment_mode == "quench":
+            emc_extra["emc_quench_maxiter"] = int(args.emc_quench_maxiter)
+            emc_extra["emc_quench_gtol"] = float(args.emc_quench_gtol)
+    else:
+        emc_extra["emc_applicable"] = False
+
+    save_benchmark_metadata_json(
+        benchmark_metadata_path,
+        "lennard_jones_n7_d2",
+        benchmark_config,
+        all_metric_names,
+        mode_descriptors=None,
+        extra_metadata={
+            "benchmark": "LJ7(2d)",
+            "temperature_reduced": float(args.T_star),
+            "sigma_noise": float(2.0 * float(args.T_star)) ** 0.5,
+            "sigma_noise_squared": 2.0 * float(args.T_star),
+            "sigma_noise_squared_relation": "sigma_noise^2 = 2 * T_star",
+            "r_min": float(args.r_min),
+            "descriptor_dim": int(DESCRIPTOR_DIM),
+            "descriptor_definition": "sorted pair distances of the seven-atom 2D cluster",
+            "representation": "pair-distance descriptor benchmark",
+            "benchmark_reference_size": int(reference_descriptors.shape[0]),
+            "benchmark_num_checkpoints": int(benchmark_t.size),
+            "num_seeds": int(args.num_seeds),
+            "n_samples_per_method": int(args.n_samples),
+            "dt": float(args.dt),
+            "total_time": float(args.total_time),
+            "alpha": float(args.alpha),
+            "lam": float(args.lam),
+            "sigma_L": float(args.sigma_L),
+            "n_dir_score": int(args.n_dir_score),
+            "n_theta": int(args.n_theta),
+            "jump_cap": float(args.jump_cap),
+            "flmc_jump_cap": float(args.flmc_jump_cap),
+            "score_clip": float(args.score_clip),
+            "reference_descriptors_path": os.path.relpath(
+                paths.reference_descriptors, paths.output_dir
+            ),
+            "reference_method": reference["metadata"]["reference_method"],
+            "mala_mean_acceptance_rate": float(np.mean(acc_rates)) if acc_rates else float("nan"),
+            **emc_extra,
+        },
+    )
+
+    print(f"Saved benchmark metrics to: {benchmark_base}.png/.pdf/.csv")
+    print(f"Saved benchmark metadata to: {benchmark_metadata_path}")
+    result: dict = {
+        "paths": paths,
+        "benchmark_base": benchmark_base,
+        "benchmark_metadata_path": benchmark_metadata_path,
+    }
+    if emc_figure_base is not None:
+        result["emc_figure_base"] = emc_figure_base
+    return result
 
 
 if __name__ == "__main__":
     main()
-
-# python mae_l2/lennard_jones_potential.py --n-particles 3 --spatial-dim 3 --T 12 --num-seeds 10

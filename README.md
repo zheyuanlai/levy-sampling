@@ -229,9 +229,9 @@ $$
 where $\epsilon = \sigma$ under the global convention.
 
 **Metrics**:
-- **Wasserstein-2 distance** ($W_2$): Exact 1D computation via quantile matching
-- **$L^1$ error**: $\int |p_{\text{emp}}(x) - p_\infty(x)| dx$
-- **$L^2$ error**: $\sqrt{\int (p_{\text{emp}}(x) - p_\infty(x))^2 dx}$
+- **Wasserstein-2 distance**
+- **MMD**
+- **EMC**
 - **Average Bias**: $|\mathbb{E}[X_{\text{emp}}] - \mathbb{E}[X_{\text{true}}]|$ for observable $\mathbb{E}[X]$
 
 **Hyperparameters** (`doublewell.py`):
@@ -278,10 +278,6 @@ dY_t = -\partial_y V(X_t, Y_t)  dt + \sqrt{\epsilon}  dB_t^{(2)}
 $$
 
 where $\sigma = \sqrt{\epsilon}$ (matches global convention).
-
-**Metrics**:
-- **$L^1$ error**: Mean absolute error on $200 \times 200$ grid
-- **$L^2$ error**: Root mean squared error (RMSE) on grid
 
 **Hyperparameters** (`ring.py`):
 ```python
@@ -388,62 +384,68 @@ pm = [0.70, 0.22, 0.08]
 
 ---
 
-### 5. Lennard–Jones Cluster (High-Dimensional)
+### 5. Lennard-Jones Potential (7 atom model on 2D)
+
+Adapted from [100 Years of the Lennard-Jones Potential](https://pubs.acs.org/doi/10.1021/acs.jctc.4c00135).
 
 **Mathematical Definition**:
-For $N$ particles in $\mathbb{R}^3$, positions $R = (r_1, \ldots, r_N) \in (\mathbb{R}^3)^N$:
+
+Let $R = (r_1, \ldots, r_7)$ with $r_i \in \mathbb{R}^2$, and define the pair distances
 
 $$
-V(R) = \sum_{1 \leq i < j \leq N} V_{\text{pair}}(r_{ij})
+r_{ij} = \|r_i - r_j\|, \quad 1 \leq i < j \leq 7
 $$
 
-where
+The 7-atom Lennard-Jones energy is
 
 $$
-V_{\text{pair}}(r_{ij}) = 4\epsilon_{\text{LJ}} \left[ \left(\frac{\sigma}{r_{ij}}\right)^{12} - \left(\frac{\sigma}{r_{ij}}\right)^6 \right]
+V(R) = 4 \sum_{1 \leq i < j \leq 7} \left( r_{ij}^{-12} - r_{ij}^{-6} \right)
 $$
 
-and $r_{ij} = \|r_i - r_j\|_2$.
+The free cluster is translation-invariant, so the implementation works in the
+center-of-mass-free gauge
+
+$$
+\sum_{i=1}^7 r_i = 0
+$$
+
+throughout the simulation.
 
 **Target Distribution**:
 
 $$
-p_\infty(R) \propto \exp\left(-\frac{V(R)}{\varepsilon^2}\right)
+p_\infty(R) \propto \exp\left(-\frac{V(R)}{T^\star}\right)
+= \exp\left(-\frac{2V(R)}{\sigma^2}\right), \quad \sigma = \sqrt{2T^\star}
 $$
 
 **SDE**:
 
 $$
-\begin{cases}
-dX_t^{(i)} = -\tfrac{1}{2} \partial_{x_i} V(R_t)  dt + \varepsilon  dB_t^{(i,1)} \\
-dY_t^{(i)} = -\tfrac{1}{2} \partial_{y_i} V(R_t)  dt + \varepsilon  dB_t^{(i,2)} \\
-dZ_t^{(i)} = -\tfrac{1}{2} \partial_{z_i} V(R_t)  dt + \varepsilon  dB_t^{(i,3)}
-\end{cases}, \quad i = 1, \ldots, N
+dr_t^{(i)} = -\nabla_{r_i} V(R_t)  dt + \sqrt{2T^\star}  dB_t^{(i)}, \quad i = 1, \ldots, 7
 $$
 
-**Metrics**:
-- **Pair-distance histogram $L^1$**: Compares empirical distribution of $\{r_{ij}\}$ to reference
-- **Pair-distance histogram $L^2$**: RMSE of pair-distance distribution
+where each $B_t^{(i)}$ is a 2D Brownian motion. In the code, states are recentered
+after each update to remain in the center-of-mass-free subspace.
 
-**Hyperparameters** (`lennard_jones_potential.py`, example for $N=3$):
+**Model Notes**:
+- The ambient coordinate dimension is $7 \times 2 = 14$
+- The landscape is highly nonconvex, with several compact cluster minima
+- The active benchmark compares samplers through the sorted pair-distance descriptor in $\mathbb{R}^{21}$, which is invariant to translation, rotation, and atom relabeling
+
+**Hyperparameters**:
 ```python
-sigma = 1.0          # LJ length scale
-epsilon_LJ = 2.0     # LJ energy scale
-eps = 0.1            # SDE noise scale
-dt = 0.001           # Time step
-T = 15.0             # Total time
-N_particles = 3      # Number of particles
-N_samples = 15000    # Ensemble size
+T_star = 0.05        # Reduced temperature
+dt = 1.0e-3          # Time step
+total_time = 1.0     # Total simulation time
+n_samples = 256      # Number of particles / parallel chains
 alpha = 1.5          # FLMC tail index
-lam = 1.2            # LSB-MC jump intensity
-sigma_L = 0.8        # LSB-MC base jump magnitude
-multipliers = [1.0, 1.8, 2.6]
-pm = [0.70, 0.22, 0.08]
+lam = 1.5            # LSB-MC jump intensity
+sigma_L = 0.60       # LSB-MC base jump magnitude
+jump_multipliers = [1.0, 1.7, 2.4]
+jump_weights = [0.70, 0.22, 0.08]
+n_dir_score = 4      # Random directions for score estimation
+n_theta = 5          # Quadrature points in theta
 ```
-
-**LSB-MC Jump Details**:
-- **High-dimensional isotropic jumps**: Jumps act on the full $3N$-dimensional configuration space as $(m_k \sigma_L) \cdot U$ where $U \sim \text{Uniform}(\mathbb{S}^{3N-1})$
-- **Jump cap**: Individual jump magnitudes are clipped to prevent numerical explosion
 
 ---
 
@@ -473,11 +475,6 @@ $$
 \partial_{x_i} V(x) = 4 x_i (x_i^2 - 1)
 $$
 
-**Metrics**:
-- **Sliced Wasserstein-2**: Projects onto 64 random 1D directions, computes exact $W_2$ per direction, averages
-- **Orthant $L^1$ error**: Compares empirical orthant occupancy to uniform ($1/2^{10}$ per orthant)
-- **Orthant $L^2$ error**: RMSE of orthant occupancy distribution
-
 **Hyperparameters** (`high_dim.py`):
 ```python
 sigma = 0.75         # Noise scale
@@ -501,3 +498,133 @@ Even though $V(x)$ is separable, **all methods treat it as a general 10D potenti
 - **LSB-MC uses genuinely isotropic jumps** $(m_k \sigma_L) \cdot U$ with $U \sim \text{Uniform}(\mathbb{S}^9)$ (not coordinatewise)
 
 This ensures no method exploits the separability structure, providing a fair benchmark of high-dimensional exploration.
+
+## Evaluation Metrics
+
+Adapted from [Beyond ELBOs: A Large-Scale Evaluation of Variational Methods for Sampling](https://arxiv.org/abs/2406.07423) (ICML 2024).
+
+**Convention.** Let $\mu_t^N$ denote the empirical distribution of the $N$-particle ensemble at time $t$, and let $p_\infty$ denote the target Boltzmann distribution. Lower values of Sinkhorn and MMD indicate better convergence to $p_\infty$; higher values of EMC indicate better exploration across metastable basins.
+
+---
+
+### 1. Sinkhorn Divergence
+
+**What it measures.** A debiased, regularised approximation of the squared **Wasserstein-2 distance** $W_2^2(\mu, \nu)$. The Wasserstein-2 distance metrises weak convergence of probability measures and is sensitive to the *geometry* of the space: a distribution that places mass in the wrong location incurs a cost proportional to the squared displacement, regardless of the shape of the density.
+
+**Definition.** For two probability measures $\mu$ and $\nu$ on $\mathbb{R}^d$, the squared Wasserstein-2 distance is
+
+$$
+W_2^2(\mu, \nu) = \inf_{\pi \in \Pi(\mu, \nu)} \int \|x - y\|^2 \, d\pi(x, y)
+$$
+
+where $\Pi(\mu, \nu)$ is the set of all couplings with marginals $\mu$ and $\nu$. Computing this directly is expensive. Introducing an entropy regulariser $\varepsilon > 0$ yields the **entropic transport plan**
+
+$$
+\pi^\varepsilon(\mu,\nu) = \operatorname*{arg\,min}_{\pi \in \Pi(\mu,\nu)} \left[\int \|x - y\|^2 \, d\pi(x,y) - \varepsilon \, H(\pi)\right]
+$$
+
+where $H(\pi) = -\int \log \frac{d\pi}{d({\mu \otimes \nu})} \, d\pi$ is the relative entropy of $\pi$ with respect to the product measure. The **Sinkhorn divergence** corrects for the $O(\varepsilon)$ bias introduced by regularisation:
+
+$$
+S_\varepsilon(\mu, \nu) = \langle C, \pi^\varepsilon(\mu,\nu)\rangle - \frac{1}{2}\langle C, \pi^\varepsilon(\mu,\mu)\rangle - \frac{1}{2}\langle C, \pi^\varepsilon(\nu,\nu)\rangle
+$$
+
+where $C(x,y) = \|x-y\|^2$. The two self-transport terms ensure $S_\varepsilon(\mu,\mu) = 0$ exactly and $S_\varepsilon(\mu,\nu) \to W_2^2(\mu,\nu)$ as $\varepsilon \to 0$.
+
+**Practical computation.** Given empirical samples, $\pi^\varepsilon$ is computed via the **Sinkhorn–Knopp** algorithm on the kernel matrix $K_{ij} = \exp(-\|x_i - y_j\|^2/\varepsilon)$. A stabilised log-domain variant is used when $\varepsilon$ is small.
+
+**Interpretation.**
+- $S_\varepsilon(\mu, \nu) = 0$ if and only if $\mu = \nu$.
+- A large value means that transforming $\mu_t^N$ into $p_\infty$ requires moving mass over large distances in the sample space — a symptom of metastability, where the ensemble is stuck near its starting basin and has not spread to cover the full support of $p_\infty$.
+
+**Lower is better.**
+
+---
+
+### 2. Maximum Mean Discrepancy (MMD)
+
+**What it measures.** The distance between $\mu$ and $\nu$ in a **reproducing kernel Hilbert space** (RKHS). MMD is sensitive to differences in the *moments* of the two distributions, at all length scales determined by the kernel, without requiring an optimisation problem.
+
+**Definition.** For a symmetric, positive-definite kernel $k : \mathbb{R}^d \times \mathbb{R}^d \to \mathbb{R}$ with associated feature map $\phi$ and RKHS $\mathcal{H}$, the squared MMD is the squared distance between the **kernel mean embeddings** $m_\mu = \mathbb{E}_{x \sim \mu}[\phi(x)]$ and $m_\nu = \mathbb{E}_{y \sim \nu}[\phi(y)]$:
+
+$$
+\operatorname{MMD}^2(\mu, \nu) = \|m_\mu - m_\nu\|_{\mathcal{H}}^2 = \mathbb{E}_{x,x' \sim \mu}[k(x,x')] - 2\,\mathbb{E}_{\substack{x \sim \mu \\ y \sim \nu}}[k(x,y)] + \mathbb{E}_{y,y' \sim \nu}[k(y,y')]
+$$
+
+If $k$ is a **characteristic kernel** (e.g. any Gaussian), then $\operatorname{MMD}(\mu,\nu) = 0$ if and only if $\mu = \nu$.
+
+**Kernel choice.** A multi-scale mixture of $M$ Gaussian kernels with geometrically spaced bandwidths is used:
+
+$$
+k(x, y) = \frac{1}{M}\sum_{m=1}^{M} \exp\!\left(-\frac{\|x - y\|^2}{2 h_m^2}\right), \quad h_m = h_0 \cdot \rho^{m-1}
+$$
+
+The mixture is sensitive to differences at multiple length scales simultaneously, avoiding the bandwidth-selection problem inherent to a single-kernel estimator.
+
+**Unbiased estimator.** Given $n$ samples $\{x_i\}$ from $\mu$ and $m$ samples $\{y_j\}$ from $\nu$:
+
+$$
+\widehat{\operatorname{MMD}}^2 = \frac{1}{n(n-1)}\sum_{i \neq j} k(x_i, x_j) - \frac{2}{nm}\sum_{i,j} k(x_i, y_j) + \frac{1}{m(m-1)}\sum_{i \neq j} k(y_i, y_j)
+$$
+
+In practice $\nu = p_\infty$ is represented by a large precomputed reference sample.
+
+**Interpretation.**
+- A sampler whose distribution matches $p_\infty$ in mean, variance, and higher moments will have small MMD even if individual samples are spread differently from the Sinkhorn perspective.
+- Compared to the Sinkhorn divergence, MMD is cheaper to compute (no optimisation) but does not have a direct geometric interpretation in terms of mass displacement.
+
+**Lower is better.**
+
+---
+
+### 3. Entropic Mode Coverage (EMC)
+
+**What it measures.** Whether the sampler **visits all metastable basins** and how uniformly it distributes mass across them. This is an *exploration* metric — it is orthogonal to distribution fidelity. A sampler can achieve low Sinkhorn/MMD by slowly filling the correct marginal from one basin; EMC detects whether it is actively crossing barriers to explore the full support.
+
+**Setup.** Assume the target $p_\infty$ has $K$ identifiable metastable modes with representative configurations $\{m_1, \ldots, m_K\}$ (local minima of $V$, or centres of mass of the $K$ modes). Each sample $x_i$ from the ensemble is **assigned** to one of the $K$ modes or marked unassigned:
+
+$$
+\ell_i = \begin{cases} \arg\min_{k} \, d(x_i, m_k) & \text{if } \min_k d(x_i, m_k) \leq r^* \\ -1 & \text{(unassigned)} \end{cases}
+$$
+
+where $d(\cdot, \cdot)$ is a suitable dissimilarity in sample space and $r^*$ is an assignment radius. Samples that do not belong to any identifiable basin (e.g. dissociated configurations, saddle-point regions) are left unassigned.
+
+**Definition.** Let $f = n_{\text{assigned}} / n$ be the fraction of assigned samples and $p_k = n_k / n_{\text{assigned}}$ the empirical occupancy of mode $k$ among assigned samples. Define the Shannon entropy of the conditional occupancy:
+
+$$
+H = -\sum_{k=1}^{K} p_k \log p_k \qquad (\text{sum over nonzero } p_k)
+$$
+
+The **Entropic Mode Coverage** is
+
+$$
+\boxed{\operatorname{EMC} = f \cdot \frac{e^H}{K} \in [0, 1]}
+$$
+
+**Decomposition.** EMC factors into two interpretable components:
+
+$$
+\operatorname{EMC} = \underbrace{f}_{\substack{\text{assigned} \\ \text{fraction}}} \times \underbrace{\frac{e^H}{K}}_{\substack{\text{conditional} \\ \text{mode entropy}}}
+$$
+
+- The **conditional mode entropy** $e^H/K \in [1/K,\, 1]$ measures how uniformly assigned samples spread across the $K$ modes. It equals $1$ when all modes are equally occupied and $1/K$ when all assigned mass collapses to a single mode. Since $e^H$ is the perplexity of the distribution $\{p_k\}$, dividing by $K$ normalises it to the unit interval.
+- The **assigned fraction** $f \in [0,1]$ penalises methods that scatter particles into inter-basin regions. A sampler with perfectly uniform mode coverage but $f \ll 1$ is not genuinely exploring the target basins; multiplying by $f$ reflects this.
+
+**Boundary cases.**
+
+| Scenario | $f$ | $e^H/K$ | EMC |
+|---|---|---|---|
+| All samples in one mode, all assigned | $1$ | $1/K$ | $1/K$ |
+| All samples assigned, perfectly uniform | $1$ | $1$ | $1$ |
+| All samples unassigned | $0$ | — | $0$ |
+| Half assigned, uniform over $K$ modes | $1/2$ | $1$ | $1/2$ |
+
+**Interpretation.**
+- $\operatorname{EMC} = 1$ requires both that every sample is assigned to a recognised basin *and* that the $K$ modes are equally occupied.
+- $\operatorname{EMC} = 1/K$ is the minimum non-trivial value, achieved when all assigned samples concentrate in a single mode.
+- EMC does not assess within-basin density accuracy. A sampler can achieve high EMC while still having the wrong within-well shape; use Sinkhorn or MMD for distributional fidelity.
+- EMC is most informative in the **transient phase** before equilibration: it directly measures barrier-crossing ability rather than long-time stationarity.
+
+**Higher is better.**
+
+---
