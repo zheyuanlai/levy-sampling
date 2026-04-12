@@ -514,16 +514,16 @@ Adapted from [Beyond ELBOs: A Large-Scale Evaluation of Variational Methods for 
 **Definition.** For two probability measures $\mu$ and $\nu$ on $\mathbb{R}^d$, the squared Wasserstein-2 distance is
 
 $$
-W_2^2(\mu, \nu) = \inf_{\pi \in \Pi(\mu, \nu)} \int \|x - y\|^2 \, d\pi(x, y)
+W_2^2(\mu, \nu) = \inf_{\pi \in \Pi(\mu, \nu)} \int \|x - y\|^2   d\pi(x, y)
 $$
 
 where $\Pi(\mu, \nu)$ is the set of all couplings with marginals $\mu$ and $\nu$. Computing this directly is expensive. Introducing an entropy regulariser $\varepsilon > 0$ yields the **entropic transport plan**
 
 $$
-\pi^\varepsilon(\mu,\nu) = \operatorname*{arg\,min}_{\pi \in \Pi(\mu,\nu)} \left[\int \|x - y\|^2 \, d\pi(x,y) - \varepsilon \, H(\pi)\right]
+\pi^\varepsilon(\mu,\nu) = \text*{argmin}_{\pi \in \Pi(\mu,\nu)} \left[\int \|x - y\|^2   d\pi(x,y) - \varepsilon   H(\pi)\right]
 $$
 
-where $H(\pi) = -\int \log \frac{d\pi}{d({\mu \otimes \nu})} \, d\pi$ is the relative entropy of $\pi$ with respect to the product measure. The **Sinkhorn divergence** corrects for the $O(\varepsilon)$ bias introduced by regularisation:
+where $H(\pi) = -\int \log \frac{d\pi}{d({\mu \otimes \nu})}   d\pi$ is the relative entropy of $\pi$ with respect to the product measure. The **Sinkhorn divergence** corrects for the $O(\varepsilon)$ bias introduced by regularisation:
 
 $$
 S_\varepsilon(\mu, \nu) = \langle C, \pi^\varepsilon(\mu,\nu)\rangle - \frac{1}{2}\langle C, \pi^\varepsilon(\mu,\mu)\rangle - \frac{1}{2}\langle C, \pi^\varepsilon(\nu,\nu)\rangle
@@ -548,15 +548,15 @@ where $C(x,y) = \|x-y\|^2$. The two self-transport terms ensure $S_\varepsilon(\
 **Definition.** For a symmetric, positive-definite kernel $k : \mathbb{R}^d \times \mathbb{R}^d \to \mathbb{R}$ with associated feature map $\phi$ and RKHS $\mathcal{H}$, the squared MMD is the squared distance between the **kernel mean embeddings** $m_\mu = \mathbb{E}_{x \sim \mu}[\phi(x)]$ and $m_\nu = \mathbb{E}_{y \sim \nu}[\phi(y)]$:
 
 $$
-\operatorname{MMD}^2(\mu, \nu) = \|m_\mu - m_\nu\|_{\mathcal{H}}^2 = \mathbb{E}_{x,x' \sim \mu}[k(x,x')] - 2\,\mathbb{E}_{\substack{x \sim \mu \\ y \sim \nu}}[k(x,y)] + \mathbb{E}_{y,y' \sim \nu}[k(y,y')]
+\text{MMD}^2(\mu, \nu) = \|m_\mu - m_\nu\|_{\mathcal{H}}^2 = \mathbb{E}_{x,x' \sim \mu}[k(x,x')] - 2 \mathbb{E}_{\substack{x \sim \mu \\ y \sim \nu}}[k(x,y)] + \mathbb{E}_{y,y' \sim \nu}[k(y,y')]
 $$
 
-If $k$ is a **characteristic kernel** (e.g. any Gaussian), then $\operatorname{MMD}(\mu,\nu) = 0$ if and only if $\mu = \nu$.
+If $k$ is a **characteristic kernel** (e.g. any Gaussian), then $\text{MMD}(\mu,\nu) = 0$ if and only if $\mu = \nu$.
 
 **Kernel choice.** A multi-scale mixture of $M$ Gaussian kernels with geometrically spaced bandwidths is used:
 
 $$
-k(x, y) = \frac{1}{M}\sum_{m=1}^{M} \exp\!\left(-\frac{\|x - y\|^2}{2 h_m^2}\right), \quad h_m = h_0 \cdot \rho^{m-1}
+k(x, y) = \frac{1}{M}\sum_{m=1}^{M} \exp\left(-\frac{\|x - y\|^2}{2 h_m^2}\right), \quad h_m = h_0 \cdot \rho^{m-1}
 $$
 
 The mixture is sensitive to differences at multiple length scales simultaneously, avoiding the bandwidth-selection problem inherent to a single-kernel estimator.
@@ -564,7 +564,7 @@ The mixture is sensitive to differences at multiple length scales simultaneously
 **Unbiased estimator.** Given $n$ samples $\{x_i\}$ from $\mu$ and $m$ samples $\{y_j\}$ from $\nu$:
 
 $$
-\widehat{\operatorname{MMD}}^2 = \frac{1}{n(n-1)}\sum_{i \neq j} k(x_i, x_j) - \frac{2}{nm}\sum_{i,j} k(x_i, y_j) + \frac{1}{m(m-1)}\sum_{i \neq j} k(y_i, y_j)
+\widehat{\text{MMD}}^2 = \frac{1}{n(n-1)}\sum_{i \neq j} k(x_i, x_j) - \frac{2}{nm}\sum_{i,j} k(x_i, y_j) + \frac{1}{m(m-1)}\sum_{i \neq j} k(y_i, y_j)
 $$
 
 In practice $\nu = p_\infty$ is represented by a large precomputed reference sample.
@@ -584,7 +584,7 @@ In practice $\nu = p_\infty$ is represented by a large precomputed reference sam
 **Setup.** Assume the target $p_\infty$ has $K$ identifiable metastable modes with representative configurations $\{m_1, \ldots, m_K\}$ (local minima of $V$, or centres of mass of the $K$ modes). Each sample $x_i$ from the ensemble is **assigned** to one of the $K$ modes or marked unassigned:
 
 $$
-\ell_i = \begin{cases} \arg\min_{k} \, d(x_i, m_k) & \text{if } \min_k d(x_i, m_k) \leq r^* \\ -1 & \text{(unassigned)} \end{cases}
+\ell_i = \begin{cases} \arg\min_{k}   d(x_i, m_k) & \text{if } \min_k d(x_i, m_k) \leq r^* \\ -1 & \text{(unassigned)} \end{cases}
 $$
 
 where $d(\cdot, \cdot)$ is a suitable dissimilarity in sample space and $r^*$ is an assignment radius. Samples that do not belong to any identifiable basin (e.g. dissociated configurations, saddle-point regions) are left unassigned.
@@ -598,16 +598,16 @@ $$
 The **Entropic Mode Coverage** is
 
 $$
-\boxed{\operatorname{EMC} = f \cdot \frac{e^H}{K} \in [0, 1]}
+\boxed{\text{EMC} = f \cdot \frac{e^H}{K} \in [0, 1]}
 $$
 
 **Decomposition.** EMC factors into two interpretable components:
 
 $$
-\operatorname{EMC} = \underbrace{f}_{\substack{\text{assigned} \\ \text{fraction}}} \times \underbrace{\frac{e^H}{K}}_{\substack{\text{conditional} \\ \text{mode entropy}}}
+\text{EMC} = \underbrace{f}_{\substack{\text{assigned} \\ \text{fraction}}} \times \underbrace{\frac{e^H}{K}}_{\substack{\text{conditional} \\ \text{mode entropy}}}
 $$
 
-- The **conditional mode entropy** $e^H/K \in [1/K,\, 1]$ measures how uniformly assigned samples spread across the $K$ modes. It equals $1$ when all modes are equally occupied and $1/K$ when all assigned mass collapses to a single mode. Since $e^H$ is the perplexity of the distribution $\{p_k\}$, dividing by $K$ normalises it to the unit interval.
+- The **conditional mode entropy** $e^H/K \in [1/K,  1]$ measures how uniformly assigned samples spread across the $K$ modes. It equals $1$ when all modes are equally occupied and $1/K$ when all assigned mass collapses to a single mode. Since $e^H$ is the perplexity of the distribution $\{p_k\}$, dividing by $K$ normalises it to the unit interval.
 - The **assigned fraction** $f \in [0,1]$ penalises methods that scatter particles into inter-basin regions. A sampler with perfectly uniform mode coverage but $f \ll 1$ is not genuinely exploring the target basins; multiplying by $f$ reflects this.
 
 **Boundary cases.**
@@ -620,8 +620,8 @@ $$
 | Half assigned, uniform over $K$ modes | $1/2$ | $1$ | $1/2$ |
 
 **Interpretation.**
-- $\operatorname{EMC} = 1$ requires both that every sample is assigned to a recognised basin *and* that the $K$ modes are equally occupied.
-- $\operatorname{EMC} = 1/K$ is the minimum non-trivial value, achieved when all assigned samples concentrate in a single mode.
+- $\text{EMC} = 1$ requires both that every sample is assigned to a recognised basin *and* that the $K$ modes are equally occupied.
+- $\text{EMC} = 1/K$ is the minimum non-trivial value, achieved when all assigned samples concentrate in a single mode.
 - EMC does not assess within-basin density accuracy. A sampler can achieve high EMC while still having the wrong within-well shape; use Sinkhorn or MMD for distributional fidelity.
 - EMC is most informative in the **transient phase** before equilibration: it directly measures barrier-crossing ability rather than long-time stationarity.
 
