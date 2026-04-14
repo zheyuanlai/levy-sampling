@@ -92,8 +92,6 @@ def _paper_flmc_step_from_grad_u(
     x = np.asarray(x, dtype=float)
     drift = flmc_paper_drift(grad_u, alpha)
     noise = flmc_paper_noise(rng, size=x.shape, dt=dt, alpha=alpha, sigma=sigma)
-    # Tamed Euler-Maruyama: bounds the drift step when heavy-tailed alpha-stable
-    # noise kicks particles far from the wells, preventing clip-boundary oscillation.
     if x.ndim == 1:
         norm = np.abs(drift)
     else:

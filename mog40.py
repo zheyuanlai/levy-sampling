@@ -491,7 +491,6 @@ def _plot_single_scatter(X_samp, title, slug, color, out_dir):
 # ---------------------------------------------------------------------------
 
 def main():
-    # ----- Hyperparameters -----
     sigma     = math.sqrt(2.0)   # target = exp(-2V/2) = exp(-V) = MoG40 exactly
     dt        = 0.005
     T         = 20.0
@@ -499,21 +498,16 @@ def main():
     num_seeds = 3
     seeds     = list(range(num_seeds))
 
-    # LSB-MC jump law
     lam         = 2.0
     sigma_L     = 3.0
     multipliers = np.array([1.0, 3.0, 6.0], dtype=float)
     pm          = np.array([0.50, 0.35, 0.15], dtype=float)
     pm         /= pm.sum()
 
-    # Score quadrature
     n_dir   = 4
     n_theta = 5
+    alpha   = 1.5
 
-    # FLMC tail index
-    alpha = 1.5
-
-    # Benchmark config
     # Large epsilon because inter-mode squared distances are O(100-2500)
     bm_config = get_default_benchmark_config({
         "benchmark_num_checkpoints": 9,
@@ -523,7 +517,6 @@ def main():
         "emc_enabled":               False,   # using hard EMC instead
     })
 
-    # Reference samples (exact)
     rng_ref = np.random.default_rng(12345)
     print("Generating MoG40 reference samples ...")
     X_ref = sample_mog40_exact(rng_ref, 3000)
@@ -531,7 +524,6 @@ def main():
     out_dir = os.path.join(THIS_DIR, "mog40_output")
     os.makedirs(out_dir, exist_ok=True)
 
-    # ----- Run seeds -----
     print(f"Running {num_seeds} seeds — ULA / MALA / FLMC / LSBMC ...")
     histories     = []
     bm_histories  = []
@@ -552,7 +544,6 @@ def main():
         for slug, _, _ in BENCHMARK_METHODS:
             final_samples[slug].append(final[slug])
 
-    # ----- Aggregate -----
     t  = np.asarray(histories[0]["t"], dtype=float)
     bt = np.asarray(bm_histories[0]["t"], dtype=float)
 
@@ -566,9 +557,6 @@ def main():
     bm_keys = [f"{nm}_{slug}" for nm in bm_metric_names for slug, _, _ in BENCHMARK_METHODS]
     bm_mean, bm_std = _aggregate(bm_histories, bm_keys)
 
-    # ----- Plots -----
-
-    # 1. Main benchmark metrics: Sinkhorn + MMD + EMC
     bm_base = os.path.join(out_dir, "benchmark_metrics_mog40")
     plot_benchmark_metrics_figure(
         bt, bm_mean, bm_std,
@@ -600,7 +588,6 @@ def main():
         },
     )
 
-    # 2. Final-step occupancy and scatter plots (last seed)
     final_last_seed = {slug: final_samples[slug][-1] for slug, _, _ in BENCHMARK_METHODS}
     _plot_occupancy_grid(final_last_seed, out_dir)
     _plot_single_scatter(X_ref, "MoG40: True Scatter", "true_scatter", "gray", out_dir)

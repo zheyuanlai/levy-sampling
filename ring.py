@@ -262,10 +262,7 @@ def step_mala(X, dt, eps, rng):
     return sanitize_state(X_new), float(accept.mean())
 
 def step_malevy(X, dt, eps, rng, lam, sigma_L, mults, pm, jump_cap=3.2):
-    # Stage 1: local MALA move (gradient-informed)
     X_mid, _ = step_mala(X, dt, eps, rng)
-
-    # Stage 2: symmetric Lévy jump MH move (global)
     proposal = X_mid.copy()
     n_jumps = rng.poisson(lam * dt, size=X.shape[0])
     idx = np.where(n_jumps > 0)[0]
@@ -393,7 +390,6 @@ def run_simulation(
 ):
     rng = np.random.default_rng(seed)
 
-    # Init trapped in Left Well (-1, 0)
     X_diff = sanitize_state(np.array([-1.0, 0.0]) + 0.05 * rng.standard_normal((N, 2)))
     X_levy = X_diff.copy()
     X_flmc = X_diff.copy()
@@ -509,12 +505,9 @@ def build_benchmark_eval_steps(steps, num_checkpoints):
     return set(np.unique(np.linspace(0, steps, num_checkpoints, dtype=int)).tolist())
 
 def main():
-    # Setup
     eps, dt, T, N = 0.35, 0.0015, 40.0, 5000
     gx, gy = np.linspace(-2.2, 2.2, 240), np.linspace(-2.2, 2.2, 240)
     dx, dy = gx[1]-gx[0], gy[1]-gy[0]
-    
-    # Levy Params
     lam, sigma_L = 1.6, 1.25
     mults, pm = [1.0, 1.7, 2.4], [0.70, 0.22, 0.08]
     num_seeds = 5
@@ -523,7 +516,6 @@ def main():
     print("Precomputing fields...")
     pi, bx, by, Sx, Sy = precompute_pi_drift_score_on_grid(eps, gx, gy, lam, sigma_L, mults, pm)
 
-    # FLMC parameter
     alpha = 1.5
     benchmark_config = get_default_benchmark_config({
         "benchmark_num_checkpoints": 21,

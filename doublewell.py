@@ -20,7 +20,6 @@ from high_dim_output.benchmark_metrics import (
     save_benchmark_metrics_csv,
 )
 
-# Import FLMC utilities
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, THIS_DIR)
 
@@ -48,12 +47,7 @@ def V_doublewell(x: np.ndarray) -> np.ndarray:
 
 
 def gradV_doublewell(x: np.ndarray) -> np.ndarray:
-    """
-    Gradient of double-well potential.
-    ∇V(x) = x^3 - x
-
-    Note: Drift in SDE is -∇V = x - x^3 (manuscript Eq. in Section 5.1)
-    """
+    """Gradient of double-well potential: ∇V(x) = x^3 - x."""
     x = np.asarray(x, dtype=float)
     return x**3 - x
 
@@ -100,7 +94,6 @@ def compute_target_density_1d(gx: np.ndarray, sigma: float) -> np.ndarray:
     logpi -= np.max(logpi)
     pi = np.exp(np.clip(logpi, -EXPO_CLIP, 0.0))
 
-    # Normalize
     dx = gx[1] - gx[0]
     pi /= (np.sum(pi) * dx + 1e-300)
 
@@ -144,13 +137,9 @@ def precompute_levy_score_1d(
     V = V_doublewell(gx)
     S = np.zeros_like(gx)
 
-    # Theta integration points
     thetas = np.linspace(0.05, 1.0, n_theta)
-
-    # Jump directions: +1 (right) and -1 (left)
     directions = np.array([1.0, -1.0])
 
-    # Normalize probabilities
     pm = np.array(pm, dtype=float)
     pm /= np.sum(pm)
 
@@ -158,29 +147,24 @@ def precompute_levy_score_1d(
         z_mag = sigma_L * multipliers[k]
 
         for direction in directions:
-            r = z_mag * direction  # Jump displacement (scalar, can be negative)
+            r = z_mag * direction  # can be negative
 
             acc = np.zeros_like(gx)
             for th in thetas:
-                # Evaluate potential at x - θr and x + θr
                 V_minus = V_doublewell(gx - th * r)
                 V_plus = V_doublewell(gx + th * r)
 
-                # Compute ratio terms
                 dlog_minus = -2.0 * (V_minus - V) / (sigma ** 2)
                 dlog_plus = -2.0 * (V_plus - V) / (sigma ** 2)
 
                 ratio_minus = np.exp(np.clip(dlog_minus, -EXPO_CLIP, EXPO_CLIP))
                 ratio_plus = np.exp(np.clip(dlog_plus, -EXPO_CLIP, EXPO_CLIP))
 
-                # Antithetic pairing
                 term = 0.5 * (ratio_minus - ratio_plus)
                 acc += term * r
 
-            # Average over theta, weight by direction (1/2 for two directions) and probability
             S += (prob_k / len(directions)) * (acc / len(thetas))
 
-    # Multiply by intensity and clip for stability
     S = lam * np.clip(S, -S_CLIP, S_CLIP)
 
     return S
@@ -213,9 +197,7 @@ def step_diffusion_1d(
     Returns:
         Updated positions (N,)
     """
-    drift = -gradV_doublewell(x)  # drift = X - X^3
-
-    # Tamed Euler-Maruyama for stability
+    drift = -gradV_doublewell(x)
     x_new = x + dt * drift / (1.0 + dt * np.abs(drift)) + sigma * np.sqrt(dt) * rng.standard_normal(x.shape)
 
     if clip_bounds is not None:
@@ -295,7 +277,6 @@ def step_lsbmc_1d(
     Returns:
         Updated positions (N,)
     """
-    # Interpolate drift and score
     drift = np.interp(np.clip(x, gx[0], gx[-1]), gx, drift_grid)
     score = np.interp(np.clip(x, gx[0], gx[-1]), gx, score_grid)
 
@@ -304,8 +285,6 @@ def step_lsbmc_1d(
 
     # Tamed Euler step
     x_new = x + dt * total_drift / (1.0 + dt * np.abs(total_drift))
-
-    # Diffusion noise
     x_new += sigma * np.sqrt(dt) * rng.standard_normal(x.shape)
 
     # Compound Poisson jumps
@@ -313,17 +292,13 @@ def step_lsbmc_1d(
     idx = np.where(n_jumps > 0)[0]
 
     if len(idx) > 0:
-        # Normalize probabilities
         pm_norm = np.array(pm, dtype=float)
         pm_norm /= np.sum(pm_norm)
 
         for i in idx:
             k = n_jumps[i]
-            # Sample jump sizes
             m_choice = rng.choice(multipliers, size=k, p=pm_norm)
-            # Sample jump directions (±1)
             directions = rng.choice([-1.0, 1.0], size=k)
-            # Total jump displacement
             jump = np.sum(sigma_L * m_choice * directions)
             x_new[i] += jump
 
@@ -356,7 +331,6 @@ def density_on_grid_1d(samples: np.ndarray, gx: np.ndarray, do_smooth: bool = Tr
     hist, _ = np.histogram(samples, bins=bins)
     dens = hist.astype(float) / (samples.size * dx + 1e-12)
 
-    # Optional Gaussian smoothing
     if do_smooth:
         kernel_sigma = max(sigma, 1.2 * dx)
         m = int(np.ceil(4.0 * kernel_sigma / dx))
@@ -365,7 +339,6 @@ def density_on_grid_1d(samples: np.ndarray, gx: np.ndarray, do_smooth: bool = Tr
         ker = ker / (np.sum(ker) * dx + 1e-300)
         dens = np.convolve(dens, ker, mode="same")
 
-    # Ensure positive and normalized
     dens = np.maximum(dens, 1e-300)
     dens /= (np.sum(dens) * dx + 1e-300)
 
@@ -538,15 +511,13 @@ def run_doublewell_experiment(
     print(f"  Init: mean={init_mean}, std={init_std}")
     print()
 
-    # Setup
     rng = np.random.default_rng(seed)
     gx = np.linspace(-8.0, 8.0, 2401)
     dx = gx[1] - gx[0]
     clip_bounds = (-10.0, 10.0)
 
-    # Target density
     pi = compute_target_density_1d(gx, sigma)
-    true_mean = np.sum(gx * pi) * dx  # Should be ≈ 0 by symmetry
+    true_mean = np.sum(gx * pi) * dx  # ≈ 0 by symmetry
 
     print(f"Target density:")
     print(f"  Grid: [{gx[0]:.1f}, {gx[-1]:.1f}], dx={dx:.4f}")
@@ -560,7 +531,6 @@ def run_doublewell_experiment(
     print(f"  Score range: [{np.min(score_grid):.4f}, {np.max(score_grid):.4f}]")
     print()
 
-    # Initialize particles
     x0 = init_mean + init_std * rng.standard_normal(N)
     x_diff = np.clip(x0.copy(), clip_bounds[0], clip_bounds[1])
     x_mala = np.clip(x0.copy(), clip_bounds[0], clip_bounds[1])
@@ -575,7 +545,6 @@ def run_doublewell_experiment(
     ref_samples = sample_from_target_1d(rng, pi, gx, n_ref)
     benchmark_mode_descriptors = np.array([[-1.0], [1.0]], dtype=float)
 
-    # History tracking
     steps = int(round(T / dt))
     check_every = max(1, steps // 25)  # 25 checkpoints
 
@@ -600,13 +569,10 @@ def run_doublewell_experiment(
     print(f"Running {steps} steps (checkpoints every {check_every} steps)...")
     print()
 
-    # Main simulation loop
     for i in range(steps + 1):
-        # Checkpoint
         if i % check_every == 0 or i == steps:
             t = i * dt
 
-            # Compute metrics
             w2_d = wasserstein2_1d(x_diff, ref_samples)
             w2_m = wasserstein2_1d(x_mala, ref_samples)
             w2_f = wasserstein2_1d(x_flmc, ref_samples)
@@ -676,7 +642,6 @@ def run_doublewell_experiment(
         if i == steps:
             break
 
-        # Step forward
         x_diff = step_diffusion_1d(x_diff, dt, sigma, rng, clip_bounds)
         x_mala, acc_m = step_mala_1d(x_mala, mala_dt, sigma, rng, clip_bounds)
         x_flmc = step_flmc_1d(

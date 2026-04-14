@@ -231,7 +231,6 @@ def levy_score_integral_stationary(
                 rm = np.exp(np.clip(dlog_m, -expo_clip, expo_clip))
                 rp = np.exp(np.clip(dlog_p, -expo_clip, expo_clip))
 
-                # Symmetric pair (+/-r): 0.5 * r * (ratio_minus - ratio_plus)
                 term = 0.5 * (rm - rp)
                 acc += wth * term[:, None] * r[None, :]
 
@@ -293,27 +292,22 @@ def step_mala(X, dt, sigma, rng):
     X = sanitize_state(X)
     n_samples, dim = X.shape
 
-    # Forward proposal
     grad_x = grad_logpi_high_dim(X, sigma)
     mean_fwd = X + 0.5 * dt * grad_x
     proposal = mean_fwd + np.sqrt(dt) * rng.standard_normal(X.shape)
     proposal = sanitize_state(proposal)
 
-    # Log target densities
     logp_x = logpi_high_dim(X, sigma)
     logp_y = logpi_high_dim(proposal, sigma)
 
-    # Backward proposal kernel
     grad_y = grad_logpi_high_dim(proposal, sigma)
     mean_bwd = proposal + 0.5 * dt * grad_y
 
-    # Log proposal densities (Gaussian kernels)
     diff_fwd = proposal - mean_fwd
     diff_bwd = X - mean_bwd
     log_q_fwd = -np.sum(diff_fwd ** 2, axis=1) / (2.0 * dt)
     log_q_bwd = -np.sum(diff_bwd ** 2, axis=1) / (2.0 * dt)
 
-    # MH acceptance
     log_alpha = (logp_y + log_q_bwd) - (logp_x + log_q_fwd)
     log_u = np.log(rng.random(n_samples))
     accept = log_u < log_alpha
@@ -469,7 +463,6 @@ def run_simulation(
 ):
     rng = np.random.default_rng(seed)
 
-    # Left-well initialization in all coordinates.
     X_diff = -1.0 + 0.1 * rng.standard_normal((N, dim))
     X_mala = X_diff.copy()
     X_flmc = X_diff.copy()
@@ -604,18 +597,15 @@ def main():
     num_seeds = 3
     seeds = list(range(num_seeds))
 
-    # Compound-Poisson jump law nu_J: isotropic direction + discrete radial multipliers.
     lam = 0.8
     sigma_L = 1.0
     multipliers = np.asarray([1.0, 1.8, 2.6], dtype=float)
     pm = np.asarray([0.70, 0.22, 0.08], dtype=float)
     pm /= pm.sum()
 
-    # Numerical quadrature controls for LSBMC score.
     n_dir_score = 8
     n_theta = 7
 
-    # FLMC parameter
     alpha = 1.75
     benchmark_config = get_default_benchmark_config({
         "benchmark_num_checkpoints": 21,
@@ -706,7 +696,6 @@ def main():
     out_prefix = os.path.join(out_dir, "high_dim")
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
-    # Sliced W2
     axes[0].errorbar(t, mean["w2_d"], yerr=std["w2_d"], fmt="-", color="C0", label="ULA", capsize=2, alpha=0.9)
     axes[0].errorbar(t, mean["w2_m"], yerr=std["w2_m"], fmt="-", color="C2", label="MALA", capsize=2, alpha=0.9)
     axes[0].errorbar(t, mean["w2_f"], yerr=std["w2_f"], fmt="-", color="tab:orange", label="FLMC", capsize=2, alpha=0.9)
@@ -716,7 +705,6 @@ def main():
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
 
-    # Orthant L1
     axes[1].errorbar(t, mean["l1_d"], yerr=std["l1_d"], fmt="-", color="C0", label="ULA", capsize=2, alpha=0.9)
     axes[1].errorbar(t, mean["l1_m"], yerr=std["l1_m"], fmt="-", color="C2", label="MALA", capsize=2, alpha=0.9)
     axes[1].errorbar(t, mean["l1_f"], yerr=std["l1_f"], fmt="-", color="tab:orange", label="FLMC", capsize=2, alpha=0.9)
@@ -726,7 +714,6 @@ def main():
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
 
-    # Orthant L2
     axes[2].errorbar(t, mean["l2_d"], yerr=std["l2_d"], fmt="-", color="C0", label="ULA", capsize=2, alpha=0.9)
     axes[2].errorbar(t, mean["l2_m"], yerr=std["l2_m"], fmt="-", color="C2", label="MALA", capsize=2, alpha=0.9)
     axes[2].errorbar(t, mean["l2_f"], yerr=std["l2_f"], fmt="-", color="tab:orange", label="FLMC", capsize=2, alpha=0.9)

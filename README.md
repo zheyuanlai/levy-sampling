@@ -55,6 +55,7 @@ $$
 $$
 Y = X + \frac{1}{2} dt  \nabla \log p_\infty(X) + \sqrt{dt}  Z, \quad Z \sim \mathcal{N}(0, I)
 $$
+
 where $\nabla \log p_\infty(x) = -2\nabla V(x)/\sigma^2$.
 
 **Acceptance Probability**:
@@ -426,7 +427,7 @@ after each update to remain in the center-of-mass-free subspace.
 - The landscape is highly nonconvex, with several compact cluster minima
 - The active benchmark compares samplers through the sorted pair-distance descriptor in $\mathbb{R}^{21}$, which is invariant to translation, rotation, and atom relabeling
 
-**Hyperparameters**:
+**Hyperparameters** (`LJ7.py`):
 ```python
 T_star = 0.05        # Reduced temperature
 dt = 1.0e-3          # Time step
@@ -517,7 +518,7 @@ i.e. the target is the **exact MoG40 mixture** with equal weights and unit covar
 **SDE**:
 
 $$
-dX_t = -\nabla V(X_t)dt + \sigmadB_t, \qquad \sigma = \sqrt{2}
+dX_t = -\nabla V(X_t)dt + \sigmad B_t, \qquad \sigma = \sqrt{2}
 $$
 
 with gradient
@@ -526,7 +527,7 @@ $$
 \nabla V(x) = \sum_{k=1}^{K} w_k(x)\frac{x - \mu_k}{s^2}, \qquad w_k(x) = \frac{\exp\left(-\frac{\|x-\mu_k\|^2}{2s^2}\right)}{\sum_{j}\exp\left(-\frac{\|x-\mu_j\|^2}{2s^2}\right)}
 $$
 
-**Challenge**: All particles are initialised near mode 0 ($X_0 \sim \mathcal{N}(\mu_0, 0.25I_2)$); the task is to discover the remaining 39 modes spread over $[-40,40]^2$.
+**Challenge**: All particles are initialised near mode 0 ( $X_0 \sim \mathcal{N}(\mu_0, 0.25I_2)$ ); the task is to discover the remaining 39 modes spread over $[-40,40]^2$.
 
 **Hyperparameters** (`mog40.py`):
 ```python
@@ -590,7 +591,7 @@ where $C(x,y) = \|x-y\|^2$. The two self-transport terms ensure $S_\varepsilon(\
 
 **What it measures.** The distance between $\mu$ and $\nu$ in a **reproducing kernel Hilbert space** (RKHS). MMD is sensitive to differences in the *moments* of the two distributions, at all length scales determined by the kernel, without requiring an optimisation problem.
 
-**Definition.** For a symmetric, positive-definite kernel $k : \mathbb{R}^d \times \mathbb{R}^d \to \mathbb{R}$ with associated feature map $\phi$ and RKHS $\mathcal{H}$, the squared MMD is the squared distance between the **kernel mean embeddings** $m_\mu = \mathbb{E}_{x \sim \mu}[\phi(x)]$ and $m_\nu = \mathbb{E}_{y \sim \nu}[\phi(y)]$:
+**Definition.** For a symmetric, positive-definite kernel $k : \mathbb{R}^d \times \mathbb{R}^d \to \mathbb{R}$ with associated feature map $\phi$ and RKHS $\mathcal{H}$, the squared MMD is the squared distance between the **kernel mean embeddings** $m_\mu = \mathbb{E}_{x \sim \mu}[\phi(x)]$ and $m_\nu = \mathbb{E}_{y \sim \nu}[\phi(y)]$ :
 
 $$
 \text{MMD}^2(\mu, \nu) = \|m_\mu - m_\nu\|_{\mathcal{H}}^2 = \mathbb{E}_{x,x' \sim \mu}[k(x,x')] - 2 \mathbb{E}_{\substack{x \sim \mu \\ y \sim \nu}}[k(x,y)] + \mathbb{E}_{y,y' \sim \nu}[k(y,y')]
