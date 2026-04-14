@@ -71,14 +71,20 @@ def gradV_mueller(x, y):
     return dVx, dVy
 
 
-def V_mueller_flmc(x, y):
-    # Manuscript uses the rescaled convention b = -(1/2) grad V for this example.
-    return 0.5 * V_mueller(x, y)
+def gradU_mueller_xy(x, y, eps):
+    """
+    Paper-faithful FLMC mapping for the Mueller-Brown benchmark.
 
-
-def gradV_mueller_flmc(x, y):
-    dVx, dVy = gradV_mueller(x, y)
-    return 0.5 * dVx, 0.5 * dVy
+    Target:
+        pi(x, y) ∝ exp(-V(x, y) / eps^2)
+    Therefore:
+        U(x, y) = -log pi(x, y) = V(x, y) / eps^2 + const
+        gradU(x, y) = gradV(x, y) / eps^2
+    and the FLMC drift is
+        -c_alpha * gradU(x, y) = -(c_alpha / eps^2) gradV(x, y).
+    """
+    gx, gy = grad_logpi_mueller(x, y, eps)
+    return -gx, -gy
 
 
 # ============================================================
@@ -482,9 +488,7 @@ def run_simulation(
             X_flmc,
             dt,
             alpha,
-            eps,
-            V_mueller_flmc,
-            gradV_mueller_flmc,
+            lambda x, y: gradU_mueller_xy(x, y, eps),
             rng,
         )
         X_mala, acc = step_mala(X_mala, mala_dt, eps, rng)

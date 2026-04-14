@@ -29,6 +29,9 @@ THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 R2_EPS = 1e-12
 EXPO_CLIP = 60.0
 S_CLIP = 40.0
+POT_CLIP = 8.0
+STATE_CLIP = 64.0
+STATE_CLIP_BOUNDS = ((-STATE_CLIP, STATE_CLIP), (-STATE_CLIP, STATE_CLIP))
 RING_MODE_DESCRIPTORS = np.array(
     [
         [-1.0, 0.0],
@@ -39,16 +42,33 @@ RING_MODE_DESCRIPTORS = np.array(
 
 # ---------------- Potential & grad ----------------
 
+def _clip_xy_for_eval(x, y, bound=POT_CLIP):
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    x = np.nan_to_num(x, nan=0.0, posinf=bound, neginf=-bound)
+    y = np.nan_to_num(y, nan=0.0, posinf=bound, neginf=-bound)
+    return np.clip(x, -bound, bound), np.clip(y, -bound, bound)
+
+
+def sanitize_state(X):
+    """
+    Catastrophic numerical-safety guard for rare outlier states.
+
+    This clipping is not part of the paper-faithful FLMC formula; it only keeps
+    the benchmark numerically finite when a sampler produces extreme excursions.
+    """
+    X = np.asarray(X, dtype=float)
+    X = np.nan_to_num(X, nan=0.0, posinf=STATE_CLIP, neginf=-STATE_CLIP)
+    return np.clip(X, -STATE_CLIP, STATE_CLIP)
+
 def V_ring(x, y):
-    x = np.asarray(x)
-    y = np.asarray(y)
+    x, y = _clip_xy_for_eval(x, y)
     r2 = x * x + y * y
     r2s = r2 + R2_EPS
     return (1.0 - r2) ** 2 + (y * y) / r2s
 
 def gradV_ring(x, y):
-    x = np.asarray(x)
-    y = np.asarray(y)
+    x, y = _clip_xy_for_eval(x, y)
     r2 = x * x + y * y
     r2s = r2 + R2_EPS
     r4s = r2s * r2s
@@ -59,6 +79,10 @@ def gradV_ring(x, y):
 # ---------------- Utilities ----------------
 
 def bilinear_interp(x, y, gx, gy, F):
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    x = np.nan_to_num(x, nan=0.0, posinf=gx[-1], neginf=gx[0])
+    y = np.nan_to_num(y, nan=0.0, posinf=gy[-1], neginf=gy[0])
     x = np.clip(x, gx[0], gx[-1])
     y = np.clip(y, gy[0], gy[-1])
     dx = gx[1] - gx[0]
@@ -97,6 +121,7 @@ def smooth2d_separable(P, ker_x, ker_y):
     return np.array([np.convolve(tmp[:, j], ker_y, mode="same") for j in range(P.shape[1])]).T
 
 def density_on_grid(samples, gx, gy, do_smooth=True, smoothing_sigma=0.08):
+    samples = sanitize_state(samples)
     dx, dy = gx[1] - gx[0], gy[1] - gy[0]
     bins_x = np.concatenate([gx - dx/2, [gx[-1] + dx/2]])
     bins_y = np.concatenate([gy - dy/2, [gy[-1] + dy/2]])
@@ -152,13 +177,16 @@ def precompute_pi_drift_score_on_grid(eps, gx, gy, lam, sigma_L, multipliers, pm
 # ---------------- Simulation Steps ----------------
 
 def step_diff(X, dt, eps, gx, gy, bx_g, by_g, rng):
+    X = sanitize_state(X)
     bx = bilinear_interp(X[:,0], X[:,1], gx, gy, bx_g)
     by = bilinear_interp(X[:,0], X[:,1], gx, gy, by_g)
     norm = np.sqrt(bx**2 + by**2) + 1e-8
     drift = dt * np.stack([bx, by], axis=1) / (1.0 + dt*norm)[:,None]
-    return X + drift + np.sqrt(eps*dt) * rng.standard_normal(X.shape)
+    X_new = X + drift + np.sqrt(eps*dt) * rng.standard_normal(X.shape)
+    return sanitize_state(X_new)
 
 def step_levy(X, dt, eps, gx, gy, bx_g, by_g, Sx_g, Sy_g, rng, lam, sigma_L, mults, pm):
+    X = sanitize_state(X)
     bx = bilinear_interp(X[:,0], X[:,1], gx, gy, bx_g)
     by = bilinear_interp(X[:,0], X[:,1], gx, gy, by_g)
     sx = bilinear_interp(X[:,0], X[:,1], gx, gy, Sx_g)
@@ -181,7 +209,7 @@ def step_levy(X, dt, eps, gx, gy, bx_g, by_g, Sx_g, Sy_g, rng, lam, sigma_L, mul
             mag = np.sqrt(jx**2 + jy**2) + 1e-8
             scale = np.minimum(1.0, 3.2/mag) # jump cap
             X_new[i] += np.array([jx*scale, jy*scale])
-    return X_new
+    return sanitize_state(X_new)
 
 def logpi_ring_xy(x, y, eps):
     return -2.0 * V_ring(x, y) / eps
@@ -191,14 +219,31 @@ def grad_logpi_ring_xy(x, y, eps):
     scale = -2.0 / eps
     return scale * dVx, scale * dVy
 
+
+def gradU_ring_xy(x, y, eps):
+    """
+    Paper-faithful FLMC mapping for the ring benchmark.
+
+    Target:
+        pi(x, y) ∝ exp(-2 V(x, y) / eps)
+    Therefore:
+        U(x, y) = -log pi(x, y) = 2 V(x, y) / eps + const
+        gradU(x, y) = (2 / eps) gradV(x, y)
+    and the FLMC drift is
+        -c_alpha * gradU(x, y) = -(2 c_alpha / eps) gradV(x, y).
+    """
+    gx, gy = grad_logpi_ring_xy(x, y, eps)
+    return -gx, -gy
+
 def step_mala(X, dt, eps, rng):
+    X = sanitize_state(X)
     x = X[:, 0]
     y = X[:, 1]
     gx, gy = grad_logpi_ring_xy(x, y, eps)
     grad = np.stack([gx, gy], axis=1)
 
     mean = X + 0.5 * dt * grad
-    proposal = mean + np.sqrt(dt) * rng.standard_normal(X.shape)
+    proposal = sanitize_state(mean + np.sqrt(dt) * rng.standard_normal(X.shape))
 
     logp_x = logpi_ring_xy(x, y, eps)
     logp_y = logpi_ring_xy(proposal[:, 0], proposal[:, 1], eps)
@@ -214,7 +259,7 @@ def step_mala(X, dt, eps, rng):
     accept = np.log(rng.random(X.shape[0])) < log_alpha
     X_new = X.copy()
     X_new[accept] = proposal[accept]
-    return X_new, float(accept.mean())
+    return sanitize_state(X_new), float(accept.mean())
 
 def step_malevy(X, dt, eps, rng, lam, sigma_L, mults, pm, jump_cap=3.2):
     # Stage 1: local MALA move (gradient-informed)
@@ -349,7 +394,7 @@ def run_simulation(
     rng = np.random.default_rng(seed)
 
     # Init trapped in Left Well (-1, 0)
-    X_diff = np.array([-1.0, 0.0]) + 0.05 * rng.standard_normal((N, 2))
+    X_diff = sanitize_state(np.array([-1.0, 0.0]) + 0.05 * rng.standard_normal((N, 2)))
     X_levy = X_diff.copy()
     X_flmc = X_diff.copy()
     X_mala = X_diff.copy()
@@ -434,7 +479,15 @@ def run_simulation(
 
         X_diff = step_diff(X_diff, dt, eps, gx, gy, bx, by, rng)
         X_levy = step_levy(X_levy, dt, eps, gx, gy, bx, by, Sx, Sy, rng, lam, sigma_L, mults, pm)
-        X_flmc = step_flmc_2d(X_flmc, dt, alpha, eps, V_ring, gradV_ring, rng)
+        X_flmc = step_flmc_2d(
+            sanitize_state(X_flmc),
+            dt,
+            alpha,
+            lambda x, y: gradU_ring_xy(x, y, eps),
+            rng,
+            clip_bounds=STATE_CLIP_BOUNDS,
+        )
+        X_flmc = sanitize_state(X_flmc)
         X_mala, acc = step_mala(X_mala, mala_dt, eps, rng)
         acc_sum += acc
         acc_count += 1

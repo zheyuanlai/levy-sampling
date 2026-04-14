@@ -15,7 +15,7 @@ from high_dim_output.benchmark_metrics import (
     save_benchmark_metadata_json,
     save_benchmark_metrics_csv,
 )
-from flmc_utils import step_flmc_nd
+from flmc_utils import flmc_self_check as shared_flmc_self_check, step_flmc_nd
 
 
 EXPO_CLIP = 40.0
@@ -268,6 +268,21 @@ def grad_logpi_high_dim(X, sigma):
     return -2.0 * gradV_high_dim(X) / (sigma ** 2)
 
 
+def gradU_high_dim(X, sigma):
+    """
+    Paper-faithful FLMC potential for the 10D benchmark.
+
+    Target:
+        pi(x) ∝ exp(-2 V(x) / sigma^2)
+    Therefore:
+        U(x) = -log pi(x) = 2 V(x) / sigma^2 + const
+        gradU(x) = (2 / sigma^2) gradV(x)
+    and the FLMC drift is
+        -c_alpha * gradU(x) = -(2 c_alpha / sigma^2) gradV(x).
+    """
+    return -grad_logpi_high_dim(X, sigma)
+
+
 def step_mala(X, dt, sigma, rng):
     """
     MALA step for high-dimensional target p_∞(x) ∝ exp(-2V(x)/σ²).
@@ -312,33 +327,71 @@ def step_mala(X, dt, sigma, rng):
 
 def step_flmc(X, dt, sigma, alpha, rng):
     """
-    FLMC step for high-dimensional potential.
+    FLMC step for the 10D benchmark following Simsekli et al., Section 3.3.
 
-    FLMC: dX = -c_alpha * ∇V dt + sigma * dt^(1/alpha) * Z
-    where Z is GENUINELY ISOTROPIC alpha-stable noise (no score correction).
+    We write the benchmark target as
+        U(x) = 2 V(x) / sigma^2,
+        pi(x) ∝ exp(-U(x)).
+    The paper's simplified multidimensional FLA update is
+        X_{n+1} = X_n - dt * c_alpha * ∇U(X_n) + dt^(1/alpha) * ξ_n
+                = X_n - dt * (2 c_alpha / sigma^2) * ∇V(X_n) + dt^(1/alpha) * ξ_n,
+    where ξ_n has iid coordinate-wise SαS(1) entries.
 
     IMPORTANT: The potential V(x) is treated as a general high-dimensional function,
     NOT exploiting separability even when V(x) = Σᵢ Vᵢ(xᵢ). This ensures fair
     comparison with ULA/MALA/LSBMC, which also treat V as non-separable.
 
-    The isotropic noise structure Z = R * U uses:
-        - U ~ Uniform(S^(d-1)): random direction on unit sphere
-        - R ~ S_alpha^(1/alpha): alpha-stable radial component
-
-    This matches the rotational invariance of LSBMC's isotropic jumps.
-    The sigma scaling ensures FLMC targets p_∞ ∝ exp(-2V/sigma²), matching ULA/MALA/LSBMC.
+    The multidimensional FLMC here follows the paper's independent-components
+    setting. We intentionally do NOT use isotropic stable noise, because
+    Section 3.3 does not cover isotropic stable processes.
     """
     X = sanitize_state(X)
     X_new = step_flmc_nd(
         x=X,
         dt=dt,
         alpha=alpha,
-        sigma=sigma,
-        gradV_fn=gradV_high_dim,
+        gradU_fn=lambda arr: gradU_high_dim(arr, sigma),
         rng=rng,
-        clip_bounds=(-STATE_CLIP, STATE_CLIP)
+        clip_bounds=(-STATE_CLIP, STATE_CLIP),
     )
     return sanitize_state(X_new)
+
+
+def flmc_self_check(
+    alpha: float = 2.0,
+    dt: float = 1.0e-2,
+    sigma: float = 1.3,
+    dim: int = 10,
+    n_samples: int = 20000,
+    seed: int = 0,
+    variance_rtol: float = 0.10,
+):
+    """
+    Lightweight self-check for the paper-specific high-dimensional FLMC path.
+
+    Verifies:
+      1. For alpha = 2, dt^(1/2) * S2S(1) has variance 2 * dt per coordinate.
+      2. The drift used by FLMC equals -(2 c_alpha / sigma^2) * gradV_high_dim(X).
+    """
+    X_probe = np.array(
+        [
+            [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, -0.75, 0.25, 0.9],
+            [0.8, -1.2, 1.1, -0.4, 0.3, -0.9, 1.4, -1.6, 0.6, -0.2],
+        ],
+        dtype=float,
+    )
+    result = shared_flmc_self_check(
+        gradU_fn=lambda arr: gradU_high_dim(arr, sigma),
+        probe_points=X_probe,
+        alpha=alpha,
+        dt=dt,
+        noise_dim=dim,
+        n_noise_samples=n_samples,
+        seed=seed,
+        variance_rtol=variance_rtol,
+    )
+    result["sigma"] = float(sigma)
+    return result
 
 
 def step_levy(

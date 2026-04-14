@@ -81,35 +81,29 @@ $$
 
 Adapted from [Fractional Langevin Monte Carlo: Exploring Levy Driven Stochastic Differential Equations for Markov Chain Monte Carlo](https://arxiv.org/abs/1706.03649) (ICML 2017).
 
-**Target Distribution**: 
+**Target Distribution**:
 
 $$
-p_\infty(x) = Z^{-1} \exp\left(-\frac{2V(x)}{\sigma^2}\right), \quad x \in \mathbb{R}^d
+p_\infty(x) = Z^{-1} \exp\left(-U(x)\right), \quad x \in \mathbb{R}^d
 $$
-
-**Continuous-Time SDE**:
-
-$$
-dX_t = -c_\alpha \nabla V(X_t)  dt + \sigma  dt^{1/\alpha}  dL_t^\alpha
-$$
-
-where:
-- $L_t^\alpha$ is a symmetric $\alpha$-stable Lévy process with tail index $\alpha \in (1, 2]$
-- $c_\alpha = \Gamma(\alpha - 1) / \Gamma(\alpha/2)^2$ is a normalization constant
 
 **Discrete-Time Update**:
 
 $$
-X_{n+1} = X_n + \frac{dt \cdot (-c_\alpha \nabla V(X_n))}{1 + dt \|c_\alpha \nabla V(X_n)\|} + \sigma  dt^{1/\alpha}  Z_n
+X_{n+1} = X_n - dt  c_\alpha \nabla U(X_n) + (\sigma  dt)^{1/\alpha}  \xi_n
 $$
 
-where $Z_n$ is sampled from a symmetric $\alpha$-stable distribution using the **Chambers-Mallows-Stuck algorithm**.
+where:
+- $c_\alpha = \Gamma(\alpha - 1) / \Gamma(\alpha/2)^2$ is a normalization constant
+- $\xi_n$ has iid coordinate-wise symmetric $\alpha$-stable entries with characteristic function $\mathbb{E} e^{i \omega \xi} = \exp(-|\omega|^\alpha)$
+- $\sigma > 0$ is a temperature-like noise scale (see conventions below)
+
+**Recovery of ULA at $\alpha = 2$**:
+
+At $\alpha = 2$, the stable noise reduces to $\xi_n \sim \mathcal{N}(0, 2I)$, so the noise increment becomes $(\sigma  dt)^{1/2} \xi_n \sim \mathcal{N}(0, 2\sigma  dt  I)$. Choosing $U(x) = V(x)$ (the raw potential, without temperature scaling) and $\sigma = T^\star$ gives drift $-c_2 \nabla V = -\nabla V$ and noise standard deviation $\sqrt{2 T^\star  dt}$ per coordinate — exactly the tamed ULA update.
 
 **Alpha-Stable Noise**:
-- **Low-dimensional (1D/2D)**: Coordinatewise independent $\alpha$-stable samples
-- **High-dimensional ($d \geq 3$)**: Genuinely isotropic $\alpha$-stable vectors $Z = R \cdot U$, where:
-  - $U \sim \text{Uniform}(\mathbb{S}^{d-1})$ (random direction on unit sphere)
-  - $R \sim S_\alpha^{1/\alpha}$ (radial component with $\alpha$-stable distribution)
+- **All dimensions**: FLMC uses iid coordinate-wise $\alpha$-stable samples (not isotropic radial stable vectors)
 
 ---
 
@@ -494,10 +488,61 @@ n_theta = 7          # Quadrature points in θ ∈ [0,1]
 **Fair Comparison Principle**:
 Even though $V(x)$ is separable, **all methods treat it as a general 10D potential**:
 - ULA/MALA use standard multivariate Brownian motion (coordinatewise independent by definition)
-- **FLMC uses genuinely isotropic $\alpha$-stable vectors** $Z = R \cdot U$ where $U \sim \text{Uniform}(\mathbb{S}^9)$ and $R \sim S_\alpha^{1/\alpha}$ (not coordinatewise)
+- **FLMC uses iid coordinate-wise $\alpha$-stable increments** as prescribed by Simsekli et al. Section 3.3
 - **LSB-MC uses genuinely isotropic jumps** $(m_k \sigma_L) \cdot U$ with $U \sim \text{Uniform}(\mathbb{S}^9)$ (not coordinatewise)
 
-This ensures no method exploits the separability structure, providing a fair benchmark of high-dimensional exploration.
+This keeps FLMC scientifically aligned with the paper while preserving the same
+general-potential treatment used by the other samplers.
+
+### 7. Mixture of Gaussians
+
+**Mathematical Definition**:
+
+$$
+V(x) = -\log\left(\sum_{k=1}^{K} \exp\left(-\frac{\|x - \mu_k\|^2}{2s^2}\right)\right), \qquad K = 40, s = 1
+$$
+
+where $\{\mu_k\}_{k=1}^{40}$ are mode centres drawn i.i.d. from $\text{Uniform}[-40,40]^2$ with seed 0 (fixed for reproducibility).
+
+**Target Distribution**:
+
+Setting $\sigma = \sqrt{2}$ in the global convention $p_\infty(x) \propto \exp(-2V(x)/\sigma^2)$ gives $\sigma^2 = 2$ and therefore
+
+$$
+p_\infty(x) = \exp(-V(x)) \cdot \text{const} = \frac{1}{K}\sum_{k=1}^{K} \mathcal{N}(x;\mu_k,I_2),
+$$
+
+i.e. the target is the **exact MoG40 mixture** with equal weights and unit covariance per component.
+
+**SDE**:
+
+$$
+dX_t = -\nabla V(X_t)dt + \sigmadB_t, \qquad \sigma = \sqrt{2}
+$$
+
+with gradient
+
+$$
+\nabla V(x) = \sum_{k=1}^{K} w_k(x)\frac{x - \mu_k}{s^2}, \qquad w_k(x) = \frac{\exp\left(-\frac{\|x-\mu_k\|^2}{2s^2}\right)}{\sum_{j}\exp\left(-\frac{\|x-\mu_j\|^2}{2s^2}\right)}
+$$
+
+**Challenge**: All particles are initialised near mode 0 ($X_0 \sim \mathcal{N}(\mu_0, 0.25I_2)$); the task is to discover the remaining 39 modes spread over $[-40,40]^2$.
+
+**Hyperparameters** (`mog40.py`):
+```python
+sigma       = math.sqrt(2.0)  # sigma^2 = 2 → target is exact MoG40
+dt          = 0.005            # Time step
+T           = 20.0             # Total time
+N           = 3000             # Number of particles
+num_seeds   = 3                # Seeds for variance estimation
+alpha       = 1.5              # FLMC tail index
+lam         = 2.0              # LSB-MC jump intensity
+sigma_L     = 3.0              # LSB-MC base jump magnitude
+multipliers = [1.0, 3.0, 6.0]
+pm          = [0.50, 0.35, 0.15]
+n_dir       = 4                # Random directions for score quadrature
+n_theta     = 5                # Quadrature points in θ ∈ [0, 1]
+```
 
 ## Evaluation Metrics
 

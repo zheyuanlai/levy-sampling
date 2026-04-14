@@ -240,6 +240,25 @@ def grad_energy_flat(X: np.ndarray, r_min: float = DEFAULT_R_MIN) -> np.ndarray:
     return flatten_states(grad)
 
 
+def gradU_energy_flat(
+    X: np.ndarray,
+    temperature: float,
+    r_min: float = DEFAULT_R_MIN,
+) -> np.ndarray:
+    """
+    Paper-faithful FLMC mapping for the Lennard-Jones benchmark.
+
+    Target:
+        pi(R) ∝ exp(-E(R) / T_star)
+    Therefore:
+        U(R) = -log pi(R) = E(R) / T_star + const
+        gradU(R) = gradE(R) / T_star
+    and the FLMC drift is
+        -c_alpha * gradU(R) = -(c_alpha / T_star) gradE(R).
+    """
+    return grad_energy_flat(X, r_min=r_min) / float(temperature)
+
+
 def tamed_increment(drift: np.ndarray, dt: float) -> np.ndarray:
     batch, squeeze = _ensure_state_batch(drift)
     norms = np.linalg.norm(batch.reshape(batch.shape[0], -1), axis=1)[:, None, None]
@@ -978,43 +997,58 @@ def step_mala(
 def step_flmc(
     states: np.ndarray,
     dt: float,
-    sigma_noise: float,
+    temperature: float,
     alpha: float,
     r_min: float,
     rng: np.random.Generator,
-    jump_cap: float | None = 2.0,
+    step_cap: float | None = 1.25,
 ) -> np.ndarray:
     """
-    FLMC step for LJ7(2d).
+    Temperature-scaled FLMC step for LJ7(2d).
 
-    jump_cap caps the Euclidean norm of the alpha-stable noise vector in the
-    14D coordinate space (before COM removal).  LJ is singular at r→0, so
-    uncapped heavy-tailed noise can in principle drive atoms to near-zero
-    separations; the cap prevents that in edge cases.
+    Uses the temperature-aware parameterisation:
+        X_{n+1} = X_n - dt * c_alpha * gradE(X_n) + (T_star * dt)^(1/alpha) * xi_n
 
-    EFFECTIVE TEMPERATURE WARNING:
-    For alpha < 2, the per-step noise magnitude scales as sigma * dt^(1/alpha),
-    whereas ULA noise scales as sigma * sqrt(dt).  The ratio is dt^(1/alpha - 1/2),
-    which for alpha=1.5 and dt=2e-4 gives:
-        dt^(2/3 - 1/2) = dt^(1/6) ≈ 0.24
-    FLMC per-step noise is therefore ~4x smaller than ULA per-step noise at this dt.
-    This means FLMC effectively samples at a much colder temperature than intended,
-    which can cause distribution collapse toward the nearest minimum and poor
-    Sinkhorn / MMD scores vs. an equal-weight multi-basin reference.
-    This is a fundamental property of alpha-stable FLMC at finite dt with alpha < 2,
-    not a code error.  It should be reported explicitly in benchmark comparisons.
+    where gradE is the raw LJ energy gradient (NOT divided by T_star) and the
+    noise scale is (T_star * dt)^(1/alpha).  Compared to the original
+    temperature-unaware form (gradU = gradE/T_star, noise = dt^(1/alpha)*xi):
+
+      - At alpha=2 this reduces *exactly* to tamed ULA (same drift and noise).
+      - The drift multiplier drops from c_alpha/T_star (~24x at T*=0.05) to
+        c_alpha (~1.18x), eliminating the large Euler-Maruyama discretisation
+        error that caused the cluster to expand in the original form.
+      - The noise is scaled down by T_star^(1/alpha) relative to the original,
+        appropriate for the cold Boltzmann target at T_star=0.05.
+
+    Both forms target exp(-E/T_star) in continuous time; only the discrete-time
+    accuracy differs.
+
+    Multidimensional stable motion uses independent coordinate-wise SαS(1)
+    entries.  We remove center-of-mass motion after the step because the
+    benchmark state space is represented modulo translations.
+
+    step_cap : float or None
+        Maximum per-sample displacement (Euclidean norm in flat space) allowed
+        per step.  Alpha-stable noise (alpha < 2) has infinite variance; the
+        cap prevents rare catastrophically large noise realisations from pushing
+        LJ atoms through each other.  Analogous to jump_cap in step_lsbmc.
     """
     flat = flatten_states(states)
     flat_new = step_flmc_nd(
         x=flat,
         dt=float(dt),
         alpha=float(alpha),
-        sigma=float(sigma_noise),
-        gradV_fn=lambda arr: grad_energy_flat(arr, r_min=r_min),
+        gradU_fn=lambda arr: grad_energy_flat(arr, r_min=r_min),
         rng=rng,
         clip_bounds=None,
-        noise_cap=None if jump_cap is None else float(jump_cap),
+        sigma=float(temperature),
     )
+    if step_cap is not None:
+        delta = flat_new - flat
+        norms = np.linalg.norm(delta, axis=1, keepdims=True)
+        too_large = norms > float(step_cap)
+        delta = np.where(too_large, delta * float(step_cap) / (norms + 1e-12), delta)
+        flat_new = flat + delta
     return remove_center_of_mass(unflatten_states(flat_new))
 
 
@@ -1297,8 +1331,8 @@ def run_simulation(
     n_dir_score: int = 4,
     n_theta: int = 5,
     jump_cap: float | None = 1.25,
-    flmc_jump_cap: float | None = 2.0,
     score_clip: float | None = 25.0,
+    flmc_step_cap: float | None = 1.25,
     return_benchmark_history: bool = False,
     # EMC parameters (optional; no-op when emc_enabled=False)
     minima_descriptors: np.ndarray | None = None,
@@ -1428,11 +1462,11 @@ def run_simulation(
         states["flmc"] = step_flmc(
             states["flmc"],
             dt=dt,
-            sigma_noise=sigma_noise,
+            temperature=temperature,
             alpha=alpha,
             r_min=r_min,
             rng=rng,
-            jump_cap=flmc_jump_cap,
+            step_cap=flmc_step_cap,
         )
         states["lsbmc"] = step_lsbmc(
             states["lsbmc"],
@@ -1550,8 +1584,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n-dir-score", type=int, default=4)
     parser.add_argument("--n-theta", type=int, default=5)
     parser.add_argument("--jump-cap", type=float, default=1.25)
-    parser.add_argument("--flmc-jump-cap", type=float, default=2.0)
     parser.add_argument("--score-clip", type=float, default=25.0)
+    parser.add_argument("--flmc-step-cap", type=float, default=1.25)
     parser.add_argument("--eval-checkpoints", type=int, default=21)
     parser.add_argument("--metric-seed", type=int, default=2029)
     parser.add_argument("--benchmark-num-repeats", type=int, default=2)
@@ -1762,8 +1796,8 @@ def main(argv: list[str] | None = None) -> dict:
             n_dir_score=int(args.n_dir_score),
             n_theta=int(args.n_theta),
             jump_cap=float(args.jump_cap),
-            flmc_jump_cap=float(args.flmc_jump_cap),
             score_clip=float(args.score_clip),
+            flmc_step_cap=float(args.flmc_step_cap),
             return_benchmark_history=True,
             # EMC
             minima_descriptors=minima_descriptors_arr,
@@ -2011,7 +2045,6 @@ def main(argv: list[str] | None = None) -> dict:
             "n_dir_score": int(args.n_dir_score),
             "n_theta": int(args.n_theta),
             "jump_cap": float(args.jump_cap),
-            "flmc_jump_cap": float(args.flmc_jump_cap),
             "score_clip": float(args.score_clip),
             "reference_descriptors_path": os.path.relpath(
                 paths.reference_descriptors, paths.output_dir

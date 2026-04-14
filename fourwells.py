@@ -28,28 +28,57 @@ THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 EXPO_CLIP = 60.0
 LOGR_CLIP = 30.0
 S_CLIP = 80.0
+POT_CLIP = 8.0
+STATE_CLIP = 64.0
+STATE_CLIP_BOUNDS = ((-STATE_CLIP, STATE_CLIP), (-STATE_CLIP, STATE_CLIP))
+
+
+def _clip_xy_for_eval(x, y, bound=POT_CLIP):
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    x = np.nan_to_num(x, nan=0.0, posinf=bound, neginf=-bound)
+    y = np.nan_to_num(y, nan=0.0, posinf=bound, neginf=-bound)
+    return np.clip(x, -bound, bound), np.clip(y, -bound, bound)
+
+
+def sanitize_state(X):
+    """
+    Catastrophic numerical-safety guard for rare outlier states.
+
+    This clipping is not part of the paper-faithful FLMC formula; it only keeps
+    the benchmark numerically finite when a sampler produces extreme excursions.
+    """
+    X = np.asarray(X, dtype=float)
+    X = np.nan_to_num(X, nan=0.0, posinf=STATE_CLIP, neginf=-STATE_CLIP)
+    return np.clip(X, -STATE_CLIP, STATE_CLIP)
 
 
 def V_fourwell(x, y, a=1.0):
-    x, y = np.asarray(x), np.asarray(y)
+    x, y = _clip_xy_for_eval(x, y)
     return (x**2 - a**2) ** 2 + (y**2 - a**2) ** 2
 
 
 def gradV_fourwell(x, y, a=1.0):
-    x, y = np.asarray(x), np.asarray(y)
+    x, y = _clip_xy_for_eval(x, y)
     dVx = 4.0 * x * (x**2 - a**2)
     dVy = 4.0 * y * (y**2 - a**2)
     return dVx, dVy
 
 
-def V_fourwell_flmc(x, y, a=1.0):
-    # Manuscript uses the rescaled convention b = -(1/2) grad V for this example.
-    return 0.5 * V_fourwell(x, y, a=a)
+def gradU_fourwell_xy(x, y, eps, a=1.0):
+    """
+    Paper-faithful FLMC mapping for the four-well benchmark.
 
-
-def gradV_fourwell_flmc(x, y, a=1.0):
-    dVx, dVy = gradV_fourwell(x, y, a=a)
-    return 0.5 * dVx, 0.5 * dVy
+    Target:
+        pi(x, y) ∝ exp(-V(x, y) / eps^2)
+    Therefore:
+        U(x, y) = -log pi(x, y) = V(x, y) / eps^2 + const
+        gradU(x, y) = gradV(x, y) / eps^2
+    and the FLMC drift is
+        -c_alpha * gradU(x, y) = -(c_alpha / eps^2) gradV(x, y).
+    """
+    gx, gy = grad_logpi_fourwell_xy(x, y, eps, a=a)
+    return -gx, -gy
 
 
 # ============================================================
@@ -57,6 +86,10 @@ def gradV_fourwell_flmc(x, y, a=1.0):
 # ============================================================
 
 def bilinear_interp(x, y, gx, gy, F):
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    x = np.nan_to_num(x, nan=0.0, posinf=gx[-1], neginf=gx[0])
+    y = np.nan_to_num(y, nan=0.0, posinf=gy[-1], neginf=gy[0])
     x = np.clip(x, gx[0], gx[-1])
     y = np.clip(y, gy[0], gy[-1])
     dx = gx[1] - gx[0]
@@ -89,6 +122,7 @@ def smooth2d_separable(P, ker_x, ker_y):
 
 
 def density_on_grid(samples, gx, gy, do_smooth=True):
+    samples = sanitize_state(samples)
     dx = gx[1] - gx[0]
     dy = gy[1] - gy[0]
     bins_x = np.concatenate([gx - dx / 2, [gx[-1] + dx / 2]])
@@ -161,12 +195,15 @@ def precompute_pi_b_S(eps, gx, gy, a, lam, sigma_L, mults, pm):
 
 
 def step_diff(X, dt, eps, gx, gy, bx_g, by_g, rng):
+    X = sanitize_state(X)
     bx = bilinear_interp(X[:, 0], X[:, 1], gx, gy, bx_g)
     by = bilinear_interp(X[:, 0], X[:, 1], gx, gy, by_g)
-    return X + dt * np.stack([bx, by], axis=1) + eps * np.sqrt(dt) * rng.standard_normal(X.shape)
+    X_new = X + dt * np.stack([bx, by], axis=1) + eps * np.sqrt(dt) * rng.standard_normal(X.shape)
+    return sanitize_state(X_new)
 
 
 def step_levy(X, dt, eps, gx, gy, bx_g, by_g, Sx_g, Sy_g, rng, lam, sigma_L, mults, pm):
+    X = sanitize_state(X)
     bx = bilinear_interp(X[:, 0], X[:, 1], gx, gy, bx_g)
     by = bilinear_interp(X[:, 0], X[:, 1], gx, gy, by_g)
     sx = bilinear_interp(X[:, 0], X[:, 1], gx, gy, Sx_g)
@@ -179,7 +216,7 @@ def step_levy(X, dt, eps, gx, gy, bx_g, by_g, Sx_g, Sy_g, rng, lam, sigma_L, mul
         ang = rng.random(n_jumps[i]) * 2 * np.pi
         X_new[i, 0] += np.sum(sigma_L * m * np.cos(ang))
         X_new[i, 1] += np.sum(sigma_L * m * np.sin(ang))
-    return X_new
+    return sanitize_state(X_new)
 
 
 def logpi_fourwell_xy(x, y, eps, a):
@@ -193,13 +230,14 @@ def grad_logpi_fourwell_xy(x, y, eps, a):
 
 
 def step_mala(X, dt, eps, a, rng):
+    X = sanitize_state(X)
     x = X[:, 0]
     y = X[:, 1]
     gx, gy = grad_logpi_fourwell_xy(x, y, eps, a=a)
     grad = np.stack([gx, gy], axis=1)
 
     mean = X + 0.5 * dt * grad
-    proposal = mean + np.sqrt(dt) * rng.standard_normal(X.shape)
+    proposal = sanitize_state(mean + np.sqrt(dt) * rng.standard_normal(X.shape))
 
     logp_x = logpi_fourwell_xy(x, y, eps, a=a)
     logp_y = logpi_fourwell_xy(proposal[:, 0], proposal[:, 1], eps, a=a)
@@ -215,7 +253,7 @@ def step_mala(X, dt, eps, a, rng):
     accept = np.log(rng.random(X.shape[0])) < log_alpha
     X_new = X.copy()
     X_new[accept] = proposal[accept]
-    return X_new, float(accept.mean())
+    return sanitize_state(X_new), float(accept.mean())
 
 
 def step_malevy(X, dt, eps, a, rng, lam, sigma_L, mults, pm):
@@ -351,7 +389,7 @@ def run_simulation(
 ):
     rng = np.random.default_rng(seed)
 
-    X_diff = np.array([a, a]) + 0.1 * rng.standard_normal((N, 2))
+    X_diff = sanitize_state(np.array([a, a]) + 0.1 * rng.standard_normal((N, 2)))
     X_levy = X_diff.copy()
     X_flmc = X_diff.copy()
     X_mala = X_diff.copy()
@@ -437,14 +475,14 @@ def run_simulation(
         X_diff = step_diff(X_diff, dt, eps, gx, gy, bx, by, rng)
         X_levy = step_levy(X_levy, dt, eps, gx, gy, bx, by, Sx, Sy, rng, lam, sigma_L, mults, pm)
         X_flmc = step_flmc_2d(
-            X_flmc,
+            sanitize_state(X_flmc),
             dt,
             alpha,
-            eps,
-            lambda x, y: V_fourwell_flmc(x, y, a=a),
-            lambda x, y: gradV_fourwell_flmc(x, y, a=a),
+            lambda x, y: gradU_fourwell_xy(x, y, eps, a=a),
             rng,
+            clip_bounds=STATE_CLIP_BOUNDS,
         )
+        X_flmc = sanitize_state(X_flmc)
         X_mala, acc = step_mala(X_mala, mala_dt, eps, a, rng)
         acc_sum += acc
         acc_count += 1

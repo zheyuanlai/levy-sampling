@@ -24,7 +24,7 @@ from high_dim_output.benchmark_metrics import (
 THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, THIS_DIR)
 
-from flmc_utils import c_alpha, sample_symmetric_alpha_stable, step_flmc_1d
+from flmc_utils import step_flmc_1d
 
 
 # Clipping constants for numerical stability
@@ -65,6 +65,21 @@ def logpi_doublewell(x: np.ndarray, sigma: float) -> np.ndarray:
 
 def grad_logpi_doublewell(x: np.ndarray, sigma: float) -> np.ndarray:
     return -2.0 * gradV_doublewell(x) / (sigma ** 2)
+
+
+def gradU_doublewell(x: np.ndarray, sigma: float) -> np.ndarray:
+    """
+    Paper-faithful FLMC mapping for the double-well benchmark.
+
+    Target:
+        pi(x) ∝ exp(-2 V(x) / sigma^2)
+    Therefore:
+        U(x) = -log pi(x) = 2 V(x) / sigma^2 + const
+        gradU(x) = (2 / sigma^2) gradV(x)
+    and the FLMC drift is
+        -c_alpha * gradU(x) = -(2 c_alpha / sigma^2) gradV(x).
+    """
+    return -grad_logpi_doublewell(x, sigma)
 
 
 def compute_target_density_1d(gx: np.ndarray, sigma: float) -> np.ndarray:
@@ -664,7 +679,14 @@ def run_doublewell_experiment(
         # Step forward
         x_diff = step_diffusion_1d(x_diff, dt, sigma, rng, clip_bounds)
         x_mala, acc_m = step_mala_1d(x_mala, mala_dt, sigma, rng, clip_bounds)
-        x_flmc = step_flmc_1d(x_flmc, dt, alpha, sigma, V_doublewell, gradV_doublewell, rng, clip_bounds)
+        x_flmc = step_flmc_1d(
+            x_flmc,
+            dt,
+            alpha,
+            lambda arr: gradU_doublewell(arr, sigma),
+            rng,
+            clip_bounds,
+        )
         x_lsb = step_lsbmc_1d(x_lsb, dt, sigma, gx, drift_grid, score_grid, rng, lam, sigma_L, multipliers, pm, clip_bounds)
         acc_mala_sum += acc_m
         acc_mala_count += 1
