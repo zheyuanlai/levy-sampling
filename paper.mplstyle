@@ -1,0 +1,49 @@
+## Pinned matplotlib style for LJ7-2D LSBMC manuscript figures.
+
+figure.figsize     : 7.0, 4.2
+figure.dpi         : 110
+savefig.dpi        : 300
+savefig.bbox       : tight
+savefig.pad_inches : 0.02
+savefig.format     : png
+
+font.family        : serif
+font.serif         : DejaVu Serif, Times New Roman, CMU Serif, serif
+font.size          : 10
+axes.titlesize     : 11
+axes.labelsize     : 10
+xtick.labelsize    : 9
+ytick.labelsize    : 9
+legend.fontsize    : 8.5
+
+axes.linewidth     : 0.8
+axes.grid          : True
+grid.linestyle     : :
+grid.linewidth     : 0.5
+grid.alpha         : 0.55
+grid.color         : 0.6
+
+lines.linewidth    : 1.4
+lines.markersize   : 4
+
+## Note: per-method colours are set explicitly in code (METHOD_COLORS dict)
+## so we do not configure axes.prop_cycle here.
+
+legend.frameon         : True
+legend.framealpha      : 0.85
+legend.fancybox        : False
+legend.edgecolor       : 0.8
+
+xtick.direction    : in
+ytick.direction    : in
+xtick.major.size   : 3.5
+ytick.major.size   : 3.5
+xtick.minor.visible: True
+ytick.minor.visible: True
+xtick.minor.size   : 1.8
+ytick.minor.size   : 1.8
+
+axes.spines.top    : True
+axes.spines.right  : True
+
+errorbar.capsize   : 2.0

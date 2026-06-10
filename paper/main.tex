@@ -1,0 +1,81 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amsfonts,amssymb,amsthm}
+\usepackage{natbib}
+\usepackage{todonotes}
+% Useful packages
+\usepackage{amsmath, amsthm}
+\newcommand{\R}{\mathbb{R}}
+% \newcommand{\d}{\mathop{}\!\mathrm{d}}
+\usepackage{graphicx}
+\graphicspath{{fig/}}
+
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{subcaption}
+%\usepackage{subfigure}
+\usepackage{multirow} 
+\usepackage{pifont}
+\usepackage{comment}
+\usepackage{makecell}
+
+\graphicspath{{fig_sampling/}}
+
+\usepackage{algorithm}
+\usepackage{algorithmic}
+
+%\theoremstyle{thmstyleone}%
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{assumption}[theorem]{Assumption}
+
+\usepackage{enumitem}
+
+\usepackage{amssymb}
+\renewcommand{\d}{\ensuremath{\mathrm{d}}}
+
+
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    urlcolor=blue,
+    citecolor=blue,
+    linkcolor=blue
+}
+
+\begin{document}
+
+\title{L\'{e}vy-Score-Corrected Jump Diffusions for Accelerated Sampling of Boltzmann Distributions}
+\author{}
+\date{}
+\maketitle
+
+\begin{abstract}
+Sampling the Boltzmann distribution associated with an It\^{o} diffusion process presents a fundamental challenge in computational stochastic simulation. Traditional numerical integration of the governing stochastic differential equations necessitates fine temporal discretization and prohibitively long simulation horizons, particularly in the presence of metastability. In this paper, we introduce a novel algorithmic framework employing a L\'{e}vy-score-based Monte Carlo method to directly generate samples from the target distribution. By leveraging the macroscopic jumps characteristic of L\'{e}vy processes, the proposed method efficiently facilitates rapid transitions across high-energy barriers. Crucially, this approach mitigates prohibitive computational costs while preserving the structural simplicity and algorithmic efficiency of standard Monte Carlo techniques. We rigorously establish the global well-posedness and geometric ergodicity of the jump-augmented stochastic differential equation, alongside a detailed theoretical analysis of the mechanisms driving the accelerated sampling rate. These theoretical guarantees ensure that the time-averaged trajectory converges robustly to the target distribution, thereby providing a strict mathematical justification for the proposed sampling algorithm. Numerical experiments across several benchmark problems demonstrate the efficacy and scalability of the approach. Compared to traditional diffusion-based sampling, our method achieves an efficiency improvement of several orders of magnitude. These results highlight its low computational overhead and superior capability in accelerating the exploration of complex potential landscapes characterized by multiple metastable states.
+\end{abstract}
+
+
+
+
+ \noindent {{\bf Keywords}: Boltzmann distribution, It\^{o} diffusion, L\'{e}vy process, Monte Carlo methods, stochastic simulation, metastable states}
+ 
+
+
+ \noindent {{\bf MSC2020}: 65N75, 65C20, 68T07}
+
+\input{sections/01_introduction}
+\input{sections/02_preliminaries}
+\input{sections/03_methodology}
+\input{sections/04_algorithm}
+
+\bibliographystyle{unsrt} 
+\bibliography{refs-CY}
+
+
+
+
+\end{document}
