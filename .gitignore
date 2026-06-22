@@ -61,3 +61,9 @@ abs_error/
 density_compare/
 AGENTS.md
 CLAUDE.md
+
+# Paper / LaTeX sources
+paper/
+
+# NumPy archives
+*.npz
