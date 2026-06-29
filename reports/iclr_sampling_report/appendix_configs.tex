@@ -1,0 +1,28 @@
+\small
+\paragraph{manywell scaling}
+\begin{itemize}
+\item scaling: \texttt{\detokenize{n_blocks}} $\in$ [4, 8, 16, 32]
+\item methods: ULA, MALA, FLMC, LSBMC, ULD, HMC, PT
+\item particles 2048, steps 2000, dt 0.005, seeds [0, 1, 2, 3, 4]
+\item method configs: \texttt{\detokenize{FLMC: {'alpha': 1.5, 'dt': 0.005}; HMC: {'dt': 0.05, 'n_leapfrog': 10}; LSBMC: {'dt': 0.005}; MALA: {'dt': 0.005}; PT: {'beta_min': 0.05, 'dt': 0.005, 'n_temps': 6, 'swap_interval': 5}; ULA: {'dt': 0.005}; ULD: {'dt': 0.01, 'friction': 2.0}}}
+\item target: \texttt{\detokenize{{'jump_r_max': 3.8, 'jump_r_min': 3.2, 'lambda_block': 0.1}}}
+\item output: \texttt{\detokenize{results/iclr_sampling/20260628_032655_manywell_scaling}}
+\end{itemize}
+\paragraph{mog scaling}
+\begin{itemize}
+\item scaling: \texttt{\detokenize{n_modes}} $\in$ [10, 20, 40, 80]
+\item methods: ULA, MALA, FLMC, LSBMC, ULD, HMC, PT
+\item particles 1500, steps 1500, dt 0.01, seeds [0, 1, 2, 3, 4]
+\item method configs: \texttt{\detokenize{FLMC: {'alpha': 1.5, 'dt': 0.01}; HMC: {'dt': 0.1, 'n_leapfrog': 10}; LSBMC: {'dt': 0.01, 'tame_cap': 10.0}; MALA: {'dt': 0.01}; PT: {'beta_min': 0.02, 'dt': 0.01, 'n_temps': 8, 'swap_interval': 5}; ULA: {'dt': 0.01}; ULD: {'dt': 0.02, 'friction': 2.0}}}
+\item target: \texttt{\detokenize{{'center_range': 40.0, 'center_seed': 0, 'comp_sigma': 1.0, 'jump_chunk': 128, 'k_neighbors': 8, 'lam_total': 1.0, 'n_theta': 8}}}
+\item output: \texttt{\detokenize{results/iclr_sampling/20260628_032158_mog_scaling}}
+\end{itemize}
+\paragraph{bayes gmm label switching}
+\begin{itemize}
+\item scaling: \texttt{\detokenize{K}} $\in$ [3]
+\item methods: ULA, MALA, FLMC, LSBMC, ULD, HMC, PT
+\item particles 2000, steps 2000, dt 0.01, seeds [0, 1, 2, 3, 4]
+\item method configs: \texttt{\detokenize{FLMC: {'alpha': 1.5, 'dt': 0.01}; HMC: {'dt': 0.05, 'n_leapfrog': 15}; LSBMC: {'dt': 0.004, 'metric_every': 250, 'n_steps': 5000}; MALA: {'dt': 0.01}; PT: {'beta_min': 0.02, 'dt': 0.01, 'n_temps': 8, 'swap_interval': 5}; ULA: {'dt': 0.01}; ULD: {'dt': 0.02, 'friction': 2.0}}}
+\item target: \texttt{\detokenize{{'data_seed': 0, 'jump_chunk': 32, 'lam_total': 0.4, 'n_data': 300, 'n_theta': 8, 'p': 2, 'sigma_y': 1.0, 'tau': 10.0, 'true_radius': 6.0}}}
+\item output: \texttt{\detokenize{results/iclr_sampling/20260628_031115_bayes_gmm_label_switching}}
+\end{itemize}

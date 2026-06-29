@@ -1,0 +1,46 @@
+experiment_name: mog_scaling
+target: mog
+
+scaling:
+  var: n_modes
+  values: [10, 20, 40, 80]
+
+run:
+  n_particles: 1500
+  n_steps: 1500                 # T = 15 at dt = 0.01
+  dt: 0.01
+  metric_every: 75
+  seeds: [0, 1, 2, 3, 4]
+  base_seed: 0
+  ref_seed: 99
+  n_ref: 6000
+  w2_sub: 200
+  mmd_sub: 800
+  n_proj: 200
+
+methods: [ULA, MALA, FLMC, LSBMC, ULD, HMC, PT]
+
+target_cfg:
+  center_seed: 0
+  center_range: 40.0
+  comp_sigma: 1.0
+  k_neighbors: 8
+  lam_total: 1.0
+  n_theta: 8
+  jump_chunk: 128
+
+method_cfgs:
+  ULA:   {dt: 0.01}
+  MALA:  {dt: 0.01}
+  FLMC:  {dt: 0.01, alpha: 1.5}
+  LSBMC: {dt: 0.01, tame_cap: 10.0}   # cap>1 speeds post-jump relaxation in the wide MoG wells
+  ULD:   {dt: 0.02, friction: 2.0}
+  HMC:   {dt: 0.1, n_leapfrog: 10}
+  PT:    {dt: 0.01, n_temps: 8, beta_min: 0.02, swap_interval: 5}
+
+tune:
+  enabled: true
+  n_part: 400
+  mala_dt: [0.005, 0.01, 0.02]
+  hmc_eps: [0.05, 0.1, 0.2]
+  share_mala_dt_with_pt: true

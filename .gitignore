@@ -67,3 +67,17 @@ paper/
 
 # NumPy archives
 *.npz
+
+# ICLR experiment suite: timestamped run outputs are regenerable
+# (the report under reports/ embeds its own copies of figures/tables).
+results/
+
+# LaTeX build artifacts
+*.aux
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg

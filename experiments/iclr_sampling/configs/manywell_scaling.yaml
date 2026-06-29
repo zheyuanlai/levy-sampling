@@ -1,0 +1,42 @@
+experiment_name: manywell_scaling
+target: manywell
+
+scaling:
+  var: n_blocks
+  values: [4, 8, 16, 32]        # dimensions d = 8, 16, 32, 64
+
+run:
+  n_particles: 2048
+  n_steps: 2000                 # T = 10 at dt = 0.005
+  dt: 0.005
+  metric_every: 100
+  seeds: [0, 1, 2, 3, 4]
+  base_seed: 0
+  ref_seed: 12345
+  n_ref: 20000
+  w2_sub: 256
+  mmd_sub: 1024
+  n_proj: 200
+
+methods: [ULA, MALA, FLMC, LSBMC, ULD, HMC, PT]
+
+target_cfg:
+  lambda_block: 0.1
+  jump_r_min: 3.2
+  jump_r_max: 3.8
+
+method_cfgs:
+  ULA:   {dt: 0.005}
+  MALA:  {dt: 0.005}
+  FLMC:  {dt: 0.005, alpha: 1.5}
+  LSBMC: {dt: 0.005}
+  ULD:   {dt: 0.01, friction: 2.0}
+  HMC:   {dt: 0.05, n_leapfrog: 10}
+  PT:    {dt: 0.005, n_temps: 6, beta_min: 0.05, swap_interval: 5}
+
+tune:
+  enabled: true
+  n_part: 512
+  mala_dt: [0.002, 0.005, 0.01]
+  hmc_eps: [0.02, 0.05, 0.1]
+  share_mala_dt_with_pt: true

@@ -1,0 +1,50 @@
+experiment_name: bayes_gmm_label_switching
+target: bayes_gmm
+
+scaling:
+  var: K
+  values: [3]                   # K=3 -> posterior dim 6, K! = 6 label modes
+
+run:
+  n_particles: 2000
+  n_steps: 2000                 # T = 20 at dt = 0.01
+  dt: 0.01
+  metric_every: 100
+  seeds: [0, 1, 2, 3, 4]
+  base_seed: 0
+  ref_seed: 0
+  n_ref: 12000
+  w2_sub: 256
+  mmd_sub: 1024
+  n_proj: 200
+
+methods: [ULA, MALA, FLMC, LSBMC, ULD, HMC, PT]
+
+target_cfg:
+  p: 2
+  n_data: 300
+  sigma_y: 1.0
+  tau: 10.0
+  data_seed: 0
+  true_radius: 6.0
+  lam_total: 0.4            # jump intensity (LSB-MC only); lower -> less off-mode transit
+  n_theta: 8
+  jump_chunk: 32
+
+method_cfgs:
+  ULA:   {dt: 0.01}
+  MALA:  {dt: 0.01}
+  FLMC:  {dt: 0.01, alpha: 1.5}
+  # stiff posterior wells: use finer dt + more steps (same physical time T=20) so
+  # off-mode transit mass clears; jump intensity lowered via target_cfg lam_total.
+  LSBMC: {dt: 0.004, n_steps: 5000, metric_every: 250}
+  ULD:   {dt: 0.02, friction: 2.0}
+  HMC:   {dt: 0.05, n_leapfrog: 15}
+  PT:    {dt: 0.01, n_temps: 8, beta_min: 0.02, swap_interval: 5}
+
+tune:
+  enabled: true
+  n_part: 400
+  mala_dt: [0.005, 0.01, 0.02]
+  hmc_eps: [0.02, 0.05, 0.1]
+  share_mala_dt_with_pt: true

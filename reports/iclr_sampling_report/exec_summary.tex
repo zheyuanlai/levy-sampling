@@ -1,0 +1,9 @@
+Across all three studies the picture is the same. The local samplers (ULA, MALA, FLMC, ULD, HMC) stay trapped near wherever they were started and never discover the rest of the distribution; parallel tempering (PT), the strongest generic baseline, recovers partial coverage but degrades steadily as the problem grows; and \textbf{LSB-MC reaches essentially the whole distribution}, attaining the best mode coverage and EMC and the smallest mode-weight KL, typically sitting at the finite-sample reference floor.
+
+\textbf{Discovering many modes (MoG).} With $K{=}40$ equally weighted Gaussian modes and all particles started near one of them, LSB-MC covers 1.00 of the modes with EMC 0.94 (1.0 is perfect), while the best baseline (PT) reaches only coverage 0.23 and EMC 0.07; the corresponding Wasserstein distance is 10.00 for LSB-MC versus 33.85 for PT.
+
+\textbf{Scaling to high dimension (ManyWell).} At $d{=}64$ (32 independent double wells), LSB-MC keeps a count-EMC of 0.96 and a per-block marginal KL of 0.001, i.e.\ each well is filled in almost exactly the right proportion, whereas PT and HMC have collapsed to count-EMC $\approx0.00$; the sliced-Wasserstein distance is 0.18 for LSB-MC versus 1.41 for PT.
+
+\textbf{A real Bayesian model (label switching).} The posterior of a 3-component Gaussian mixture has six identical, relabelled copies. Every baseline finds only the one copy it started in (coverage 0.17, 1 of 6 modes, EMC 0.011), whereas LSB-MC populates all six uniformly (coverage 1.00, EMC 0.998) using a jump bank read directly off the label-permutation symmetry.
+
+Compute is accounted for fairly (wall-clock time and gradient evaluations, with PT and HMC charged their extra work and LSB-MC charged its Lévy-score quadrature), so the advantage is not an artefact of spending more compute --- though, as Section~\ref{sec:compute} shows, that quadrature does add a real and problem-dependent per-step cost.

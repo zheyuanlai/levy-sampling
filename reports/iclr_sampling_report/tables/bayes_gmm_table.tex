@@ -1,0 +1,19 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Bayesian GMM label-switching posterior (K=3, dim=6, 6 modes; mean$\pm$SE over 5 seeds).}
+\label{tab:bayes_gmm}
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Method & cov. & \#modes & EMC & KL & $W_2$ & MMD & time(s) & grads \\
+\midrule
+ULA & 0.167 & 1 & 0.011 & 4.545 & 14.581$\pm$0.066 & 0.654$\pm$0.004 & 2.184 & 2000 \\
+MALA & 0.167 & 1 & 0.011 & 4.545 & 14.627$\pm$0.070 & 0.655$\pm$0.004 & 5.615 & 4000 \\
+FLMC & 0.167 & 1 & 0.011 & 4.545 & 14.610$\pm$0.070 & 0.652$\pm$0.004 & 1.900 & 2000 \\
+LSBMC & 1.000 & 6 & 0.998$\pm$0.000 & 0.002$\pm$0.000 & 7.824$\pm$0.684 & 0.040$\pm$0.005 & 513.159 & 5000 \\
+ULD & 0.167 & 1 & 0.011 & 4.545 & 14.630$\pm$0.069 & 0.655$\pm$0.004 & 1.850 & 2001 \\
+HMC & 0.167 & 1 & 0.011 & 4.545 & 14.625$\pm$0.069 & 0.655$\pm$0.004 & 29.687 & 32000 \\
+PT & 0.167 & 1 & 0.011 & 4.545 & 14.625$\pm$0.067 & 0.655$\pm$0.004 & 39.285 & 32000 \\
+\bottomrule
+\end{tabular}
+\end{table}
