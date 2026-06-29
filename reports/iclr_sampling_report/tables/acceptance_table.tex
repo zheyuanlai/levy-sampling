@@ -1,0 +1,38 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Metropolis--Hastings acceptance and PT swap-acceptance rates at the largest setting of each study (mean over 5 seeds); ``--'' = not applicable to the method.}
+\label{tab:acceptance}
+\begin{tabular}{lrr}
+\toprule
+Method & MH acc. & PT swap \\
+\midrule
+\multicolumn{3}{l}{\textit{MoG, $K=80$}}\\
+ULA & -- & -- \\
+MALA & 1.00 & -- \\
+FLMC & -- & -- \\
+LSBMC & -- & -- \\
+ULD & -- & -- \\
+HMC & 1.00 & -- \\
+PT & 1.00 & 0.85 \\
+\midrule
+\multicolumn{3}{l}{\textit{ManyWell, $d=64$}}\\
+ULA & -- & -- \\
+MALA & 0.93 & -- \\
+FLMC & -- & -- \\
+LSBMC & -- & -- \\
+ULD & -- & -- \\
+HMC & 0.89 & -- \\
+PT & 0.98 & 0.10 \\
+\midrule
+\multicolumn{3}{l}{\textit{Bayesian GMM, $K=3$}}\\
+ULA & -- & -- \\
+MALA & 0.77 & -- \\
+FLMC & -- & -- \\
+LSBMC & -- & -- \\
+ULD & -- & -- \\
+HMC & 0.79 & -- \\
+PT & 0.95 & 0.52 \\
+\bottomrule
+\end{tabular}
+\end{table}

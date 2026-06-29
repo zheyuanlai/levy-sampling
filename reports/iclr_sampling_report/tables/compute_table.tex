@@ -1,0 +1,38 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Compute at the largest setting of each study (mean over 5 seeds): wall-clock time, gradient evaluations, and L\'evy-score potential evaluations (millions). HMC is charged $L{+}1$ gradients per proposal, PT $T$ kernels per step, LSB-MC its quadrature.}
+\label{tab:compute}
+\begin{tabular}{lrrr}
+\toprule
+Method & time (s) & grad evals & pot.\ evals (M) \\
+\midrule
+\multicolumn{4}{l}{\textit{MoG, $K=80$}}\\
+ULA & 0.27 & 1500 & 0.000 \\
+MALA & 0.86 & 3000 & 0.003 \\
+FLMC & 0.43 & 1500 & 0.000 \\
+LSBMC & 184.51 & 1500 & 7.680 \\
+ULD & 0.26 & 1501 & 0.000 \\
+HMC & 2.00 & 16500 & 0.003 \\
+PT & 2.64 & 24000 & 0.026 \\
+\midrule
+\multicolumn{4}{l}{\textit{ManyWell, $d=64$}}\\
+ULA & 0.28 & 2000 & 0.000 \\
+MALA & 0.98 & 4000 & 0.004 \\
+FLMC & 0.50 & 2000 & 0.000 \\
+LSBMC & 0.78 & 2000 & 0.002 \\
+ULD & 0.29 & 2001 & 0.000 \\
+HMC & 2.03 & 22000 & 0.004 \\
+PT & 1.62 & 24000 & 0.026 \\
+\midrule
+\multicolumn{4}{l}{\textit{Bayesian GMM, $K=3$}}\\
+ULA & 2.18 & 2000 & 0.000 \\
+MALA & 5.62 & 4000 & 0.004 \\
+FLMC & 1.90 & 2000 & 0.000 \\
+LSBMC & 513.16 & 5000 & 1.200 \\
+ULD & 1.85 & 2001 & 0.000 \\
+HMC & 29.69 & 32000 & 0.004 \\
+PT & 39.28 & 32000 & 0.035 \\
+\bottomrule
+\end{tabular}
+\end{table}

@@ -61,9 +61,10 @@ def _num(summary, col, val, method, key, nd=2):
 def copy_artifacts(run_dir):
     if run_dir is None:
         return
-    for p in (run_dir / "figures").glob("*.pdf"):
-        shutil.copy(p, REPORT / "figures" / p.name)
-    for p in (run_dir / "figures").glob("*.png"):
+    # The report prefers tables over plots: only the time-evolution
+    # (convergence) figures are carried into the report; the rest of the
+    # information lives in the tables below.
+    for p in (run_dir / "figures").glob("*_convergence.*"):
         shutil.copy(p, REPORT / "figures" / p.name)
     for p in (run_dir / "report_artifacts").glob("*.tex"):
         shutil.copy(p, REPORT / "tables" / p.name)
@@ -185,6 +186,65 @@ def build_numbers(mw, mog, bg):
     return "\n".join(f"\\newcommand{{\\{k}}}{{{v[k]}}}" for k in NUMBER_KEYS)
 
 
+METHODS_ORDER = ["ULA", "MALA", "FLMC", "LSBMC", "ULD", "HMC", "PT"]
+# (title, summary, scaling column, largest value) for the headline settings
+def _largest_blocks(mw, mog, bg):
+    return [("MoG, $K=80$", mog, "n_modes", 80),
+            ("ManyWell, $d=64$", mw, "n_blocks", 32),
+            ("Bayesian GMM, $K=3$", bg, "K", 3)]
+
+
+def build_compute_table(mw, mog, bg):
+    """Per-method compute at the largest setting of each study."""
+    lines = [r"\begin{table}[t]", r"\centering", r"\small",
+             r"\caption{Compute at the largest setting of each study (mean over 5 "
+             r"seeds): wall-clock time, gradient evaluations, and L\'evy-score "
+             r"potential evaluations (millions). HMC is charged $L{+}1$ gradients "
+             r"per proposal, PT $T$ kernels per step, LSB-MC its quadrature.}",
+             r"\label{tab:compute}",
+             r"\begin{tabular}{lrrr}", r"\toprule",
+             r"Method & time (s) & grad evals & pot.\ evals (M) \\"]
+    for title, summ, col, val in _largest_blocks(mw, mog, bg):
+        lines.append(r"\midrule")
+        lines.append(rf"\multicolumn{{4}}{{l}}{{\textit{{{title}}}}}\\")
+        if summ is None:
+            continue
+        for m in METHODS_ORDER:
+            row = _row(summ, col, val, m)
+            t, g, p = (_g(row, "runtime_sec_mean"), _g(row, "grad_evals_mean"),
+                       _g(row, "pot_evals_mean"))
+            ts = "--" if t != t else f"{t:.2f}"
+            gs = "--" if g != g else f"{g:.0f}"
+            ps = "--" if p != p else f"{p / 1e6:.3f}"
+            lines.append(rf"{m} & {ts} & {gs} & {ps} \\")
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    return "\n".join(lines)
+
+
+def build_acceptance_table(mw, mog, bg):
+    """Metropolis acceptance and PT swap rates at the largest setting."""
+    lines = [r"\begin{table}[t]", r"\centering", r"\small",
+             r"\caption{Metropolis--Hastings acceptance and PT swap-acceptance "
+             r"rates at the largest setting of each study (mean over 5 seeds); "
+             r"``--'' = not applicable to the method.}",
+             r"\label{tab:acceptance}",
+             r"\begin{tabular}{lrr}", r"\toprule",
+             r"Method & MH acc. & PT swap \\"]
+    for title, summ, col, val in _largest_blocks(mw, mog, bg):
+        lines.append(r"\midrule")
+        lines.append(rf"\multicolumn{{3}}{{l}}{{\textit{{{title}}}}}\\")
+        if summ is None:
+            continue
+        for m in METHODS_ORDER:
+            row = _row(summ, col, val, m)
+            a, s = _g(row, "acceptance_rate_mean"), _g(row, "swap_acceptance_rate_mean")
+            asr = "--" if (a != a or a == 0.0) else f"{a:.2f}"
+            ssr = "--" if (s != s or s == 0.0) else f"{s:.2f}"
+            lines.append(rf"{m} & {asr} & {ssr} \\")
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    return "\n".join(lines)
+
+
 def build_appendix(dirs):
     lines = ["\\small"]
     for tag, run_dir in dirs.items():
@@ -235,10 +295,12 @@ def main():
     mw, mog, bg = load_summary(mw_dir), load_summary(mog_dir), load_summary(bg_dir)
     (REPORT / "exec_summary.tex").write_text(build_exec_summary(mw, mog, bg))
     (REPORT / "numbers.tex").write_text(build_numbers(mw, mog, bg))
+    (REPORT / "tables" / "compute_table.tex").write_text(build_compute_table(mw, mog, bg))
+    (REPORT / "tables" / "acceptance_table.tex").write_text(build_acceptance_table(mw, mog, bg))
     (REPORT / "appendix_configs.tex").write_text(build_appendix(
         {"manywell_scaling": mw_dir, "mog_scaling": mog_dir,
          "bayes_gmm_label_switching": bg_dir}))
-    print("wrote exec_summary.tex, numbers.tex and appendix_configs.tex")
+    print("wrote exec_summary.tex, numbers.tex, compute/acceptance tables and appendix_configs.tex")
 
     if not args.no_compile and shutil.which("tectonic"):
         out = subprocess.run(["tectonic", "main.tex"], cwd=REPORT,

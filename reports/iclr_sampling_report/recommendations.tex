@@ -3,18 +3,20 @@
 evidence that referees ask for: (i) a \emph{scaling} result and (ii) a
 \emph{realistic} benchmark.
 \begin{itemize}
-\item Promote the \textbf{MoG mode-count scaling} figure (Fig.~\ref{fig:mog_scaling})
-and the \textbf{ManyWell dimension-scaling} figure (Fig.~\ref{fig:mw_scaling}) to
-the main paper: they show how coverage / EMC degrade with $K$ and $d$ for the
-local baselines while LSB-MC stays close to the reference.
+\item Promote the \textbf{MoG mode-count scaling}
+(Table~\ref{tab:mog_emc_scaling}) and the \textbf{ManyWell dimension-scaling}
+(Table~\ref{tab:manywell_countemc_scaling}) results to the main paper: they show
+how coverage / EMC degrade with $K$ and $d$ for the local baselines while LSB-MC
+stays close to the reference.
 \item Add the \textbf{Bayesian GMM label-switching} experiment
-(Fig.~\ref{fig:bg_modeweights}, Table~\ref{tab:bayes_gmm}) as the headline
-``real model'' result: the jump bank is derived from a genuine symmetry of the
-posterior rather than hand-tuned, which strengthens the methodological story.
+(Table~\ref{tab:bayes_gmm}) as the headline ``real model'' result: the jump bank
+is derived from a genuine symmetry of the posterior rather than hand-tuned, which
+strengthens the methodological story.
 \item Include the strongest baselines (PT and HMC), not just ULA/MALA/FLMC. The
 honest comparison against PT is what makes the multimodal claim credible.
-\item Show one \textbf{compute-fairness} panel (quality vs.\ wall-clock /
-gradient evaluations) so the speed-up is not attributed to extra compute.
+\item Report the \textbf{compute-fairness} table (Table~\ref{tab:compute};
+wall-clock and gradient/potential evaluations) so the speed-up is not attributed
+to extra compute.
 \end{itemize}
 
 \paragraph{Appendix.} Per-dimension and per-$K$ tables, acceptance/swap

@@ -64,9 +64,7 @@
 \providecommand{\BgPTemc}{n/a}\providecommand{\BgLSBwtwo}{n/a}
 \providecommand{\BgBaseWtwo}{n/a}\providecommand{\BgLSBruntime}{n/a}
 
-\title{\textbf{L\'evy-Score-Based Monte Carlo for Multimodal Sampling:\\
-A Theory-Consistent Experimental Study}}
-\author{L\'evy-Sampling project \quad\textbar\quad branch \texttt{zheyuan\_iclr\_experiments}}
+\title{\textbf{L\'evy-Score-Based Monte Carlo Additional Experiments}}
 \date{\today}
 
 \begin{document}
@@ -417,24 +415,17 @@ environment are saved per run.
 $\mu_1$; a correct sampler reaches coverage and EMC near $1$ with small $W_2$/MMD.
 Because the start is concentrated, this isolates inter-mode \emph{transport}.
 
-\paragraph{Results.} Figure~\ref{fig:mog_scaling} plots each metric versus $K$;
-Figure~\ref{fig:mog_scatter} shows the $K{=}40$ sample clouds;
-Figure~\ref{fig:mog_modeweights} the per-mode weights; Figure~\ref{fig:mog_conv}
-coverage over time; Tables~\ref{tab:mog_emc_scaling} and~\ref{tab:mog_K40} the
-numbers. At $K{=}40$, LSB-MC attains coverage \MogLSBcovK{} and EMC \MogLSBemcK,
-versus PT's coverage \MogPTcovK{} / EMC \MogPTemcK{} and HMC's coverage \MogHMCcovK;
-$W_2$ is \MogLSBwtwoK{} (LSB-MC) versus \MogPTwtwoK{} (PT). LSB-MC's EMC stays high
-across the sweep (\MogLSBemcSmall{} at $K{=}10$, easing to \MogLSBemcBig{} at
-$K{=}80$), while the local methods never leave $\mu_1$.
+\paragraph{Results.} Table~\ref{tab:mog_emc_scaling} reports EMC across the sweep
+and Table~\ref{tab:mog_K40} the full metric set at $K{=}40$;
+Figure~\ref{fig:mog_conv} tracks mode coverage over sampling time. At $K{=}40$,
+LSB-MC attains coverage \MogLSBcovK{} and EMC \MogLSBemcK, versus PT's coverage
+\MogPTcovK{} / EMC \MogPTemcK{} and HMC's coverage \MogHMCcovK; $W_2$ is
+\MogLSBwtwoK{} (LSB-MC) versus \MogPTwtwoK{} (PT). LSB-MC's EMC stays high across
+the sweep (\MogLSBemcSmall{} at $K{=}10$, easing to \MogLSBemcBig{} at $K{=}80$),
+while the local methods never leave $\mu_1$.
 
-\figbox{mog_scaling_metrics}{MoG mode-count scaling: each metric vs.\ $K$, one line
-per method (mean $\pm$ SE, 5 seeds).}{fig:mog_scaling}
-\figboxw{mog_scatter_K40}{MoG ($K{=}40$) final samples (seed 0): reference, then one
-panel per method. Local methods collapse onto the initial mode; PT spreads to a
-few; LSB-MC reproduces the mixture.}{fig:mog_scatter}{1.0}
-\figbox{mog_modeweights_K40}{MoG ($K{=}40$) empirical per-mode weights vs.\ the
-uniform target.}{fig:mog_modeweights}
-\figbox{mog_convergence}{MoG mode coverage over sampling time.}{fig:mog_conv}
+\figbox{mog_convergence}{MoG mode coverage over sampling time (mean over
+seeds).}{fig:mog_conv}
 \inputtab{mog_emc_scaling}
 \inputtab{mog_table_K40}
 
@@ -450,19 +441,17 @@ $2^{n_{\text{blocks}}}$ modes; we sweep $d\in\{8,16,32,64\}$. Independence makes
 exact answer simple to state (each block deep a fixed fraction of the time), which
 lets us measure error cleanly despite the combinatorial mode count.
 
-\paragraph{Results.} Figure~\ref{fig:mw_scaling} plots metrics versus $d$ and
-Figure~\ref{fig:mw_conv} count-EMC over time;
-Tables~\ref{tab:manywell_countemc_scaling} and~\ref{tab:manywell_d64} the numbers.
-At $d{=}64$, LSB-MC has count-EMC \MwLSBcemcBig{} and per-block marginal $\KL$
-\MwLSBblockklBig, versus PT's count-EMC \MwPTcemcBig{} and block $\KL$
-\MwPTblockklBig; the sliced-$W_2$ is \MwLSBswtwoBig{} (LSB-MC) versus \MwPTswtwoBig{}
-(PT). PT starts respectably (count-EMC \MwPTcemcSmall{} at $d{=}8$) but decays toward
-zero, since getting all blocks right simultaneously is exponentially unlikely
-without directed jumps.
+\paragraph{Results.} Table~\ref{tab:manywell_countemc_scaling} reports count-EMC
+across dimension and Table~\ref{tab:manywell_d64} the full metric set at $d{=}64$;
+Figure~\ref{fig:mw_conv} tracks count-EMC over sampling time. At $d{=}64$, LSB-MC
+has count-EMC \MwLSBcemcBig{} and per-block marginal $\KL$ \MwLSBblockklBig, versus
+PT's count-EMC \MwPTcemcBig{} and block $\KL$ \MwPTblockklBig; the sliced-$W_2$ is
+\MwLSBswtwoBig{} (LSB-MC) versus \MwPTswtwoBig{} (PT). PT starts respectably
+(count-EMC \MwPTcemcSmall{} at $d{=}8$) but decays toward zero, since getting all
+blocks right simultaneously is exponentially unlikely without directed jumps.
 
-\figbox{manywell_scaling_metrics}{ManyWell dimension scaling: each metric vs.\ $d$,
-one line per method (mean $\pm$ SE).}{fig:mw_scaling}
-\figbox{manywell_convergence}{ManyWell count-EMC over sampling time.}{fig:mw_conv}
+\figbox{manywell_convergence}{ManyWell count-EMC over sampling time (mean over
+seeds).}{fig:mw_conv}
 \inputtab{manywell_countemc_scaling}
 \inputtab{manywell_table_d64}
 
@@ -477,20 +466,15 @@ multiply.
 with six identical, label-permuted modes (\S\ref{sec:targets}); a correct sampler
 must weight all six equally.
 
-\paragraph{Results.} Figure~\ref{fig:bg_modeweights} shows the six-mode weights,
-Figure~\ref{fig:bg_energy} the posterior-energy distribution (a diagnostic for
-particles stranded between modes), Figure~\ref{fig:bg_conv} coverage over time;
-Table~\ref{tab:bayes_gmm} the numbers. Every baseline---including PT and HMC---stays
-in its initial mode (coverage \BgPTcov, $1$ of $6$, EMC \BgPTemc), whereas LSB-MC
-populates all six uniformly (coverage \BgLSBcov{} $=\BgLSBmodes/6$, EMC \BgLSBemc)
-and is closest in earth-mover distance ($W_2=\BgLSBwtwo$ versus $\approx\BgBaseWtwo$
-for the trapped baselines).
+\paragraph{Results.} Table~\ref{tab:bayes_gmm} reports the full metric set;
+Figure~\ref{fig:bg_conv} tracks mode coverage over sampling time. Every
+baseline---including PT and HMC---stays in its initial mode (coverage \BgPTcov,
+$1$ of $6$, EMC \BgPTemc), whereas LSB-MC populates all six uniformly (coverage
+\BgLSBcov{} $=\BgLSBmodes/6$, EMC \BgLSBemc) and is closest in earth-mover distance
+($W_2=\BgLSBwtwo$ versus $\approx\BgBaseWtwo$ for the trapped baselines).
 
-\figbox{bayes_gmm_modeweights}{Bayesian GMM: weight on each of the six
-label-permutation modes vs.\ the uniform target.}{fig:bg_modeweights}
-\figbox{bayes_gmm_energy}{Bayesian GMM: posterior-energy distribution per method vs.\
-the reference; stranded mass appears as a high-energy tail.}{fig:bg_energy}
-\figbox{bayes_gmm_convergence}{Bayesian GMM: mode coverage over time.}{fig:bg_conv}
+\figbox{bayes_gmm_convergence}{Bayesian GMM mode coverage over sampling time (mean
+over seeds).}{fig:bg_conv}
 \inputtab{bayes_gmm_table}
 
 \paragraph{Discussion.} On a genuine posterior, exploring the symmetry is not
@@ -499,20 +483,19 @@ the full posterior from a bank that needed no tuning beyond writing down the
 symmetry. As Remark~\ref{rem:nofree} and \S\ref{sec:method} predict, discretization
 matters: an over-aggressive jump schedule strands particles between modes, and the
 configuration used here (finer $\Delta t$, more steps, moderate $\lambda$) clears
-that transit mass, as Figure~\ref{fig:bg_energy} confirms.
+that transit mass, returning the posterior-energy distribution to the reference's
+low-energy band.
 
 % ===========================================================================
 \section{Compute-fair comparison}\label{sec:compute}
 A faster-mixing sampler is only interesting if the mixing is not bought with hidden
-compute. Figures~\ref{fig:mog_compute}--\ref{fig:mw_grad} plot quality against
-wall-clock time and gradient evaluations, with HMC charged $L{+}1$ gradients per
-proposal, PT charged $T$ kernels per step, and LSB-MC charged its L\'evy-score
-quadrature potential evaluations.
+compute. Table~\ref{tab:compute} reports, at the largest setting of each study,
+wall-clock time, gradient evaluations, and L\'evy-score potential evaluations, with
+HMC charged $L{+}1$ gradients per proposal, PT charged $T$ kernels per step, and
+LSB-MC charged its quadrature potential evaluations. Per-setting time and gradient
+counts also appear in the result tables of \S\ref{sec:mog}--\S\ref{sec:bayes}.
 
-\figbox{mog_compute_quality}{MoG: EMC vs.\ wall-clock time (log time).}{fig:mog_compute}
-\figbox{manywell_compute_quality}{ManyWell: count-EMC vs.\ wall-clock time.}{fig:mw_compute}
-\figbox{manywell_gradevals_quality}{ManyWell: sliced-$W_2$ vs.\ gradient
-evaluations.}{fig:mw_grad}
+\inputtab{compute_table}
 
 \paragraph{Reading.} LSB-MC's cost is dominated by the quadrature and is
 problem-dependent. On ManyWell the correction is a $1$-D grid lookup, so LSB-MC is
@@ -609,8 +592,6 @@ Calculus}. Cambridge University Press, 2nd edition, 2009.
 \inputtab{manywell_table_d8}\inputtab{manywell_table_d16}\inputtab{manywell_table_d32}
 
 \section{Acceptance / swap diagnostics}
-\figbox{mog_acceptance}{MoG: MH acceptance and PT swap rates.}{fig:mog_acc}
-\figbox{manywell_acceptance}{ManyWell: MH acceptance and PT swap rates.}{fig:mw_acc}
-\figbox{bayes_gmm_acceptance}{Bayesian GMM: MH acceptance and PT swap rates.}{fig:bg_acc}
+\inputtab{acceptance_table}
 
 \end{document}
