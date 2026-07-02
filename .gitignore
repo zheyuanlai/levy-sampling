@@ -60,6 +60,9 @@ LJ7_archive/
 abs_error/
 density_compare/
 AGENTS.md
+
+# Internal working status note (regenerable; not part of the published record)
+STATUS.md
 CLAUDE.md
 
 # Paper / LaTeX sources

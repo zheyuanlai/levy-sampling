@@ -1,0 +1,22 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,booktabs,graphicx,hyperref,caption}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\title{L\'evy-Score-Corrected Jump Diffusions for Enhanced Boltzmann Sampling}
+\author{Reproducible JCP sampling pipeline}
+\date{\today}
+\begin{document}
+\maketitle
+\begin{abstract}
+Metastability limits the efficiency of local stochastic dynamics for equilibrium Boltzmann sampling. This report evaluates finite-activity jump diffusions equipped with a stationary L\'evy-score drift correction (the L\'evy-score-corrected compound-Poisson dynamics, LSC-CP), which is designed to preserve the target Boltzmann distribution while introducing nonlocal inter-basin transport channels. Following the manuscript, the three main examples---a double well, a triple well, and a transformed M\"uller--Brown landscape embedded in ten dimensions---compare local Langevin, raw compound-Poisson (CP), and LSC-CP, so that raw CP isolates the invariant-measure defect that the correction removes. Defensive ablations quantify the finite-step (timestep) bias, the jump scale/intensity mechanism, the role of jump support and direction, and start-at-equilibrium invariance; a compute-normalized efficiency benchmark and two additional landscapes (four-well graph ablation, high-dimensional ManyWell) complete the study. All numerical claims in the generated results, tables, and figures are produced from CSV/JSON artifacts in \texttt{results/jcp\_sampling}; failed or negative outcomes are retained rather than hidden.
+\end{abstract}
+\input{sections/01_introduction}
+\input{sections/02_method}
+\input{sections/03_jump_design}
+\input{sections/04_experimental_protocol}
+\IfFileExists{generated_results.tex}{\input{generated_results.tex}}{\section{Results}Run the report asset generator to create generated results.}
+\input{sections/10_discussion_limitations}
+\input{sections/B_references}
+\appendix
+\input{sections/A_reproducibility}
+\end{document}

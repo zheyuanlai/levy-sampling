@@ -1,0 +1,29 @@
+# ManyWell high-dimensional metastable stress test. Independent asymmetric double-well
+# blocks (dim = 2*n_blocks); manywell_block_flip jumps each block between its shallow/deep
+# well (displacement defaults to the exact well separation). This is the regime where local
+# samplers are entropically trapped in the all-shallow basin and the fixed-displacement jumps
+# match the block structure exactly -- the method's core win.
+experiment_name: manywell_scaling
+target: manywell
+target_cfg: {beta: 1.0, n_blocks: 4}
+jump_banks:
+  - {kind: manywell_block_flip, intensity_per_block: 0.1}
+run:
+  n_particles: 512
+  n_steps: 6000
+  dt: 0.01
+  record_every: 500
+  iat_points: 1500
+  seeds: [0, 1, 2]
+  n_ref: 4000
+reference:
+  n_ref: 4000
+  seed: 321
+methods: [ULA, MALA, BAOAB, HMC, PT, RawCP, LSBMC]
+method_cfgs:
+  MALA: {dt: 0.004}
+  BAOAB: {dt: 0.01, friction: 2.0}
+  HMC: {dt: 0.02, n_leapfrog: 5}
+  PT: {dt: 0.004, n_temps: 4, beta_min_factor: 0.2, swap_interval: 5}
+  RawCP: {dt: 0.01, n_theta: 6, jump_chunk: 16}
+  LSBMC: {dt: 0.01, n_theta: 6, jump_chunk: 16}

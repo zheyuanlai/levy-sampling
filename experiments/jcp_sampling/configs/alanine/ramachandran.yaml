@@ -1,0 +1,26 @@
+# E10 alanine dipeptide torsion sampler (2D Ramachandran torus, analytic FES surrogate).
+# eps=0.4. Wrapped basin-to-basin jumps between the conformational basins (beta/C7eq, alpha_R,
+# C7ax, alpha_L). Local dynamics is trapped in the starting basin; LSC-CP communicates while
+# preserving the FES. Random-direction control tests geometry. Metrics: FES RMSE, basin-TV, coverage.
+experiment_name: alanine_ramachandran
+target: alanine_torus
+target_cfg: {eps: 0.4}
+jump_banks:
+  - {kind: minima_complete_graph, name: wrapped_basin_graph, intensity: 1.0, wrap: true}
+  - {kind: random_matched_length_control, name: random_control, seed: 5, reference: {kind: minima_complete_graph, intensity: 1.0, wrap: true}}
+run:
+  n_particles: 2048
+  n_steps: 5000
+  dt: 0.003
+  record_every: 50
+  iat_points: 2500
+  seeds: [0, 1, 2, 3]
+  n_ref: 20000
+reference: {n_ref: 20000, seed: 321}
+methods: [ULA, MALA, HMC, PT, RawCP, LSBMC]
+method_cfgs:
+  MALA: {dt: 0.01}
+  HMC: {dt: 0.03, n_leapfrog: 6}
+  PT: {dt: 0.01, n_temps: 4, beta_min_factor: 0.25, swap_interval: 5}
+  RawCP: {dt: 0.003, n_theta: 8, jump_chunk: 12, tame_cap: 5.0, score_clip: 200.0}
+  LSBMC: {dt: 0.003, n_theta: 8, jump_chunk: 12, tame_cap: 5.0, score_clip: 200.0}

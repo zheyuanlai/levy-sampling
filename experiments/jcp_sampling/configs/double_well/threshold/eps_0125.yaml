@@ -1,0 +1,19 @@
+# double-well well-TV threshold-relaxation sweep point eps=0.125 (long T=40.0)
+experiment_name: double_well_threshold_eps0.125
+target: double_well
+target_cfg: {beta: 8.0}
+jump_banks:
+- {kind: double_well_shell, scale: 1.0, intensity: 1.0}
+run:
+  n_particles: 1024
+  n_steps: 13333
+  dt: 0.003
+  record_every: 40
+  iat_points: 2000
+  seeds: [0, 1, 2]
+  n_ref: 20000
+reference: {n_ref: 20000, seed: 321}
+methods: [ULA, RawCP, LSBMC]
+method_cfgs:
+  RawCP: {dt: 0.003, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}
+  LSBMC: {dt: 0.003, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}

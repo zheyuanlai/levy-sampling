@@ -1,0 +1,25 @@
+# Reproduction of the manuscript transformed-Muller-Brown example (10D, mixed coordinates).
+# eps=0.5, Delta t=0.0028, T=4.2. Shell jumps lifted from latent MB minima through B.
+# Manuscript numbers to match: first all-basin coverage 0.525 (LSC-CP) vs 1.386 (local);
+# terminal basin-TV 0.017 (LSC-CP) / 0.190 (raw) / 0.075 (local). scale=0.02 -> multi-basin.
+experiment_name: muller10d_basin_communication
+target: muller10d
+target_cfg: {eps: 0.5, dim: 10, sigma_aux: 0.75, scale: 0.02, grid_n: 150}
+jump_banks:
+  - {kind: minima_complete_graph, intensity: 1.0}                        # lifted basin-to-basin
+  - {kind: random_matched_length_control, seed: 11, reference: {kind: minima_complete_graph, intensity: 1.0}}
+run:
+  n_particles: 2048
+  n_steps: 1500
+  dt: 0.0028
+  record_every: 20
+  iat_points: 1500
+  seeds: [0, 1, 2, 3]
+  n_ref: 20000
+reference:
+  n_ref: 20000
+  seed: 321
+methods: [ULA, RawCP, LSBMC]
+method_cfgs:
+  RawCP: {dt: 0.0028, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}
+  LSBMC: {dt: 0.0028, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}

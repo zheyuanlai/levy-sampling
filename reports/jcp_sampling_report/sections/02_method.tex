@@ -1,0 +1,8 @@
+\section{Method}
+For a finite jump bank $\nu(dr)=\Lambda\sum_e w_e\delta_{r_e}(dr)$, the stationary L\'evy-score correction implemented here is
+\[
+S_\nu(x)=-\Lambda\sum_e w_e r_e\int_0^1\exp[-\beta(V(x-\theta r_e)-V(x))]d\theta.
+\]
+The jump-diffusion uses drift $-\nabla V+S_\nu$, Brownian noise at inverse temperature $\beta$, and compound-Poisson jumps from the same finite bank. The continuous-time correction is designed so that the Boltzmann distribution is invariant. The experiments nevertheless measure finite-step bias directly, because discretization, quadrature, jump-bank mismatch, and numerical stabilization can all affect practical performance.
+
+The code evaluates the integral by vectorized quadrature over particles, jump vectors, and quadrature nodes. Chunking over jump vectors is used to avoid GPU out-of-memory failures. Each L\'evy-score run records quadrature evaluations, score norms, exponent clipping diagnostics, jump counts, and nonfinite-state counts.

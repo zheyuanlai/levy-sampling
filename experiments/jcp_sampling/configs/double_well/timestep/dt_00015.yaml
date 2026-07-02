@@ -1,0 +1,22 @@
+# E1 timestep-bias (double well): start at equilibrium, horizon T=4.8 fixed, vary dt.
+# Residual CDF-sup/density-L1 = discretization bias (all) + invariant-law defect (raw CP).
+# Expectation: LSC-CP < raw CP at every dt, and LSC-CP -> 0 as dt -> 0 while raw CP -> const.
+experiment_name: double_well_timestep_dt00015
+target: double_well
+target_cfg: {beta: 8.0}
+jump_banks:
+  - {kind: double_well_shell, scale: 1.0, intensity: 1.0}
+run:
+  n_particles: 4096
+  n_steps: 3200
+  dt: 0.0015
+  record_every: 40
+  iat_points: 800
+  seeds: [0, 1, 2, 3]
+  n_ref: 20000
+  init: equilibrium
+reference: {n_ref: 20000, seed: 321}
+methods: [ULA, RawCP, LSBMC]
+method_cfgs:
+  RawCP: {dt: 0.0015, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}
+  LSBMC: {dt: 0.0015, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}

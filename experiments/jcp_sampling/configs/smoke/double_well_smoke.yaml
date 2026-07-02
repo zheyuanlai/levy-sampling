@@ -1,0 +1,20 @@
+experiment_name: double_well_smoke
+target: double_well
+target_cfg: {beta: 8.0}
+jump_banks:
+  - {kind: double_well_shell, scale: 1.0, intensity: 0.5}
+run:
+  n_particles: 64
+  n_steps: 20
+  dt: 0.01
+  record_every: 5
+  seeds: [0]
+  n_ref: 256
+reference:
+  n_ref: 256
+  seed: 123
+methods: [ULA, MALA, RawCP, LSBMC]
+method_cfgs:
+  MALA: {dt: 0.005}
+  RawCP: {dt: 0.01, n_theta: 4, jump_chunk: 8}
+  LSBMC: {dt: 0.01, n_theta: 4, jump_chunk: 8}

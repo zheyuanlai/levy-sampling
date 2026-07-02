@@ -1,0 +1,25 @@
+# E6 efficiency benchmark (10D transformed MB): baselines + raw CP + LSC-CP, off-equilibrium
+# (basin-0) init. Report ESS/sec + ESS/grad WITH basin-TV bias (PT charged per replica, HMC per
+# leapfrog). eps=0.5.
+experiment_name: muller10d_benchmark
+target: muller10d
+target_cfg: {eps: 0.5, dim: 10, sigma_aux: 0.75, scale: 0.02, grid_n: 150}
+jump_banks:
+  - {kind: minima_complete_graph, intensity: 1.0}
+run:
+  n_particles: 2048
+  n_steps: 1500
+  dt: 0.0028
+  record_every: 20
+  iat_points: 1500
+  seeds: [0, 1, 2, 3]
+  n_ref: 20000
+reference: {n_ref: 20000, seed: 321}
+methods: [ULA, MALA, BAOAB, HMC, PT, RawCP, LSBMC]
+method_cfgs:
+  MALA: {dt: 0.002}
+  BAOAB: {dt: 0.004, friction: 2.0}
+  HMC: {dt: 0.012, n_leapfrog: 6}
+  PT: {dt: 0.002, n_temps: 4, beta_min_factor: 0.25, swap_interval: 5}
+  RawCP: {dt: 0.0028, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}
+  LSBMC: {dt: 0.0028, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}

@@ -1,0 +1,144 @@
+\section{Results}
+
+All values in this section are generated from the aggregate CSV summary produced by the pipeline. The three main examples compare local Langevin, raw compound-Poisson (CP), and the L\'evy-score-corrected CP (LSC-CP); the benchmark additionally reports MALA, BAOAB, HMC, and PT. Efficiency numbers (ESS/sec) are always reported alongside a target-fidelity error, because a non-converged sampler can post a high ESS on the wrong distribution.
+
+\subsection{Quantitative summary}
+
+\begin{itemize}
+\item Double well: LSC-CP reduces the CDF-sup target error from 0.109 (raw CP) to 0.020, a genuine invariant-measure correction (Fig.~timestep-bias shows this defect is timestep-independent).
+\item 10D transformed M\"uller--Brown: LSC-CP with lifted basin-to-basin jumps attains basin-TV 0.012 versus 0.181 for raw CP and beats a random-direction matched-length control (0.124).
+\item Triple well: the stationary correction keeps mode-TV small for both supports (overlong 0.015, adjacent 0.047); support choice governs which modes communicate directly.
+\item Started at equilibrium, LSC-CP preserves the target (basin-TV 0.012) while raw CP drifts off it (0.191).
+\item ManyWell high-D stress test: lowest block-marginal KL is 8.58e-04 for LSC-CP/manywell\_block\_flip on manywell\_d8.
+\end{itemize}
+
+
+\subsection{Double well: target fidelity}With a shared shell jump law, LSC-CP attains CDF-sup error 0.020 versus 0.109 for raw CP and 0.402 for local Langevin (which stays near its metastable initial well over the displayed horizon). The timestep-bias study confirms the raw-CP error is independent of the integrator step, i.e.\ a genuine change of invariant law rather than a discretization artifact.
+
+\subsection{Triple well: support versus bias}Corrected adjacent and overlong supports both keep mode-TV small (0.047 and 0.015), while the uncorrected overlong control records the bias of omitting the correction (0.168). A too-short shell (mode-TV 0.375) fails to connect the modes and behaves like local noise. The correction governs target fidelity; the support governs which modes communicate directly.
+
+\subsection{Transformed M\"uller--Brown (10D)}After lifting the latent-minima displacements through the mixing map, LSC-CP attains basin-TV 0.012 versus 0.181 for raw CP, 0.124 for a random-direction matched-length control, and 0.110 for local Langevin. Acceleration therefore comes specifically from geometry-matched inter-basin jumps, not from nonlocal jumps of the same length in arbitrary directions.
+
+\subsection{Efficiency benchmark}On the smooth low-dimensional double well, LSC-CP is the most accurate (CDF-sup 0.020) but not the fastest per wall-clock (ESS/sec 3311.803) because of the L\'evy-score quadrature. Local Langevin posts a far higher ESS/sec (17105.489) at a much larger bias (0.402), illustrating why ESS must be read together with target fidelity. The method's efficiency advantage appears in the trapped and high-dimensional regimes (four well, ManyWell).
+
+\subsection{Additional landscapes}Four-well graph ablation: lowest basin KL 0.002 for raw CP/minima\_complete\_graph. Structured geometry-matched jumps beat the random matched-length control (0.002 vs.\ 0.018).
+
+ManyWell high-dimensional stress test: lowest block-marginal KL 8.58e-04 for LSC-CP/manywell\_block\_flip on manywell\_d8, the regime where local samplers remain entropically confined and the block-flip jumps match the product structure.
+
+\subsection{Alanine dipeptide (Ramachandran torus)}On an analytic surrogate for the alanine-dipeptide free-energy surface (a periodic mixture over the conformational basins), wrapped basin-to-basin jumps give LSC-CP the best basin-population fidelity (basin-TV 0.013, all-basin coverage fraction 0.976), versus 0.027 for a random-direction control, 0.174 for uncorrected raw CP, and 0.387 for local Langevin (which stays confined to its starting basin). Parallel tempering is the only baseline that competes on coverage. The construction extends unchanged to the torus via wrapped displacements and a periodic score.
+
+\subsection{Lennard-Jones cluster: a structural limitation}For an LJ$_{7}$ cluster in two dimensions the fixed Cartesian jump bank is incompatible with the cluster's continuous rotational symmetry. A jump aligned in the catalogue frame is productive only while the cluster keeps that orientation: sweeping the cluster orientation, the fixed jump lands at low (isomer) energy for only 2.740\% of angles before running into hard-core overlaps, whereas a rotationally-augmented gated bank (rotated copies of the jump, gated by landing energy) restores productivity to 100.000\%. This delineates the method's scope: fixed additive jumps suit targets whose metastable transitions are fixed coordinate displacements, not systems with continuous symmetries.
+
+\subsection{LJ$_{38}$ double funnel: barrier limitation and a darting hybrid}The canonical metastable cluster is LJ$_{38}$, whose FCC truncated-octahedron global minimum (-173.928, recovered exactly) competes with an icosahedral funnel (-170.990). The straight-line displacement between the two funnels crosses a 87.700~$\varepsilon$ barrier of atomic overlaps, so at the solid--solid transition temperature $\beta\cdot$barrier~$\approx728$ and the rejection-free score integrand $\exp[-\beta\,\Delta V]$ is numerically zero: the additive correction \emph{cannot} make a barrier-crossing jump target-preserving. The same geometry-matched inter-funnel displacement, applied as a \emph{Metropolis-corrected} endpoint dart (accept on the endpoint energy, no path integral), escapes the icosahedral funnel and reaches the FCC global (FCC-funnel fraction from the icosahedral start: local MC 0.000 vs darting 1.000). Thus geometry-matched nonlocal jumps solve the LJ$_{38}$ global-funnel-discovery problem, but through the Metropolis-corrected hybrid rather than the pure additive score; recovering the entropy-balanced funnel populations at the transition needs the full smart-darting machinery (darting regions and Jacobians), which we leave to future work.
+
+\subsection{Generated figures}
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_dw_cdf_sup.pdf}{\includegraphics[width=\textwidth]{figures/fig_dw_cdf_sup.pdf}}{}
+\caption*{Double well: target fidelity (CDF-sup)}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_dw_density_l1.pdf}{\includegraphics[width=\textwidth]{figures/fig_dw_density_l1.pdf}}{}
+\caption*{Double well: density $L^1$ error}
+\end{minipage}
+\caption{Generated manuscript figure(s) 1--2 from aggregate CSV summaries.}
+\label{fig:generated-1}
+\end{figure}
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_timestep_bias.pdf}{\includegraphics[width=\textwidth]{figures/fig_timestep_bias.pdf}}{}
+\caption*{Timestep bias: raw CP defect is $h$-independent}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_scale_intensity_relax.pdf}{\includegraphics[width=\textwidth]{figures/fig_scale_intensity_relax.pdf}}{}
+\caption*{Scale$\textbackslash\{\}times$intensity relaxation ridge}
+\end{minipage}
+\caption{Generated manuscript figure(s) 3--4 from aggregate CSV summaries.}
+\label{fig:generated-2}
+\end{figure}
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_tw_mode_tv.pdf}{\includegraphics[width=\textwidth]{figures/fig_tw_mode_tv.pdf}}{}
+\caption*{Triple well: mode-TV by support}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_tw_middle_mass.pdf}{\includegraphics[width=\textwidth]{figures/fig_tw_middle_mass.pdf}}{}
+\caption*{Triple well: middle-mass error}
+\end{minipage}
+\caption{Generated manuscript figure(s) 5--6 from aggregate CSV summaries.}
+\label{fig:generated-3}
+\end{figure}
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_mb10_basin_tv.pdf}{\includegraphics[width=\textwidth]{figures/fig_mb10_basin_tv.pdf}}{}
+\caption*{10D Muller--Brown: basin-TV (lifted vs random)}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_invariance.pdf}{\includegraphics[width=\textwidth]{figures/fig_invariance.pdf}}{}
+\caption*{Start-at-equilibrium invariance}
+\end{minipage}
+\caption{Generated manuscript figure(s) 7--8 from aggregate CSV summaries.}
+\label{fig:generated-4}
+\end{figure}
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_four_well_basin_kl.pdf}{\includegraphics[width=\textwidth]{figures/fig_four_well_basin_kl.pdf}}{}
+\caption*{Four-well graph ablation}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_manywell_block_kl.pdf}{\includegraphics[width=\textwidth]{figures/fig_manywell_block_kl.pdf}}{}
+\caption*{ManyWell block-marginal KL scaling}
+\end{minipage}
+\caption{Generated manuscript figure(s) 9--10 from aggregate CSV summaries.}
+\label{fig:generated-5}
+\end{figure}
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_alanine_basin_tv.pdf}{\includegraphics[width=\textwidth]{figures/fig_alanine_basin_tv.pdf}}{}
+\caption*{Alanine dipeptide: basin-TV (wrapped vs random)}
+\end{minipage}
+\hfill
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_lj_obstruction.pdf}{\includegraphics[width=\textwidth]{figures/fig_lj_obstruction.pdf}}{}
+\caption*{Lennard-Jones rotational-symmetry obstruction}
+\end{minipage}
+\caption{Generated manuscript figure(s) 11--12 from aggregate CSV summaries.}
+\label{fig:generated-6}
+\end{figure}
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.48\textwidth}
+\centering
+\IfFileExists{figures/fig_lj38_darting.pdf}{\includegraphics[width=\textwidth]{figures/fig_lj38_darting.pdf}}{}
+\caption*{LJ38 double funnel: geometry-matched darting vs local MC}
+\end{minipage}
+\caption{Generated manuscript figure(s) 13 from aggregate CSV summaries.}
+\label{fig:generated-7}
+\end{figure}
+
+\subsection{Generated tables}
+
+\input{generated_tables.tex}

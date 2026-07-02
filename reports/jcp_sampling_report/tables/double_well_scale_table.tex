@@ -1,0 +1,22 @@
+\begin{table}[t]
+\centering
+\small
+\caption{Generated metrics for double well scale. Means and standard errors are computed from raw CSV rows.}
+\label{tab:double-well-scale}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{llllrrrrr}
+\toprule
+Target & Method & Bank & $n$ & basin KL & population error & energy bias & ESS/sec & ESS/grad \\
+\midrule
+double\_well & BAOAB & none & 3 & 0.002 & 0.025 & 0.005 & 2145.124 & 0.247 \\
+double\_well & HMC & none & 3 & 3.11e-04 & 0.008 & 0.003 & 1236.792 & 0.111 \\
+double\_well & LSBMC & double\_well\_shell (scale 0.75) & 3 & 8.33e-05 & 0.006 & 9.75e-04 & 481.239 & 0.627 \\
+double\_well & LSBMC & double\_well\_shell (scale 1.0) & 3 & 1.16e-04 & 0.007 & 0.012 & 599.857 & 0.783 \\
+double\_well & LSBMC & double\_well\_shell (scale 1.25) & 3 & 1.87e-04 & 0.008 & 0.036 & 590.387 & 0.770 \\
+double\_well & MALA & none & 3 & 0.002 & 0.023 & 0.002 & 1271.210 & 0.238 \\
+double\_well & PT & none & 3 & 9.45e-04 & 0.021 & 0.001 & 29923.262 & 1.840 \\
+double\_well & ULA & none & 3 & 0.001 & 0.021 & 0.003 & 2851.065 & 0.327 \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}

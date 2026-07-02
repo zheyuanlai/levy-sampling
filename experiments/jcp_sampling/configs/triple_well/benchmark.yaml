@@ -1,0 +1,27 @@
+# E6 efficiency benchmark (triple well): baselines + raw CP + LSC-CP, off-equilibrium (left-mode)
+# init. Local baselines are metastable across the separated mixture modes; PT should cross; LSC-CP
+# crosses via jumps. Report ESS/sec + ESS/grad WITH mode-TV bias. eps=0.08.
+experiment_name: triple_well_benchmark
+target: triple_well
+target_cfg: {eps: 0.08}
+jump_banks:
+  - {kind: minima_edge_graph, name: adjacent, edges: [[0, 1], [1, 2]], intensity: 1.0}
+run:
+  n_particles: 2048
+  n_steps: 12000
+  dt: 0.00035
+  record_every: 100
+  iat_points: 3000
+  seeds: [0, 1, 2, 3]
+  n_ref: 20000
+reference: {n_ref: 20000, seed: 321}
+methods: [ULA, MALA, BAOAB, HMC, PT, RawCP, LSBMC]
+method_cfgs:
+  # baselines given a generous dt (acc stays ~1.0 within modes; the bottleneck is inter-mode
+  # crossing, so a larger dt is the baselines' fair best case, not a mis-tune)
+  MALA: {dt: 0.02}
+  BAOAB: {dt: 0.02, friction: 2.0}
+  HMC: {dt: 0.02, n_leapfrog: 6}
+  PT: {dt: 0.02, n_temps: 5, beta_min_factor: 0.15, swap_interval: 5}
+  RawCP: {dt: 0.00035, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}
+  LSBMC: {dt: 0.00035, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}

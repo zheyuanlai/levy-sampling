@@ -1,0 +1,17 @@
+experiment_name: alanine_smoke
+target: alanine_torus
+target_cfg: {eps: 0.4}
+jump_banks:
+  - {kind: minima_complete_graph, name: wrapped_basin_graph, intensity: 1.0, wrap: true}
+run:
+  n_particles: 64
+  n_steps: 20
+  dt: 0.003
+  record_every: 5
+  seeds: [0]
+  n_ref: 256
+reference: {n_ref: 256, seed: 123}
+methods: [ULA, RawCP, LSBMC]
+method_cfgs:
+  RawCP: {dt: 0.003, n_theta: 4, jump_chunk: 12, tame_cap: 5.0, score_clip: 200.0}
+  LSBMC: {dt: 0.003, n_theta: 4, jump_chunk: 12, tame_cap: 5.0, score_clip: 200.0}

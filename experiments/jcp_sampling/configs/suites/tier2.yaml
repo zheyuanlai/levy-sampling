@@ -1,0 +1,11 @@
+# Tier-2/3: E6 full efficiency benchmark (3 main examples) + E7 ManyWell scaling + E8 four-well
+# graph ablation, all with raw CP added. ESS always reported alongside bias.
+configs:
+  - experiments/jcp_sampling/configs/double_well/benchmark.yaml
+  - experiments/jcp_sampling/configs/muller10d/benchmark.yaml
+  - experiments/jcp_sampling/configs/four_well/graph_ablation.yaml
+  - experiments/jcp_sampling/configs/manywell/dimension_scaling.yaml
+  - experiments/jcp_sampling/configs/manywell/dimension_scaling_d16.yaml
+  - experiments/jcp_sampling/configs/manywell/dimension_scaling_d32.yaml
+  - experiments/jcp_sampling/configs/manywell/dimension_scaling_d64.yaml
+  - experiments/jcp_sampling/configs/triple_well/benchmark.yaml

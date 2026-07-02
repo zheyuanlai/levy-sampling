@@ -1,0 +1,8 @@
+configs:
+  - experiments/jcp_sampling/configs/smoke/double_well_smoke.yaml
+  - experiments/jcp_sampling/configs/smoke/triple_well_smoke.yaml
+  - experiments/jcp_sampling/configs/smoke/muller10d_smoke.yaml
+  - experiments/jcp_sampling/configs/smoke/four_well_smoke.yaml
+  - experiments/jcp_sampling/configs/smoke/muller_brown_smoke.yaml
+  - experiments/jcp_sampling/configs/smoke/manywell_smoke.yaml
+  - experiments/jcp_sampling/configs/smoke/alanine_smoke.yaml

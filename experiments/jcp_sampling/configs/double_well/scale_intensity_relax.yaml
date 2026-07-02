@@ -1,0 +1,43 @@
+# E2b scale x intensity RELAXATION sweep (double well): OFF-equilibrium (left-well) init;
+# CDF-sup at T=4.8 measures relaxation speed. Ridge of fast relaxation expected near c=1.
+experiment_name: double_well_scale_intensity_relax
+target: double_well
+target_cfg: {beta: 8.0}
+jump_banks:
+- {kind: double_well_shell, name: c0.5_l0.05, scale: 0.5, intensity: 0.05}
+- {kind: double_well_shell, name: c0.5_l0.1, scale: 0.5, intensity: 0.1}
+- {kind: double_well_shell, name: c0.5_l0.3, scale: 0.5, intensity: 0.3}
+- {kind: double_well_shell, name: c0.5_l1.0, scale: 0.5, intensity: 1.0}
+- {kind: double_well_shell, name: c0.5_l3.0, scale: 0.5, intensity: 3.0}
+- {kind: double_well_shell, name: c0.75_l0.05, scale: 0.75, intensity: 0.05}
+- {kind: double_well_shell, name: c0.75_l0.1, scale: 0.75, intensity: 0.1}
+- {kind: double_well_shell, name: c0.75_l0.3, scale: 0.75, intensity: 0.3}
+- {kind: double_well_shell, name: c0.75_l1.0, scale: 0.75, intensity: 1.0}
+- {kind: double_well_shell, name: c0.75_l3.0, scale: 0.75, intensity: 3.0}
+- {kind: double_well_shell, name: c1.0_l0.05, scale: 1.0, intensity: 0.05}
+- {kind: double_well_shell, name: c1.0_l0.1, scale: 1.0, intensity: 0.1}
+- {kind: double_well_shell, name: c1.0_l0.3, scale: 1.0, intensity: 0.3}
+- {kind: double_well_shell, name: c1.0_l1.0, scale: 1.0, intensity: 1.0}
+- {kind: double_well_shell, name: c1.0_l3.0, scale: 1.0, intensity: 3.0}
+- {kind: double_well_shell, name: c1.25_l0.05, scale: 1.25, intensity: 0.05}
+- {kind: double_well_shell, name: c1.25_l0.1, scale: 1.25, intensity: 0.1}
+- {kind: double_well_shell, name: c1.25_l0.3, scale: 1.25, intensity: 0.3}
+- {kind: double_well_shell, name: c1.25_l1.0, scale: 1.25, intensity: 1.0}
+- {kind: double_well_shell, name: c1.25_l3.0, scale: 1.25, intensity: 3.0}
+- {kind: double_well_shell, name: c1.5_l0.05, scale: 1.5, intensity: 0.05}
+- {kind: double_well_shell, name: c1.5_l0.1, scale: 1.5, intensity: 0.1}
+- {kind: double_well_shell, name: c1.5_l0.3, scale: 1.5, intensity: 0.3}
+- {kind: double_well_shell, name: c1.5_l1.0, scale: 1.5, intensity: 1.0}
+- {kind: double_well_shell, name: c1.5_l3.0, scale: 1.5, intensity: 3.0}
+run:
+  n_particles: 2048
+  n_steps: 1600
+  dt: 0.003
+  record_every: 40
+  iat_points: 800
+  seeds: [0, 1, 2]
+  n_ref: 20000
+reference: {n_ref: 20000, seed: 321}
+methods: [LSBMC]
+method_cfgs:
+  LSBMC: {dt: 0.003, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}
