@@ -1,0 +1,6 @@
+method,mixing_tol,mixing_time,reached,terminal_phase_TV,total_cost_proxy,runtime_seconds,mixing_time_x_total_cost_proxy,graph_family,undirected_edges,directed_atoms,graph_gap,jump_type,h_shell
+Langevin,0.1,,False,0.9320146879973988,1170000.0,17.02044439315796,,,,,,,
+LSC-MST-shell,0.1,,False,0.17423691021962115,106470000.0,102.18326878547668,,MST,3.0,6.0,0.15620971670050798,shell,0.08
+LSC-cycle-shell,0.1,1.8,True,0.09719155539174534,141570000.0,114.88174533843994,254826000.0,cycle,4.0,8.0,0.4,shell,0.08
+LSC-5-shell,0.1,0.92,True,0.03745670484640545,176670000.0,163.1234164237976,162536400.0,5,5.0,10.0,0.32,shell,0.08
+LSC-complete-shell,0.1,1.08,True,0.05888668020965082,211770000.0,182.92661237716675,228711600.00000003,complete,6.0,12.0,0.5333333333333332,shell,0.08

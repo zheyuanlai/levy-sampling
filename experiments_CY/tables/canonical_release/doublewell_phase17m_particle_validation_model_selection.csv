@@ -1,0 +1,7 @@
+method,metric,N_particles,epsilon_subset,preferred_AIC,preferred_BIC,preferred_LOO,selected_family,arrhenius_votes,polynomial_votes,delta_AIC_poly_minus_arr,delta_BIC_poly_minus_arr,delta_LOO_poly_minus_arr
+Langevin,bin_chi2_M40,12000,focused_low_temperature,arrhenius,arrhenius,polynomial,arrhenius,2,1,63.28421614697266,63.28421614697266,-14.41958265857209
+Langevin,bin_chi2_M80,12000,focused_low_temperature,arrhenius,arrhenius,polynomial,arrhenius,2,1,61.28186777710896,61.28186777710896,-15.984969261493465
+Langevin,bin_chi2_M120,12000,focused_low_temperature,arrhenius,arrhenius,polynomial,arrhenius,2,1,58.43814387766592,58.43814387766592,-9.532128962467375
+LSC-CP,bin_chi2_M40,12000,focused_low_temperature,polynomial,polynomial,polynomial,polynomial,0,3,-0.09592340678977962,-0.09592340678977962,-0.010267257482917902
+LSC-CP,bin_chi2_M80,12000,focused_low_temperature,arrhenius,arrhenius,arrhenius,arrhenius,3,0,0.3405817128488593,0.3405817128488593,0.031233077532731635
+LSC-CP,bin_chi2_M120,12000,focused_low_temperature,arrhenius,arrhenius,arrhenius,arrhenius,3,0,0.02516636521096416,0.02516636521096416,0.0004650777494088487

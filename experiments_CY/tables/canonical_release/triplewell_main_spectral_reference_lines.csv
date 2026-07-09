@@ -1,0 +1,19 @@
+experiment,figure,metric,method,reference,spectral_rate,metric_rate_factor,effective_decay_rate,amplitude_rule,anchor_time,anchor_value,validated_finite_dimensional_reference
+triple-well,threewell_theory_graph_weighted_density.pdf,middle_error,LSC-adjacent,abscissa,0.7514790508028,1,0.7514790508028,anchor at first valid positive mean metric value,0.0,0.4099283411815771,True
+triple-well,threewell_theory_graph_weighted_density.pdf,middle_error,LSC-adjacent,form_gap,0.3881943394620701,1,0.3881943394620701,anchor at first valid positive mean metric value,0.0,0.4099283411815771,True
+triple-well,threewell_theory_graph_weighted_density.pdf,middle_error,LSC-overlong,abscissa,2.6560506395098726,1,2.6560506395098726,anchor at first valid positive mean metric value,0.0,0.4099283411815771,True
+triple-well,threewell_theory_graph_weighted_density.pdf,middle_error,LSC-overlong,form_gap,0.0905930161676336,1,0.0905930161676336,anchor at first valid positive mean metric value,0.0,0.4099283411815771,True
+triple-well,threewell_theory_graph_weighted_density.pdf,middle_error,Langevin,abscissa,0.009343371749772,1,0.009343371749772,anchor at first valid positive mean metric value,0.0,0.4099283411815771,True
+triple-well,threewell_theory_graph_weighted_density.pdf,middle_error,Langevin,form_gap,0.0067874816428359,1,0.0067874816428359,anchor at first valid positive mean metric value,0.0,0.4099283411815771,True
+triple-well,threewell_theory_graph_weighted_density.pdf,mode_TV,LSC-adjacent,abscissa,0.7514790508028,1,0.7514790508028,anchor at first valid positive mean metric value,0.0,0.7525184498734276,True
+triple-well,threewell_theory_graph_weighted_density.pdf,mode_TV,LSC-adjacent,form_gap,0.3881943394620701,1,0.3881943394620701,anchor at first valid positive mean metric value,0.0,0.7525184498734276,True
+triple-well,threewell_theory_graph_weighted_density.pdf,mode_TV,LSC-overlong,abscissa,2.6560506395098726,1,2.6560506395098726,anchor at first valid positive mean metric value,0.0,0.7525184498734276,True
+triple-well,threewell_theory_graph_weighted_density.pdf,mode_TV,LSC-overlong,form_gap,0.0905930161676336,1,0.0905930161676336,anchor at first valid positive mean metric value,0.0,0.7525184498734276,True
+triple-well,threewell_theory_graph_weighted_density.pdf,mode_TV,Langevin,abscissa,0.009343371749772,1,0.009343371749772,anchor at first valid positive mean metric value,0.0,0.7525184498734276,True
+triple-well,threewell_theory_graph_weighted_density.pdf,mode_TV,Langevin,form_gap,0.0067874816428359,1,0.0067874816428359,anchor at first valid positive mean metric value,0.0,0.7525184498734276,True
+triple-well,threewell_theory_graph_weighted_density.pdf,truncated_KDE_chi2,LSC-adjacent,abscissa,0.7514790508028,2,1.5029581016056,anchor at first valid positive mean metric value,0.0,7.667905184092233,True
+triple-well,threewell_theory_graph_weighted_density.pdf,truncated_KDE_chi2,LSC-adjacent,form_gap,0.3881943394620701,2,0.7763886789241402,anchor at first valid positive mean metric value,0.0,7.667905184092233,True
+triple-well,threewell_theory_graph_weighted_density.pdf,truncated_KDE_chi2,LSC-overlong,abscissa,2.6560506395098726,2,5.312101279019745,anchor at first valid positive mean metric value,0.0,7.667905184092233,True
+triple-well,threewell_theory_graph_weighted_density.pdf,truncated_KDE_chi2,LSC-overlong,form_gap,0.0905930161676336,2,0.1811860323352672,anchor at first valid positive mean metric value,0.0,7.667905184092233,True
+triple-well,threewell_theory_graph_weighted_density.pdf,truncated_KDE_chi2,Langevin,abscissa,0.009343371749772,2,0.018686743499544,anchor at first valid positive mean metric value,0.0,7.667905184092233,True
+triple-well,threewell_theory_graph_weighted_density.pdf,truncated_KDE_chi2,Langevin,form_gap,0.0067874816428359,2,0.0135749632856718,anchor at first valid positive mean metric value,0.0,7.667905184092233,True

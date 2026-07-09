@@ -1,0 +1,2 @@
+epsilon_values,n_particles,n_seeds,dt,record_dt,persistence_records,grid_n,score_grid_n,theta_n,quadrature_r,jump_center,jump_half_width,jump_intensity,bias_floor_replicates,bootstrap_replicates,summary_bootstrap_replicates,n_jobs,global_seed,clip_left,clip_right
+"(0.35, 0.3, 0.26, 0.22, 0.2, 0.18, 0.16, 0.14, 0.125, 0.11, 0.1, 0.09, 0.08, 0.07, 0.06, 0.05)",2400,6,0.003,0.24,4,900,1000,16,7,2.0,0.22,1.0,24,300,500,6,20261712,-6.0,6.0

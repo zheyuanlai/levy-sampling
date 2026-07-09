@@ -1,0 +1,7 @@
+method,series_role,family,color,linestyle,marker
+Langevin,data,particle simulation,#2B6CB0,none,o
+Langevin,empirical_fit,arrhenius,#2B6CB0,:,
+Langevin,theory_reference,fixed Arrhenius DeltaV=1/4,#2B6CB0,--,
+LSC-CP,data,particle simulation,#2F855A,none,^
+LSC-CP,empirical_fit,polynomial,#2F855A,:,
+LSC-CP,theory_reference,fixed conservative graph-channel exponent 1/2,#2F855A,--,
