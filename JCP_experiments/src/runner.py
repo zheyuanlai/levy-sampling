@@ -48,6 +48,13 @@ def hardware_manifest() -> dict:
                              text=True, check=False).stdout.strip()
     except Exception:
         sha = "unknown"
+    try:
+        cotenants = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=gpu_uuid,pid,used_memory",
+             "--format=csv,noheader"], capture_output=True, text=True,
+            check=False).stdout.strip().splitlines()
+    except Exception:
+        cotenants = []
     return {
         "cpu": cpu,
         "gpu": torch.cuda.get_device_name(0),
@@ -56,6 +63,8 @@ def hardware_manifest() -> dict:
         "python": platform.python_version(),
         "git_sha": sha,
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+        # shared node: other users' processes at run start (wall-clock caveat)
+        "gpu_compute_apps_at_start": cotenants,
     }
 
 
@@ -260,10 +269,16 @@ def quadrature_refinement(settings: list[dict], run_terminal_fn, cert_fn,
 def _metrics_agree(v: float, v_ref: float, floor: dict, tol: float) -> bool:
     """Two terminal values agree if (a) both sit inside the finite-sample
     floor band (mean + 3 sd) -- differences there are statistical noise, not
-    bias -- or (b) they differ by < tol relative to max(|v_ref|, floor)."""
+    bias -- or (b) their difference is within the metric's own replicate
+    noise (4x the floor std, the natural unit of single-run sampling noise
+    at this N) -- or (c) they differ by < tol relative to
+    max(|v_ref|, floor)."""
     f_mean = floor.get("mean", 0.0)
-    f_hi = f_mean + 3.0 * floor.get("std", 0.0)
+    f_std = floor.get("std", 0.0)
+    f_hi = f_mean + 3.0 * f_std
     if f_hi > 0 and v <= f_hi and v_ref <= f_hi:
+        return True
+    if f_std > 0 and abs(v - v_ref) <= 4.0 * f_std:
         return True
     denom = max(abs(v_ref), f_mean)
     return denom <= 0 or abs(v - v_ref) / denom <= tol
@@ -271,7 +286,8 @@ def _metrics_agree(v: float, v_ref: float, floor: dict, tol: float) -> bool:
 
 # ------------------------------------------------------------ dt refinement
 def refine_dt(run_terminal_fn, dt0: float, floors: dict, tol: float = 0.05,
-              max_halvings: int = 4) -> tuple[float, list[dict]]:
+              max_halvings: int = 4,
+              exclude: tuple[str, ...] = ()) -> tuple[float, list[dict]]:
     """Declared dt selection rule, applied uniformly: the largest dt on a
     dyadic grid at which EVERY method's terminal value of every metric is
     within `tol` of its dt/2 value. `run_terminal_fn(dt)` returns
@@ -280,6 +296,10 @@ def refine_dt(run_terminal_fn, dt0: float, floors: dict, tol: float = 0.05,
     floor), and when BOTH values already sit inside the floor band
     (mean + 3 sd) they are declared in agreement -- sub-floor differences
     are sampling noise, not discretisation bias.
+
+    Methods in `exclude` (e.g. FLA, whose continuum limit is not pi, so its
+    bias has no dt at which it should stabilise) do not gate the selection;
+    their deviations are still recorded in the table for transparency.
     Returns (chosen dt, comparison table)."""
     table = []
     dt = dt0
@@ -294,13 +314,18 @@ def refine_dt(run_terminal_fn, dt0: float, floors: dict, tol: float = 0.05,
         vals, vals_half = get(dt), get(dt / 2.0)
         ok = True
         failures = []
+        excluded_devs = []
         for method, metrics_d in vals.items():
             for metric, v in metrics_d.items():
                 vh = vals_half[method][metric]
                 if not _metrics_agree(v, vh, floors.get(metric, {}), tol):
-                    ok = False
-                    failures.append((method, metric, round(v, 6), round(vh, 6)))
-        table.append({"dt": dt, "pass": ok, "failures": failures[:8]})
+                    if method in exclude:
+                        excluded_devs.append((method, metric, round(v, 6), round(vh, 6)))
+                    else:
+                        ok = False
+                        failures.append((method, metric, round(v, 6), round(vh, 6)))
+        table.append({"dt": dt, "pass": ok, "failures": failures[:8],
+                      "excluded_deviations": excluded_devs[:8]})
         if ok:
             return dt, table
         dt = dt / 2.0

@@ -116,7 +116,10 @@ def apply_poisson_jumps(x: torch.Tensor, law, lam: float, dt: float,
     Returns (x_new, jumps_applied (N,))."""
     n = x.shape[0]
     counts = torch.poisson(torch.full((n,), lam * dt, device=x.device), generator=gen)
-    for k in range(k_max):
-        A = law.sample(n, gen)
-        x = x + (counts > k).to(x.dtype).unsqueeze(1) * A
+    # one batched draw of all k_max candidates (identical stream for any two
+    # samplers sharing `gen`; ~6x fewer kernel launches than a k-loop)
+    A = law.sample(n * k_max, gen).reshape(k_max, n, x.shape[1])
+    ks = torch.arange(k_max, device=x.device, dtype=counts.dtype).unsqueeze(1)
+    mask = (counts.unsqueeze(0) > ks).to(x.dtype)            # (k_max, n)
+    x = x + (mask.unsqueeze(-1) * A).sum(dim=0)
     return x, torch.clamp(counts, max=k_max)

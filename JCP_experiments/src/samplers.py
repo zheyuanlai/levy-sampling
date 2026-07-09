@@ -330,15 +330,22 @@ def tune_ladder(pot, x0, dt, box, beta_max: float, beta_min: float,
         if acc < target[0]:
             K = min(int(math.ceil(K * 1.5)), K_cap)
         elif acc > target[1]:
-            K = max(3, int(math.floor(K * 0.75)))
+            K = max(2, K - 1 if K <= 4 else int(math.floor(K * 0.75)))
         else:
             break
         if K in record:                    # oscillating; keep closest
             break
-    K, betas, acc = best
+    # keep the tried K whose acceptance is closest to the target band
+    def _dist(a):
+        return 0.0 if target[0] <= a <= target[1] else min(abs(a - target[0]),
+                                                           abs(a - target[1]))
+    K = min(record, key=lambda k: _dist(record[k]))
+    acc = record[K]
+    betas = geometric_ladder(beta_max, beta_min, K, dev)
     r = (beta_min / beta_max) ** (1.0 / (K - 1))
     return betas, {"K": K, "r": r, "beta_min": beta_min, "beta_max": beta_max,
-                   "swap_acceptance": acc, "history": record}
+                   "swap_acceptance": acc, "history": record,
+                   "band_attained": bool(target[0] <= acc <= target[1])}
 
 
 # ------------------------------------------------------- raw CP and LSC-CP
