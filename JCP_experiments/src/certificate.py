@@ -182,10 +182,21 @@ def certificate_importance(potential, nu_shifts: torch.Tensor,
                            w_theta: torch.Tensor, lam: float, beta: float,
                            phis: list[TanhRidgeProduct], proposal,
                            n_samples: int = 200_000, seed: int = 2718,
-                           chunk: int = 20_000) -> dict:
+                           chunk: int = 20_000,
+                           nu_shifts_jump: torch.Tensor | None = None,
+                           nu_logw_jump: torch.Tensor | None = None) -> dict:
     """Shifted-form residual by self-normalised importance sampling (E4).
-    `proposal` must provide .sample(n, gen) and .log_q(x)."""
+    `proposal` must provide .sample(n, gen) and .log_q(x).
+
+    (nu_shifts, nu_logw, theta, w_theta) describe the DEPLOYED score's
+    quadrature (drift side); (nu_shifts_jump, nu_logw_jump) describe the
+    jump side and should be a FINE representation of the continuous nu, so
+    the residual sees rho-quadrature inadequacy too (with a shared coarse
+    representation on both sides it would be invisible). Defaults to the
+    score's own nu if not given."""
     dev = nu_shifts.device
+    if nu_shifts_jump is None:
+        nu_shifts_jump, nu_logw_jump = nu_shifts, nu_logw
     gen = torch.Generator(device=dev)
     gen.manual_seed(seed)
     x = proposal.sample(n_samples, gen)
@@ -195,6 +206,7 @@ def certificate_importance(potential, nu_shifts: torch.Tensor,
     w_is = w_is / w_is.sum()
 
     w_nu = torch.exp(nu_logw)
+    w_nu_j = torch.exp(nu_logw_jump)
     results = {}
     for i, phi in enumerate(phis):
         num = torch.zeros((), dtype=torch.float64, device=dev)
@@ -203,14 +215,19 @@ def certificate_importance(potential, nu_shifts: torch.Tensor,
             xs = x[s0:s0 + chunk]
             ws = w_is[s0:s0 + chunk]
             phi0 = phi(xs)
+            # jump side: fine nu, exact theta integral (FTC)
+            for j in range(nu_shifts_jump.shape[0]):
+                dphi = phi(xs + nu_shifts_jump[j]) - phi0
+                contrib = lam * w_nu_j[j] * (ws * dphi).sum()
+                num = num + contrib
+                den = den + contrib
+            # drift side: the deployed score's nu and theta quadrature
             for j in range(nu_shifts.shape[0]):
                 r = nu_shifts[j]
-                dphi = phi(xs + r) - phi0                    # exact theta integral
-                quad = torch.zeros_like(dphi)                # GL theta quadrature
+                quad = torch.zeros_like(phi0)
                 for p_i in range(theta.shape[0]):
                     quad = quad + w_theta[p_i] * (phi.grad(xs + theta[p_i] * r) @ r)
-                num = num + lam * w_nu[j] * (ws * (dphi - quad)).sum()
-                den = den + lam * w_nu[j] * (ws * dphi).sum()
+                num = num - lam * w_nu[j] * (ws * quad).sum()
         results[f"phi_{i}"] = {"residual": float((num.abs() / den.abs()).item()),
                                "jump_term": float(den.item())}
     results["max_residual"] = max(v["residual"] for k, v in results.items()

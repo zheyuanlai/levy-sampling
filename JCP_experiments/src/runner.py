@@ -97,6 +97,7 @@ def run_one(method: str, seed: int, sampler_factory, n_steps: int,
         "V_evals_per_step": (potential.n_V - nV0) / n_steps,
         "grad_evals_per_step": (potential.n_grad - ng0) / n_steps,
         "score_quad_evals_per_step": (potential.n_Vdelta - nq0) / n_steps,
+        "final_positions": sampler.positions().detach().clone(),
     }
     if not quiet:
         print(f"  {method} seed {seed}: {wall:.1f}s sampler wall-clock", flush=True)
@@ -124,6 +125,7 @@ def run_experiment(methods, seeds, sampler_factory, n_steps: int,
             "V_evals_per_step": infos[0]["V_evals_per_step"],
             "grad_evals_per_step": infos[0]["grad_evals_per_step"],
             "score_quad_evals_per_step": infos[0]["score_quad_evals_per_step"],
+            "final_positions_seed0": infos[0]["final_positions"],
         }
         print(f"{method}: done in {time.perf_counter() - t_m:.1f}s total", flush=True)
     return all_rows, method_info
@@ -198,7 +200,8 @@ def write_summary_csv(rows, methods, seeds, metric_keys, method_info,
                 row[f"{key}_std"] = s
         row["time_to_threshold_TV"] = time_to_threshold(rows, method, seeds, tv_floor)
         row.update({k: dstats[method][k][0] for k in diag_keys if k in dstats[method]})
-        row.update(method_info.get(method, {}))
+        row.update({k: v for k, v in method_info.get(method, {}).items()
+                    if isinstance(v, (int, float))})
         out_rows.append(row)
     cols = sorted({k for r in out_rows for k in r}, key=lambda c: (c != "method", c))
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -226,15 +229,57 @@ def write_manifest(path: str, **entries) -> None:
         json.dump(entries, f, indent=2, default=_default)
 
 
+# ---------------------------------------------------- quadrature refinement
+def quadrature_refinement(settings: list[dict], run_terminal_fn, cert_fn,
+                          floors: dict, tol: float = 0.05,
+                          r_max: float = 1e-6) -> tuple[dict, list[dict]]:
+    """Section 9.5: for each quadrature setting, record the certificate
+    residual R and the terminal LSC-CP metrics; pick the SMALLEST setting
+    whose R < r_max and whose every metric is within `tol` (floor-guarded)
+    of the finest setting's value. Returns (chosen setting, table)."""
+    table = []
+    for s in settings:
+        row = dict(s)
+        row["R"] = cert_fn(**s)
+        row.update(run_terminal_fn(**s))
+        table.append(row)
+    finest = table[-1]
+    metric_keys = [k for k in finest if k not in settings[0] and k != "R"]
+    chosen = None
+    for row in table:                       # settings ordered smallest first
+        ok = row["R"] < r_max
+        for k in metric_keys:
+            if not _metrics_agree(row[k], finest[k], floors.get(k, {}), tol):
+                ok = False
+        row["pass"] = ok
+        if ok and chosen is None:
+            chosen = {k: row[k] for k in settings[0]}
+    return chosen or {k: finest[k] for k in settings[0]}, table
+
+
+def _metrics_agree(v: float, v_ref: float, floor: dict, tol: float) -> bool:
+    """Two terminal values agree if (a) both sit inside the finite-sample
+    floor band (mean + 3 sd) -- differences there are statistical noise, not
+    bias -- or (b) they differ by < tol relative to max(|v_ref|, floor)."""
+    f_mean = floor.get("mean", 0.0)
+    f_hi = f_mean + 3.0 * floor.get("std", 0.0)
+    if f_hi > 0 and v <= f_hi and v_ref <= f_hi:
+        return True
+    denom = max(abs(v_ref), f_mean)
+    return denom <= 0 or abs(v - v_ref) / denom <= tol
+
+
 # ------------------------------------------------------------ dt refinement
 def refine_dt(run_terminal_fn, dt0: float, floors: dict, tol: float = 0.05,
               max_halvings: int = 4) -> tuple[float, list[dict]]:
     """Declared dt selection rule, applied uniformly: the largest dt on a
     dyadic grid at which EVERY method's terminal value of every metric is
     within `tol` of its dt/2 value. `run_terminal_fn(dt)` returns
-    {method: {metric: value}}. Differences are measured relative to
-    max(|value at dt/2|, bias floor): once a metric sits at its sampling
-    floor, sub-floor differences are statistical noise, not bias.
+    {method: {metric: value}}. Two guards make the rule statistically
+    meaningful: values are compared relative to max(|value at dt/2|, bias
+    floor), and when BOTH values already sit inside the floor band
+    (mean + 3 sd) they are declared in agreement -- sub-floor differences
+    are sampling noise, not discretisation bias.
     Returns (chosen dt, comparison table)."""
     table = []
     dt = dt0
@@ -247,18 +292,16 @@ def refine_dt(run_terminal_fn, dt0: float, floors: dict, tol: float = 0.05,
 
     for _ in range(max_halvings):
         vals, vals_half = get(dt), get(dt / 2.0)
-        worst = 0.0
-        worst_entry = None
+        ok = True
+        failures = []
         for method, metrics_d in vals.items():
             for metric, v in metrics_d.items():
                 vh = vals_half[method][metric]
-                denom = max(abs(vh), floors.get(metric, {}).get("mean", 0.0))
-                rel = abs(v - vh) / denom if denom > 0 else 0.0
-                if rel > worst:
-                    worst, worst_entry = rel, (method, metric, v, vh)
-        table.append({"dt": dt, "worst_rel_diff": worst,
-                      "worst_case": worst_entry, "pass": worst <= tol})
-        if worst <= tol:
+                if not _metrics_agree(v, vh, floors.get(metric, {}), tol):
+                    ok = False
+                    failures.append((method, metric, round(v, 6), round(vh, 6)))
+        table.append({"dt": dt, "pass": ok, "failures": failures[:8]})
+        if ok:
             return dt, table
         dt = dt / 2.0
     return dt, table

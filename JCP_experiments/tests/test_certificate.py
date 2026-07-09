@@ -25,7 +25,9 @@ def _e1_setup():
     law = ShellJumpLaw(torch.tensor([[2.0], [-2.0]], device=DEV),
                        torch.tensor([0.5, 0.5], device=DEV), 0.2)
     phis = make_phi_family(1, [0.0], 1.0, DEV)
-    shifts, logw = law.quadrature_shifts(Q_RHO)
+    # jump side: fine rho quadrature representing the CONTINUOUS nu, so the
+    # residual also exposes an inadequate score rho order
+    shifts, logw = law.quadrature_shifts(64)
     score = ShellScore(pot, law, 1.0, 8.0, Q_THETA, Q_RHO)
     return pot, score, shifts, logw, phis
 
@@ -81,7 +83,7 @@ def test_e3_reduced_latent():
     h_z = h_x * dz.norm(dim=1) / atoms_x.norm(dim=1)
     law = ShellJumpLaw(dz, torch.full((4,), 0.25, device=DEV), h_z)
     score = ShellScore(potr, law, 1.0, 8.0, Q_THETA, Q_RHO)
-    shifts, logw = law.quadrature_shifts(Q_RHO)
+    shifts, logw = law.quadrature_shifts(64)     # fine continuous-nu J side
     phis = make_phi_family(2, [0.0, 0.8], 0.8, DEV)
     res = certificate_grid(potr, score, shifts, logw, 1.0, 8.0, phis,
                            [-4.2, -2.7], [4.2, 4.7],
@@ -98,10 +100,12 @@ def test_e4_importance():
     exp = build_e4(device=DEV, basin_cache=os.path.join(CACHE_DIR, "phi4_basins.npz"))
     theta, w_theta = gauss_legendre_01(Q_THETA, DEV)
     shifts, logw = exp.law.quadrature_shifts(Q_RHO)
+    shifts_j, logw_j = exp.law.quadrature_shifts(64)   # fine continuous-nu J side
     phis = make_phi_family(24, exp.extras["means24"][0].tolist(), 1.5, DEV, n_phi=4)
     res = certificate_importance(exp.pot, shifts, logw, theta, w_theta,
                                  1.0, 8.0, phis, exp.extras["laplace"],
-                                 n_samples=200_000)
+                                 n_samples=200_000,
+                                 nu_shifts_jump=shifts_j, nu_logw_jump=logw_j)
     assert res["max_residual"] < 1e-6, res["max_residual"]
     gen = torch.Generator(device=DEV)
     gen.manual_seed(11)
