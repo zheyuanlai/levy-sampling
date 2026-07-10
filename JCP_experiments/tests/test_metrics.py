@@ -8,7 +8,7 @@ import tempfile
 import torch
 
 from src import metrics as M
-from src.plotting import apply_style, plot_metric
+from src.plotting import apply_style, metric_grid
 
 DEV = "cuda"
 
@@ -71,35 +71,30 @@ def test_occupancy_tv():
     assert M.occupancy_tv(p, p) == 0.0
 
 
-def test_eps_roundtrip_ghostscript():
-    """EPS must contain no transparency; verify by round-tripping one saved
-    EPS through Ghostscript (exit code 0, non-empty output)."""
-    if shutil.which("gs") is None:
-        raise RuntimeError("Ghostscript required for EPS verification")
+def test_metric_grid_saves_png_pdf():
+    """Grid figure (metric vs t only): saved as .png + .pdf, legend outside
+    the axes, linear y."""
     apply_style()
     rows = []
     for seed in (0, 1, 2):
         for step in (10, 20, 30):
-            rows.append({"method": "ULA", "seed": seed, "step": step,
-                         "t": step * 0.01, "wallclock_s": step * 0.002,
-                         "W2": 1.0 / step + 0.01 * seed})
-            rows.append({"method": "LSC-CP", "seed": seed, "step": step,
-                         "t": step * 0.01, "wallclock_s": step * 0.004,
-                         "W2": 0.5 / step + 0.01 * seed})
+            for method, scale in (("ULA", 1.0), ("LSC-CP", 0.5)):
+                rows.append({"method": method, "seed": seed, "step": step,
+                             "t": step * 0.01, "wallclock_s": step * 0.002,
+                             "W2": scale / step + 0.01 * seed,
+                             "MMD": 0.5 * scale / step,
+                             "EMC": 1.0 - scale / (step + 1)})
     with tempfile.TemporaryDirectory() as td:
-        base = os.path.join(td, "W2_vs_time")
-        plot_metric(rows, "W2", "t", base, floor=0.01,
-                    methods=("ULA", "LSC-CP"))
-        eps = base + ".eps"
-        assert os.path.exists(eps) and os.path.getsize(eps) > 0
-        out = os.path.join(td, "roundtrip.pdf")
-        r = subprocess.run(["gs", "-dBATCH", "-dNOPAUSE", "-sDEVICE=pdfwrite",
-                            f"-sOutputFile={out}", eps],
-                           capture_output=True, text=True)
-        assert r.returncode == 0, r.stderr
-        assert os.path.getsize(out) > 0
-        assert os.path.exists(base + ".pdf") and os.path.exists(base + ".png")
-        assert os.path.exists(base + ".txt")
+        base = os.path.join(td, "grid")
+        fig = metric_grid(rows, base, metrics=("W2", "MMD", "EMC"),
+                          floors={"W2": {"mean": 0.01}}, emc_target=1.0,
+                          methods=("ULA", "LSC-CP"), show=False)
+        assert os.path.exists(base + ".png") and os.path.getsize(base + ".png") > 0
+        assert os.path.exists(base + ".pdf") and os.path.getsize(base + ".pdf") > 0
+        for ax in fig.axes:
+            assert ax.get_yscale() == "linear"
+        import matplotlib.pyplot as plt
+        plt.close(fig)
 
 
 def test_bias_floors_shape():

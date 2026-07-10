@@ -113,6 +113,57 @@ def run_one(method: str, seed: int, sampler_factory, n_steps: int,
     return rows, info
 
 
+def run_experiment_batched(methods, seeds, batched_factory, n_steps: int,
+                           steps_per_ck: int, dt: float, metrics_fn,
+                           potential, n_per_seed: int,
+                           warmup: int = 20) -> tuple[list[dict], dict]:
+    """Production loop with all seeds batched into one ensemble per method
+    (used since wall-clock curves are not reported); per-seed metric rows
+    are computed on contiguous blocks of n_per_seed particles."""
+    all_rows: list[dict] = []
+    method_info: dict[str, dict] = {}
+    n_ck = n_steps // steps_per_ck
+    for method in methods:
+        warm = batched_factory(method)
+        for _ in range(warmup):
+            warm.step()
+        del warm
+        torch.cuda.synchronize()
+        sampler = batched_factory(method)
+        torch.cuda.synchronize()
+        nV0, ng0, nq0 = potential.n_V, potential.n_grad, potential.n_Vdelta
+        wall = 0.0
+        step = 0
+        t_m = time.perf_counter()
+        for _ck in range(n_ck):
+            torch.cuda.synchronize()
+            t0 = time.perf_counter()
+            for _ in range(steps_per_ck):
+                sampler.step()
+            torch.cuda.synchronize()
+            wall += time.perf_counter() - t0
+            step += steps_per_ck
+            pos = sampler.positions()
+            diag = sampler.pop_diagnostics()
+            for si, seed in enumerate(seeds):
+                row = {"method": method, "seed": seed, "step": step,
+                       "t": step * dt, "wallclock_s": wall}
+                row.update(metrics_fn(pos[si * n_per_seed:(si + 1) * n_per_seed]))
+                row.update(diag)
+                all_rows.append(row)
+        method_info[method] = {
+            "wallclock_mean_s": wall,        # batch wall-clock (informational)
+            "wallclock_std_s": 0.0,
+            "V_evals_per_step": (potential.n_V - nV0) / n_steps,
+            "grad_evals_per_step": (potential.n_grad - ng0) / n_steps,
+            "score_quad_evals_per_step": (potential.n_Vdelta - nq0) / n_steps,
+            "final_positions_seed0": sampler.positions()[:n_per_seed].detach().clone(),
+        }
+        print(f"{method}: done in {time.perf_counter() - t_m:.1f}s "
+              f"(batched {len(seeds)} seeds)", flush=True)
+    return all_rows, method_info
+
+
 def run_experiment(methods, seeds, sampler_factory, n_steps: int,
                    steps_per_ck: int, dt: float, metrics_fn, potential,
                    warmup: int = 20) -> tuple[list[dict], dict]:

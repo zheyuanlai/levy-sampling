@@ -52,9 +52,17 @@ class Experiment:
     extras: dict = field(default_factory=dict)
 
     @property
+    def uniform_target(self) -> bool:
+        K = self.p_star.shape[0]
+        return bool(torch.allclose(self.p_star,
+                                   torch.full_like(self.p_star, 1.0 / K),
+                                   atol=1e-6))
+
+    @property
     def emc_target(self) -> float:
-        p = self.p_star[self.p_star > 0]
-        return math.exp(float(-(p * torch.log(p)).sum().item())) / self.p_star.shape[0]
+        # EMC is defined so that 1 is optimal for every experiment:
+        # uniform p*: EMC = exp(H(p_hat))/K; non-uniform p*: EMC = 1 - EJS.
+        return 1.0
 
 
 # ===================================================================== E1
@@ -374,6 +382,50 @@ def make_sampler_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
     return factory
 
 
+def make_batched_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
+                         seeds, n_particles: int | None = None,
+                         score_kwargs: dict | None = None):
+    """All seeds batched into one (S*N)-particle ensemble per method (the
+    wall-clock axis is no longer reported, so sequential per-seed timing is
+    unnecessary and the GPU is far better utilised). Per-seed x0 blocks are
+    generated exactly as in the sequential path; CP and LSC-CP still share
+    one jump stream."""
+    dev = exp.p_star.device
+    N = n_particles or exp.cfg.n_particles
+    eps, beta, lam = exp.cfg.eps, exp.cfg.beta, exp.cfg.lam
+    score_kwargs = score_kwargs or {}
+
+    def factory(method: str):
+        blocks = []
+        for seed in seeds:
+            g = torch.Generator(device=dev)
+            g.manual_seed(init_seed(seed))
+            blocks.append(exp.init_fn(N, g))
+        x0 = torch.cat(blocks, dim=0)
+        gen = torch.Generator(device=dev)
+        gen.manual_seed(diffusion_seed(method, 0))
+        if method == "ULA":
+            return ULA(exp.pot, x0, dt, eps, gen, exp.box)
+        if method == "MALA":
+            return MALA(exp.pot, x0, dt, beta, gen, exp.box)
+        if method == "FLA":
+            return FLA(exp.pot, x0, dt, beta, gen, exp.box)
+        if method == "BAOAB":
+            return BAOAB(exp.pot, x0, dt, eps, gen, exp.box)
+        if method == "PT":
+            return ParallelTempering(exp.pot, x0, dt, pt_betas, gen, exp.box)
+        if method in ("CP", "LSC-CP"):
+            g_jump = torch.Generator(device=dev)
+            g_jump.manual_seed(jump_seed(0))                 # SHARED stream
+            score = exp.make_score(**score_kwargs) if method == "LSC-CP" else None
+            return CompoundPoisson(exp.pot, x0, dt, eps, lam, exp.law,
+                                   gen, g_jump, exp.box, score=score,
+                                   name=method)
+        raise ValueError(method)
+
+    return factory
+
+
 # ============================================================ metric wiring
 def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
                  device="cuda", floor_replicates: int = 20):
@@ -406,6 +458,13 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
     def w2_fn(a, b):
         return M.w2_exact_1d(a, b) if d_m == 1 else M.sliced_w2(a, b, proj)
 
+    uniform = exp.uniform_target
+
+    def emc_fn(p_hat):
+        # near 1 = better in BOTH cases: exp(H)/K for uniform targets,
+        # 1 - EJS(p_hat, p*) for non-uniform targets
+        return M.emc(p_hat) if uniform else 1.0 - M.ejs(p_hat, exp.p_star)
+
     def metrics_fn(x):
         xm = exp.metric_space(x)
         labels = exp.labels_fn(x)
@@ -414,8 +473,7 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
             "W2": w2_fn(xm, ref_m),
             "TV": M.occupancy_tv(p_hat, exp.p_star),
             "MMD": M.mmd_biased(xm, ref_m, bw),
-            "EMC": M.emc(p_hat),
-            "EJS": M.ejs(p_hat, exp.p_star),
+            "EMC": emc_fn(p_hat),
             "nonfinite_frac": M.nonfinite_frac(x),
         }
         if is_e1:
@@ -444,16 +502,16 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
 
 
 def _occ_floor_fns(exp: Experiment, K: int):
+    uniform = exp.uniform_target
+
     def _tv(x):
         return M.occupancy_tv(M.occupancy(exp.labels_fn(x), K), exp.p_star)
 
-    def _ejs(x):
-        return M.ejs(M.occupancy(exp.labels_fn(x), K), exp.p_star)
-
     def _emc(x):
-        return M.emc(M.occupancy(exp.labels_fn(x), K))
+        p_hat = M.occupancy(exp.labels_fn(x), K)
+        return M.emc(p_hat) if uniform else 1.0 - M.ejs(p_hat, exp.p_star)
 
-    out = {"TV": _tv, "EJS": _ejs, "EMC": _emc}
+    out = {"TV": _tv, "EMC": _emc}
     if exp.name == "double_well":
         # density TV floor: fresh reference sample against the exact bins
         lo, hi = exp.extras["density_tv_box"]
