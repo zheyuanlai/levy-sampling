@@ -333,11 +333,13 @@ def refine_dt(run_terminal_fn, dt0: float, floors: dict, tol: float = 0.05,
 
 
 # -------------------------------------------------- barrier verification
-def ula_first_passage(pot, box, x0: torch.Tensor, in_basin_fn, dt: float,
+def ula_first_passage(pot, box, x0: torch.Tensor, exit_fn, dt: float,
                       n_steps: int, eps: float, gen: torch.Generator) -> dict:
     """Empirical ULA mean first-passage time out of the initial basin,
     censored-exponential MLE: tau_hat = (total time in basin) / (# exits).
-    Compare with the Kramers estimate; do not trust Kramers alone."""
+    `exit_fn(x) -> bool` must be the COMMITTED exit event (True = the
+    particle has arrived in another basin's core). Compare with the Kramers
+    estimate; do not trust Kramers alone."""
     from .samplers import tame
     x = x0.clone()
     n = x.shape[0]
@@ -348,8 +350,7 @@ def ula_first_passage(pot, box, x0: torch.Tensor, in_basin_fn, dt: float,
         g = pot.grad(x)
         xi = torch.randn(x.shape, generator=gen, device=dev, dtype=x.dtype)
         x = box.clip(x + dt * tame(-g, dt) + noise * xi)
-        outside = ~in_basin_fn(x)
-        newly = outside & torch.isinf(first_exit)
+        newly = exit_fn(x) & torch.isinf(first_exit)
         first_exit = torch.where(
             newly, torch.tensor((s + 1) * dt, dtype=torch.float64, device=dev),
             first_exit)
