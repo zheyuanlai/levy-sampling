@@ -86,6 +86,16 @@ def _series(rows, method, ykey):
     return x, y, sd
 
 
+def _display_inline(fig) -> None:
+    """plt.show() is a no-op under the Agg backend inside nbclient; emit the
+    figure as a rich display so it appears in the notebook output."""
+    try:
+        from IPython.display import display
+        display(fig)
+    except Exception:
+        plt.show()
+
+
 def cdf_comparison(samples: dict, true_x, true_cdf, out_base: str,
                    methods=METHODS, xlabel: str = r"$x$",
                    max_points: int = 4000, show: bool = True):
@@ -122,7 +132,7 @@ def cdf_comparison(samples: dict, true_x, true_cdf, out_base: str,
     fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
     fig.savefig(out_base + ".pdf", bbox_inches="tight")
     if show:
-        plt.show()
+        _display_inline(fig)
     return fig
 
 
@@ -170,5 +180,5 @@ def metric_grid(rows: list[dict], out_base: str,
     fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
     fig.savefig(out_base + ".pdf", bbox_inches="tight")
     if show:
-        plt.show()
+        _display_inline(fig)
     return fig
