@@ -87,11 +87,15 @@ def _series(rows, method, ykey):
 
 
 def _display_inline(fig) -> None:
-    """plt.show() is a no-op under the Agg backend inside nbclient; emit the
-    figure as a rich display so it appears in the notebook output."""
+    """Show the figure in notebook output under the Agg backend: plt.show()
+    is a no-op there, and display(fig) only emits a text repr unless the
+    matplotlib-inline backend is active, so render PNG bytes explicitly."""
     try:
-        from IPython.display import display
-        display(fig)
+        import io
+        from IPython.display import Image, display
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
+        display(Image(data=buf.getvalue()))
     except Exception:
         plt.show()
 
