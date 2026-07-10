@@ -158,6 +158,7 @@ def run_experiment_batched(methods, seeds, batched_factory, n_steps: int,
             "grad_evals_per_step": (potential.n_grad - ng0) / n_steps,
             "score_quad_evals_per_step": (potential.n_Vdelta - nq0) / n_steps,
             "final_positions_seed0": sampler.positions()[:n_per_seed].detach().clone(),
+            "final_positions_all": sampler.positions().detach().clone(),
         }
         print(f"{method}: done in {time.perf_counter() - t_m:.1f}s "
               f"(batched {len(seeds)} seeds)", flush=True)

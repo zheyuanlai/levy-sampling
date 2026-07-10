@@ -209,6 +209,15 @@ print("chosen quadrature:", CHOSEN_QUAD)
 display(pd.DataFrame(quad_table).round(6))'''),
         code(cell_dt_production('["W2", "TV", "TV_density", "MMD", "EMC"]')),
         code(CELL_FIGURES),
+        code('''# terminal-sample CDF of every method vs the true CDF (single plot;
+# all 5 seed blocks pooled -> 20k points per method)
+from src.plotting import cdf_comparison
+ref = exp.extras["ref"]
+samples = {m: method_info[m]["final_positions_all"].reshape(-1).cpu().numpy()
+           for m in C.METHODS}
+cdf_fig = cdf_comparison(samples, ref.x.cpu().numpy(), ref.cdf.cpu().numpy(),
+                         os.path.join(FIGURES, EXPERIMENT + "_cdf"))
+print("saved:", os.path.join(FIGURES, EXPERIMENT + "_cdf") + ".{png,pdf}")'''),
         code(cell_csv()),
     ]
     nb = nbf.v4.new_notebook()

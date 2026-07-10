@@ -86,6 +86,46 @@ def _series(rows, method, ykey):
     return x, y, sd
 
 
+def cdf_comparison(samples: dict, true_x, true_cdf, out_base: str,
+                   methods=METHODS, xlabel: str = r"$x$",
+                   max_points: int = 4000, show: bool = True):
+    """1D empirical CDF of each method's terminal sample vs the true CDF,
+    all on a single plot. `samples`: method -> 1D array; true CDF on a dense
+    grid. Saved as .png/.pdf; legend outside the axes."""
+    apply_style()
+    fig, ax = plt.subplots(figsize=(4.6, 3.2))
+    ax.plot(np.asarray(true_x), np.asarray(true_cdf), color="#888888",
+            lw=2.4, ls="-", label="true", zorder=1)
+    for method in methods:
+        if method not in samples:
+            continue
+        xs = np.sort(np.asarray(samples[method]).reshape(-1))
+        cdf = np.arange(1, xs.size + 1) / xs.size
+        if xs.size > max_points:                      # thin for plotting only
+            idx = np.linspace(0, xs.size - 1, max_points).astype(int)
+            xs, cdf = xs[idx], cdf[idx]
+        st = METHOD_STYLE[method]
+        ax.plot(xs, cdf, color=st["color"], ls=st["ls"], lw=1.1,
+                marker=st["marker"], markevery=max(1, xs.size // 10),
+                markerfacecolor="white", markeredgecolor=st["color"],
+                markeredgewidth=0.6, markersize=3.5,
+                label=SIMPLE_LABELS[method], zorder=2)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("CDF")
+    ax.set_ylim(-0.02, 1.02)
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, ncol=4, loc="lower center",
+               bbox_to_anchor=(0.5, 1.005), frameon=False,
+               handlelength=1.9, columnspacing=1.0)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(out_base), exist_ok=True)
+    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
+    fig.savefig(out_base + ".pdf", bbox_inches="tight")
+    if show:
+        plt.show()
+    return fig
+
+
 def metric_grid(rows: list[dict], out_base: str,
                 metrics=("W2", "MMD", "EMC"), floors: dict | None = None,
                 emc_target: float = 1.0, methods=METHODS,
