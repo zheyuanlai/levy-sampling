@@ -13,7 +13,7 @@ path = sys.argv[1]
 nb = nbformat.read(path, as_version=4)
 client = NotebookClient(
     nb,
-    timeout=14400,
+    timeout=28800,
     kernel_name="python3",
     resources={"metadata": {"path": os.path.dirname(os.path.abspath(path)) or "."}},
 )

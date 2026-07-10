@@ -276,7 +276,7 @@ so over $T=100$ a ULA particle crosses with probability $\approx 3\%$. *(This is
 
 Protocol: $N=4000$, $T=100$, $\Delta t_0 = 0.005$, box $[-3,3]$, $x_0 \sim \mathcal N(-1, 0.05^2)$. Partition ($K=2$): $\mathrm{sign}(x)$, $p^\star=(\tfrac12,\tfrac12)$ exactly by symmetry; additionally a 200-bin **density TV** against the exact $\pi$ on $[-3,3]$ (a genuine density TV, unlike the occupancy TV). Reference: inverse-CDF on a dense grid (tail mass outside $[-3,3]$ is $<10^{-30}$).
 
-Below: barrier verification — ULA's empirical mean first-passage time out of the initial basin (censored-exponential MLE) against the Kramers estimate. Do not trust Kramers alone."""),
+Below: barrier verification — ULA's empirical mean first-passage time out of the initial basin against the Kramers estimate (censored-exponential MLE). The exit event is **committed arrival in the other basin's core**, not first touch of the partition boundary: boundary-touch counts half-committed excursions and overstates the escape rate several-fold. Do not trust Kramers alone."""),
         code('''# critical points and curvatures, asserted
 V = lambda x: (x**2 - 1.0)**2
 dV = lambda x: 4.0*x*(x**2 - 1.0)
@@ -290,7 +290,7 @@ print(f"beta*DeltaV = {beta_dV}, Kramers tau = {exp.kramers_tau:.1f}")
 # barrier verification: ULA MFPT out of the left well vs Kramers
 g = torch.Generator(device=DEV); g.manual_seed(0)
 barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
-                                   exp.in_basin0, cfg.dt, int(cfg.T/cfg.dt),
+                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt),
                                    C.EPS, g)
 barrier_report["kramers_tau"] = exp.kramers_tau
 print("ULA first-passage:", barrier_report)
@@ -384,7 +384,7 @@ print(f"mode-0 NN gap d0 = {exp.extras['nn_dist_mode0']:.2f}, "
 
 g = torch.Generator(device=DEV); g.manual_seed(0)
 barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
-                                   exp.in_basin0, cfg.dt, int(cfg.T/cfg.dt), C.EPS, g)
+                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), C.EPS, g)
 barrier_report["kramers_tau_mode0"] = exp.kramers_tau
 print("ULA first-passage out of Voronoi cell 0:", barrier_report)'''),
         md(r"""## The closed-form Lévy score
@@ -497,7 +497,7 @@ print("p_star (A, B, C):", np.round(exp.p_star.cpu().numpy(), 6),
 
 g = torch.Generator(device=DEV); g.manual_seed(0)
 barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
-                                   exp.in_basin0, cfg.dt, int(cfg.T/cfg.dt), C.EPS, g)
+                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), C.EPS, g)
 barrier_report["kramers_tau_B"] = exp.kramers_tau
 print("ULA first-passage out of basin B:", barrier_report)'''),
         md(r"""## Jump law and score
@@ -547,11 +547,102 @@ assert cert_report["max_residual"] < 1e-6'''),
             'cert_e3(**s)',
             '("W2", "TV", "MMD", "EMC", "EJS", "W2_10d")',
             "quad")),
-        code(cell_dt_production('["W2", "TV", "MMD", "EMC", "EJS", "W2_10d"]')),
+        md(r"""### E3 exception: $\Delta t$ is declared, not certified
+
+On this landscape the dyadic rule cannot certify any practical $\Delta t$ for LSC-CP, and the failure is *mechanistic, not statistical* (diagnosed in the mechanism section below): uphill jump-landers receive a corrective drift of magnitude $e^{\beta\Delta V}$ (up to $e^{21}$ here — the only experiment with strongly asymmetric basin depths), and the tamed Euler step turns the corresponding smooth return flow into a single $O(1)$ hop whose landing scatter parks a $\Delta t$-independent fraction of mass in score-dark regions. Since the tamed step saturates for any $\Delta t > e^{-M}$, refining $\Delta t$ cannot converge these terminal values. Production therefore runs at the declared $\Delta t_0$ (well inside the stability bound), the level-0 comparison table is recorded, and `dt_certified = False` is written to the manifest. LSC-CP's terminal metrics carry a documented $\Delta t$-sensitivity of the order of the table's spread."""),
+        code('''MAIN_METRICS = ["W2", "TV", "MMD", "EMC", "EJS", "W2_10d"]
+
+def run_terminal_all(dt_):
+    n_ = int(round(cfg.T / dt_))
+    factory = make_sampler_factory(exp, dt_, pt_betas, score_kwargs=CHOSEN_QUAD)
+    out = {}
+    for m in C.METHODS:
+        rows_, _ = run_one(m, 0, factory, n_, n_, dt_, metrics_fn, exp.pot, quiet=True)
+        out[m] = {k: rows_[-1][k] for k in MAIN_METRICS}
+    print(f"  refine_dt: finished pass at dt={dt_}", flush=True)
+    return out
+
+_, dt_table = refine_dt(run_terminal_all, cfg.dt, floors, exclude=("FLA",),
+                        max_halvings=1)
+dt_certified = bool(dt_table[0]["pass"])
+for row in dt_table:
+    print(row)
+dt_final = cfg.dt          # declared (see markdown above); certification recorded
+print(f"dt_certified = {dt_certified}; production at declared dt0 = {dt_final}")
+
+n_steps = int(round(cfg.T / dt_final))
+steps_per_ck = max(1, n_steps // C.N_CHECKPOINTS)
+factory = make_sampler_factory(exp, dt_final, pt_betas, score_kwargs=CHOSEN_QUAD)
+t0 = time.time()
+rows, method_info = run_experiment(C.METHODS, cfg.seeds, factory, n_steps,
+                                   steps_per_ck, dt_final, metrics_fn, exp.pot)
+print(f"production total: {time.time()-t0:.0f}s")
+worst_nonfinite = max(r["nonfinite_frac"] for r in rows)
+assert worst_nonfinite == 0.0, worst_nonfinite
+print("nonfinite fraction: identically zero across all methods/checkpoints")'''),
+        md(r"""## Mechanism: why the corrected process stalls on a quasi-stationary plateau
+
+The MST law's uphill jumps (into $C$, whose equilibrium mass is $\sim 5\times10^{-6}$) land with an enormous, *correctly aimed* Lévy score — the correction implementing detailed-balance rejection as a drift. Three measurements pin the failure of the tamed discretisation to represent that drift:
+
+1. **Occupancy trajectories**: LSC-CP reaches its plateau by $t\approx25$ and then stalls (it is quasi-stationary, not slowly relaxing), and the plateau *worsens* slightly at finer $\Delta t$; raw CP is $\Delta t$-stable at a much worse law; locals barely leave B.
+2. **Lander cohort**: an equilibrated A-ensemble jumped by the exact $A\to C$ atom lands 99% in the C label with median score log-magnitude $M\approx 8$; one tamed step returns most of it, but the single $O(1)$ hop scatters — after a few steps a $\Delta t$-independent $\sim$17% is parked with $M\approx-3$ (score-dark), rescued only by later jumps.
+3. **Score field**: $\|S\|\approx 5\times10^{3}$ at $z_C$ pointing along $C\to A$ (correct); $O(10^{-3})$ at the inhabited minima. The stiffness is confined to the jump shadows — exactly where landers appear.
+
+E1/E2/E4 are immune because their jump laws connect (near-)iso-energetic minima, so scores at inhabited points are $O(1)$. The finding: **on landscapes with strongly asymmetric basin depths, the exactness of the Lévy-score correction concentrates in $e^{\beta\Delta V}$-stiff drifts that the tamed Euler scheme cannot integrate**; a discretisation that resolves the post-jump return flow (or a Metropolised jump step) is required to realise the generator's exactness in practice."""),
+        code('''# 1) occupancy trajectories: quasi-stationary plateau, dt-dependence
+from src.metrics import occupancy as _occ
+
+def occ_traj(sampler, n_steps_, every, label):
+    out = []
+    for s_ in range(n_steps_):
+        sampler.step()
+        if (s_ + 1) % every == 0:
+            p = _occ(exp.labels_fn(sampler.positions()), 3)
+            out.append(((s_ + 1) * sampler.dt, [round(float(v), 4) for v in p]))
+    print(label)
+    for t_, p in out:
+        print(f"   t={t_:6.1f}: A={p[0]:.4f} B={p[1]:.4f} C={p[2]:.4f}")
+    return out
+
+mech_traj = {}
+for meth, dt_ in (("LSC-CP", dt_final), ("LSC-CP", dt_final / 4.0),
+                  ("CP", dt_final), ("ULA", dt_final)):
+    f = make_sampler_factory(exp, dt_, pt_betas, score_kwargs=CHOSEN_QUAD)
+    s = f(meth, 0)
+    n_ = int(round(cfg.T / dt_))
+    mech_traj[f"{meth}@dt={dt_}"] = occ_traj(s, n_, n_ // 8, f"{meth} dt={dt_}")'''),
+        code('''# 2) lander cohort: single-hop return + dt-independent parked fraction
+from src.samplers import tame as _tame
+score_m = exp.make_score(**CHOSEN_QUAD)
+zA_, zC_ = exp.extras["minima_latent"]["min_A"], exp.extras["minima_latent"]["min_C"]
+mechanism_report = {"traj": {k: v[-1][1] for k, v in mech_traj.items()}}
+for dt_ in (dt_final, dt_final / 4.0):
+    g_ = torch.Generator(device=DEV); g_.manual_seed(3)
+    zloc = torch.zeros(4000, 10, device=DEV)
+    zloc[:, :2] = zA_ + 0.12 * torch.randn(4000, 2, generator=g_, device=DEV)
+    zloc[:, 2:] = 0.1414 * torch.randn(4000, 8, generator=g_, device=DEV)
+    x_ = exp.pot.from_latent(zloc) + exp.law.atoms[2]      # jump A -> C
+    M0, _ = score_m.log_parts(x_)
+    for _s in range(24):
+        S_, _d = score_m(x_)
+        b_ = -exp.pot.grad(x_) + S_
+        xi_ = torch.randn(x_.shape, generator=g_, device=DEV)
+        x_ = exp.box.clip(x_ + dt_ * _tame(b_, dt_) + (2 * C.EPS * dt_) ** 0.5 * xi_)
+    Mf, _ = score_m.log_parts(x_)
+    occ_f = _occ(exp.labels_fn(x_), 3)
+    parked = float(occ_f[2].item())
+    print(f"dt={dt_}: lander median M {M0.median():.2f} -> after 24 steps "
+          f"M {Mf.median():.2f}; parked C fraction {parked:.3f}")
+    mechanism_report[f"parked_fraction@dt={dt_}"] = parked
+S_min, _ = score_m.log_parts(exp.pot.from_latent(torch.cat([
+    torch.cat([zA_, torch.zeros(8, device=DEV)]).unsqueeze(0),
+    torch.cat([zC_, torch.zeros(8, device=DEV)]).unsqueeze(0)])))
+mechanism_report["score_logmag_at_A_C"] = [float(v) for v in S_min]
+print("score log-magnitude at (A, C):", mechanism_report["score_logmag_at_A_C"])'''),
         md("## Figures"),
         code(cell_figures('("W2", "TV", "MMD", "EMC", "EJS", "W2_10d")')),
         md("## CSV emission and summary"),
-        code(cell_csv()),
+        code(cell_csv("dt_certified=dt_certified, mechanism=mechanism_report,")),
     ]
     nb = nbf.v4.new_notebook()
     nb.cells = cells
@@ -622,7 +713,7 @@ for i, ph in enumerate(phases):
 
 g = torch.Generator(device=DEV); g.manual_seed(0)
 barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
-                                   exp.in_basin0, cfg.dt, int(cfg.T/cfg.dt), C.EPS, g)
+                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), C.EPS, g)
 barrier_report["kramers_tau_langer"] = exp.kramers_tau
 print("ULA first-passage out of the -- basin:", barrier_report)
 print(f"(24D Langer estimate over the coherent saddle: tau ~ {exp.kramers_tau:.0f})")'''),

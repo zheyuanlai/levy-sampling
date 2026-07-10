@@ -44,7 +44,10 @@ class Experiment:
     p_star: torch.Tensor
     metric_space: Callable                # x -> coords used for W2/MMD
     pt_beta_min: float
-    in_basin0: Callable                   # x -> bool (barrier verification)
+    # barrier verification: COMMITTED exit event (arrival in another basin's
+    # core), not first touch of a partition boundary -- boundary-touch counts
+    # half-committed excursions and overstates the escape rate several-fold
+    exit_committed: Callable              # x -> bool
     kramers_tau: float
     extras: dict = field(default_factory=dict)
 
@@ -80,7 +83,7 @@ def build_e1(device="cuda") -> Experiment:
         labels_fn=lambda x: (x[:, 0] > 0).long(),
         p_star=p_star, metric_space=lambda x: x,
         pt_beta_min=1.0,
-        in_basin0=lambda x: x[:, 0] < 0.0,
+        exit_committed=lambda x: x[:, 0] > 0.7,     # right-well core arrival
         kramers_tau=DoubleWell1D.kramers_time(BETA),
         extras={"ref": ref, "density_tv_box": (-3.0, 3.0), "density_tv_bins": 200},
     )
@@ -124,7 +127,7 @@ def build_e2(device="cuda") -> Experiment:
         make_score=make_score, labels_fn=labels_fn, p_star=p_star,
         metric_space=lambda x: x,
         pt_beta_min=0.5,
-        in_basin0=lambda x: labels_fn(x) == 0,
+        exit_committed=_mog40_committed_exit(pot),
         kramers_tau=kramers,
         extras={"nn_dist_mode0": d0, "beta_dV_mode0": beta_dV},
     )
@@ -187,8 +190,9 @@ def build_e3(device="cuda", basin_cache: str | None = None) -> Experiment:
     zS2 = newton_refine(muller_brown_2d_grad,
                         torch.tensor(MB_CRITICAL["saddle_S2"][0],
                                      dtype=torch.float64, device=device))
+    # barrier in V units (U_MB / s): beta * barrier = 7.18
     barrier = float((muller_brown_2d(zS2.unsqueeze(0))
-                     - muller_brown_2d(zB.unsqueeze(0))).item())
+                     - muller_brown_2d(zB.unsqueeze(0))).item()) / pot.s
 
     def _hess2(z):
         h = 1e-5
@@ -218,7 +222,10 @@ def build_e3(device="cuda", basin_cache: str | None = None) -> Experiment:
         make_score=make_score, labels_fn=labels_fn, p_star=p_star,
         metric_space=metric_space,
         pt_beta_min=0.8,
-        in_basin0=lambda x: labels_fn(x) == 1,               # basin B index 1
+        # committed exit from B: arrival within 0.3 of the A or C latent core
+        exit_committed=lambda x: (
+            ((pot.to_latent(x)[:, :2] - zA).norm(dim=1) < 0.3)
+            | ((pot.to_latent(x)[:, :2] - zC).norm(dim=1) < 0.3)),
         kramers_tau=kramers,
         extras={"minima_latent": mins, "atoms_z": atoms_z, "h": h,
                 "basins": basins, "barrier_B": barrier, "saddle_S2": zS2,
@@ -305,12 +312,24 @@ def build_e4(device="cuda", basin_cache: str | None = None) -> Experiment:
         make_score=make_score, labels_fn=labels_fn, p_star=p_star,
         metric_space=qbar,
         pt_beta_min=1.0,
-        in_basin0=lambda x: labels_fn(x) == 0,
+        # committed exit from --: mean order parameter within 0.35 of another
+        # coherent minimum
+        exit_committed=lambda x: (
+            (qbar(x).unsqueeze(1) - V2[1:].unsqueeze(0)).norm(dim=2).min(dim=1)
+            .values < 0.35),
         kramers_tau=kramers,
         extras={"minima_2d": V2, "means24": means24, "hessians": H24,
                 "laplace": laplace, "basins": basins, "h": h,
                 "barrier_minus_minus": barrier, "phases": phases},
     )
+
+
+def _mog40_committed_exit(pot):
+    def fn(x):
+        d = torch.cdist(x, pot.mu)                 # (N, 40)
+        lab = d.argmin(dim=1)
+        return (lab != 0) & (d.min(dim=1).values < 2.0)
+    return fn
 
 
 # ============================================================ sampler wiring
