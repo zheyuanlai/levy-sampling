@@ -95,7 +95,7 @@ MD_DT_RULE = r"""## $\Delta t$ refinement and production
 
 Declared $\Delta t$ selection rule, applied uniformly to every experiment (reported in the SI): **the largest $\Delta t$ on a dyadic grid at which every method's terminal value of every metric is within 5% of its $\Delta t/2$ value.** Three statistical guards make the rule meaningful at a single refinement seed: differences are measured relative to $\max(|m_{\Delta t/2}|,\ \text{bias floor})$; when *both* values sit inside the floor band (floor mean $+\,3$ s.d.) they are declared in agreement; and differences within $4\times$ the floor s.d. — the natural unit of single-run metric sampling noise at this $N$ — are likewise noise, not discretisation bias. The same guards apply to the quadrature-refinement comparison.
 
-**One declared exception:** FLA does not gate the $\Delta t$ selection. Its continuum limit is not $\pi$, so its bias has no $\Delta t$ at which it should stabilise (empirically its density error *drifts monotonically* under refinement); demanding 5% stability from it would refine $\Delta t$ forever. FLA still runs at the shared chosen $\Delta t$, and its deviations across the dyadic grid are recorded in the refinement table for transparency.
+**One declared exception:** the two comparators whose invariant law is not $\pi$ — FLA and raw CP — do not gate the $\Delta t$ selection. Their terminal values measure an intrinsic bias, not convergence to a target, so there is no $\Delta t$ at which they *should* stabilise to 5% at single-seed resolution (empirically FLA's density error drifts monotonically under refinement, and raw CP's bias wobbles at its own sampling noise); demanding stability from them would refine $\Delta t$ forever. Both still run at the shared chosen $\Delta t$, and their deviations across the dyadic grid are recorded in the refinement table for transparency. The gate is carried by the five $\pi$-targeting methods.
 
 Production protocol: 5 seeds $\times$ 7 methods, run **sequentially** (never batched) so per-run wall-clock is meaningful; all methods share $x_0$ per seed; 20 untimed warm-up steps absorb allocator/JIT effects; `torch.cuda.synchronize()` brackets every timed region, and the timer covers sampler work only."""
 
@@ -190,7 +190,7 @@ def run_terminal_all(dt_):
     print(f"  refine_dt: finished pass at dt={{dt_}}", flush=True)
     return out
 
-dt_final, dt_table = refine_dt(run_terminal_all, cfg.dt, floors, exclude=("FLA",))
+dt_final, dt_table = refine_dt(run_terminal_all, cfg.dt, floors, exclude=("FLA", "CP"))
 print("chosen dt:", dt_final)
 for row in dt_table:
     print(row)
@@ -562,7 +562,7 @@ def run_terminal_all(dt_):
     print(f"  refine_dt: finished pass at dt={dt_}", flush=True)
     return out
 
-_, dt_table = refine_dt(run_terminal_all, cfg.dt, floors, exclude=("FLA",),
+_, dt_table = refine_dt(run_terminal_all, cfg.dt, floors, exclude=("FLA", "CP"),
                         max_halvings=1)
 dt_certified = bool(dt_table[0]["pass"])
 for row in dt_table:

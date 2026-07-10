@@ -222,10 +222,11 @@ def build_e3(device="cuda", basin_cache: str | None = None) -> Experiment:
         make_score=make_score, labels_fn=labels_fn, p_star=p_star,
         metric_space=metric_space,
         pt_beta_min=0.8,
-        # committed exit from B: arrival within 0.3 of the A or C latent core
-        exit_committed=lambda x: (
-            ((pot.to_latent(x)[:, :2] - zA).norm(dim=1) < 0.3)
-            | ((pot.to_latent(x)[:, :2] - zC).norm(dim=1) < 0.3)),
+        # committed exit from B: arrival in the deep A core only. C is a
+        # 1.7 kT shelf at this temperature (U_S2 - U_C = 8.5 with kT*s = 5)
+        # and its 0.3-ball contains the S2 saddle, so no committed C state
+        # exists; the meaningful first-passage event is B -> A.
+        exit_committed=lambda x: (pot.to_latent(x)[:, :2] - zA).norm(dim=1) < 0.3,
         kramers_tau=kramers,
         extras={"minima_latent": mins, "atoms_z": atoms_z, "h": h,
                 "basins": basins, "barrier_B": barrier, "saddle_S2": zS2,
