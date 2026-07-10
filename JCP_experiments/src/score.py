@@ -118,36 +118,33 @@ def log_bracket(m: torch.Tensor, a: float, b: float) -> torch.Tensor:
     overflows anywhere on the real line.
     """
     ba = b - a
-    out = torch.empty_like(m)
-
+    # All three branches are evaluated on the full tensor and selected with
+    # torch.where: out-of-branch values may overflow to inf/nan but are
+    # discarded by the selection. (Boolean-mask indexing here would both
+    # launch slow scatter kernels and -- via .any() -- host-sync inside the
+    # sampler step loop.)
     hi = m >= b
     lo = m <= 0.0
-    mid = ~(hi | lo)
 
-    if mid.any():
-        mm = m[mid]
-        B = _F(b - mm) - _F(a - mm) + ba * torch.special.erf(mm / SQRT2)
-        out[mid] = torch.log(B)
+    # 0 < m < b: direct, safe
+    B_mid = _F(b - m) - _F(a - m) + ba * torch.special.erf(m / SQRT2)
+    log_mid = torch.log(B_mid)
 
-    if hi.any():
-        mm = m[hi]
-        # B = e^{-(m-b)^2/2} [ ghat(m-b) - ghat(m-a) e^{-(b-a)(2m-a-b)/2}
-        #                      - (b-a) erfcx(m/sqrt2) e^{-b(2m-b)/2} ]
-        inner = (_g_hat(mm - b)
-                 - _g_hat(mm - a) * torch.exp(-0.5 * ba * (2.0 * mm - a - b))
-                 - ba * torch.special.erfcx(mm / SQRT2) * torch.exp(-0.5 * b * (2.0 * mm - b)))
-        out[hi] = -0.5 * (mm - b) ** 2 + torch.log(inner)
+    # m >= b: B = e^{-(m-b)^2/2} [ ghat(m-b) - ghat(m-a) e^{-(b-a)(2m-a-b)/2}
+    #                              - (b-a) erfcx(m/sqrt2) e^{-b(2m-b)/2} ]
+    inner_hi = (_g_hat(m - b)
+                - _g_hat(m - a) * torch.exp(-0.5 * ba * (2.0 * m - a - b))
+                - ba * torch.special.erfcx(m / SQRT2) * torch.exp(-0.5 * b * (2.0 * m - b)))
+    log_hi = -0.5 * (m - b) ** 2 + torch.log(inner_hi)
 
-    if lo.any():
-        mm = m[lo]
-        # B = e^{-m^2/2} [ (b-a) erfcx(-m/sqrt2) + ghat(b-m) e^{bm-b^2/2}
-        #                  - ghat(a-m) e^{am-a^2/2} ]
-        inner = (ba * torch.special.erfcx(-mm / SQRT2)
-                 + _g_hat(b - mm) * torch.exp(b * mm - 0.5 * b * b)
-                 - _g_hat(a - mm) * torch.exp(a * mm - 0.5 * a * a))
-        out[lo] = -0.5 * mm * mm + torch.log(inner)
+    # m <= 0: B = e^{-m^2/2} [ (b-a) erfcx(-m/sqrt2) + ghat(b-m) e^{bm-b^2/2}
+    #                          - ghat(a-m) e^{am-a^2/2} ]
+    inner_lo = (ba * torch.special.erfcx(-m / SQRT2)
+                + _g_hat(b - m) * torch.exp(b * m - 0.5 * b * b)
+                - _g_hat(a - m) * torch.exp(a * m - 0.5 * a * a))
+    log_lo = -0.5 * m * m + torch.log(inner_lo)
 
-    return out
+    return torch.where(hi, log_hi, torch.where(lo, log_lo, log_mid))
 
 
 class MoG40Score:

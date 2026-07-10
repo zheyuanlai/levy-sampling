@@ -308,20 +308,29 @@ def geometric_ladder(beta_max: float, beta_min: float, K: int, device) -> torch.
 
 
 def tune_ladder(pot, x0, dt, box, beta_max: float, beta_min: float,
-                pilot_steps: int = 600, target=(0.2, 0.4), K0: int = 8,
+                pilot_steps: int = 20_000, burn_frac: float = 0.5,
+                target=(0.2, 0.4), K0: int = 8,
                 K_cap: int = 64, seed: int = 1234) -> tuple[torch.Tensor, dict]:
     """Pick K (geometric ladder, fixed endpoints) so the mean swap acceptance
-    over a pilot run lands in [0.2, 0.4]. Returns (betas, tuning record)."""
+    over a pilot run lands in [0.2, 0.4]. Acceptance is measured only on the
+    post-burn-in half of the pilot: all replicas start at the cold x0, so
+    early swaps (near-equal V across the ladder) accept at a transiently
+    inflated rate, and a short pilot would silently under-ladder PT.
+    Returns (betas, tuning record)."""
     dev = x0.device
     K = K0
     record = {}
     best = None
+    burn = int(burn_frac * pilot_steps)
     for _ in range(10):
         betas = geometric_ladder(beta_max, beta_min, K, dev)
         gen = torch.Generator(device=dev)
         gen.manual_seed(seed)
         pt = ParallelTempering(pot, x0, dt, betas, gen, box)
-        for _s in range(pilot_steps):
+        for _s in range(burn):
+            pt.step()
+        pt.pop_diagnostics()                     # discard transient
+        for _s in range(pilot_steps - burn):
             pt.step()
         diag = pt.pop_diagnostics()
         acc = diag.get("pt_swap_accept", 0.0)
