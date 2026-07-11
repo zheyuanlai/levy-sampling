@@ -134,7 +134,13 @@ def build_e2(device="cuda") -> Experiment:
         ref_sample=lambda n, g: pot.sample_exact(n, g),
         make_score=make_score, labels_fn=labels_fn, p_star=p_star,
         metric_space=lambda x: x,
-        pt_beta_min=0.5,
+        # PT's bottleneck here is hot-chain DIFFUSION across the mode cloud,
+        # not swap acceptance: in d=2 the V-overlap stays large, so even K=2
+        # lands in the acceptance band while the hot replica needs
+        # t ~ L^2 beta_min / 4 >> T to traverse the box. Diffusive-traversal
+        # criterion: beta_min = 4T/L^2 with L = 130, T = 100 -> 0.025; the
+        # acceptance band then forces the dense ladder PT actually needs.
+        pt_beta_min=0.025,
         exit_committed=_mog40_committed_exit(pot),
         kramers_tau=kramers,
         extras={"nn_dist_mode0": d0, "beta_dV_mode0": beta_dV},
