@@ -73,7 +73,7 @@ paper/
 
 # ICLR experiment suite: timestamped run outputs are regenerable
 # (the report under reports/ embeds its own copies of figures/tables).
-results/
+/results/
 
 # LaTeX build artifacts
 *.aux
