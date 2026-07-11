@@ -322,14 +322,17 @@ print(f"ULA committed B->A MFPT {barrier_report['mfpt_estimate']:.0f} "
       f"{exp.kramers_tau:.0f} (order-of-magnitude only)")'''),
         md(r"""## Jump law and Lévy score
 
-Euclidean MST on the three latent minima → edges $(C,B)$ (0.804) and $(A,C)$ (1.10), symmetrised to 4 directed atoms $r_a=(\Delta z, 0_8)B^\top$, $w_a=\tfrac14$, shell $h = 0.1\min\|r_a\|$, $\lambda=1$. Score: generic shell with log-space accumulation (as E1); the certificate is evaluated on the exact latent-2D reduction (jumps act on $z_{1:2}$ only and the aux Gaussian factorises)."""),
+**Production law: the symmetric direct $A\leftrightarrow B$ pair**, $r_a = (\pm(z_A-z_B),\,0_8)B^\top$, $w=(\tfrac12,\tfrac12)$, shell $h=0.1\|r\|$, $\lambda=1$; the CP pair's drift step is additionally capped at $2h$ (the shell's own resolution scale). This design is the outcome of a measured ladder (ablation section below), whose lessons are the E3 finding: (i) $\pi$-negligible relay basins must not be jump targets — landers park there (the spec MST and the complete graph stall at TV 0.11–0.20); (ii) weights must stay $O(1)$ — mass-ratio skew concentrates the correction into an $e^{\beta\Delta V}$ circulating conveyor whose discretisation error swamps the tiny net flux it balances; (iii) the $A$–$B$ chord crosses $C$'s basin, so uncapped $O(1)$ tamed hops scatter returned landers into $C$, while $2h$-bounded steps follow the score tube through. Score: generic shell with log-space accumulation (as E1); the certificate uses the exact latent-2D reduction (jumps act on $z_{1:2}$ only, the aux Gaussian factorises)."""),
         code('''from src.potentials import MuellerBrownLatent2D
 from src.jumps import ShellJumpLaw
 from src.score import ShellScore
 potr = MuellerBrownLatent2D(s=exp.pot.s)
 dz = exp.extras["atoms_z"][:, :2]
 h_z = exp.extras["h"] * dz.norm(dim=1) / exp.law.atoms.norm(dim=1)
-law_r = ShellJumpLaw(dz, torch.full((4,), 0.25, device=DEV), h_z)
+law_r = ShellJumpLaw(dz, exp.law.weights.clone(), h_z)
+print("production atoms (latent):", np.round(dz.cpu().numpy(), 4).tolist(),
+      " w:", exp.law.weights.tolist(), " h:", round(exp.extras["h"], 4),
+      " drift cap (CP pair):", round(exp.cp_drift_cap, 4))
 DEFAULT_QUAD = dict(q_theta=C.Q_THETA, q_rho=C.Q_RHO)
 phis = make_phi_family(2, [0.0, 0.8], 0.8, DEV)
 
@@ -390,48 +393,70 @@ rows, method_info = run_experiment_batched(C.METHODS, cfg.seeds, bfactory,
                                            metrics_fn, exp.pot, cfg.n_particles)
 print(f"production total: {time.time()-t0:.0f}s")
 assert max(r["nonfinite_frac"] for r in rows) == 0.0'''),
-        md(r"""## Mechanism: the tamed discretisation vs the stiff correction
+        md(r"""## Jump-design ladder (ablation) and the parking mechanism
 
-Uphill jumps (into $C$, equilibrium mass $5\times10^{-6}$) land with an enormous, correctly-aimed score ($e^{\beta\Delta V}$ scale — this is the only experiment with strongly asymmetric basin depths). The tamed Euler step turns the smooth detailed-balance return flow into a single $O(1)$ hop whose landing scatter parks a $\Delta t$-independent fraction of mass in score-dark regions. The cells below measure the plateau, the parked fraction, and the score field; E1/E2/E4 are immune because their jumps connect near-iso-energetic minima."""),
+Each variant runs LSC-CP for the full $T$ at $\Delta t_0$ (single seed): the spec's unweighted MST, the unweighted complete graph, the mass-weighted complete graph, the direct pair uncapped, and the production direct pair with the $2h$ drift cap. The cohort cell then measures the parking mechanism on the MST law: uphill $A\to C$ jump-landers arrive with an enormous, correctly-aimed score, but a single $O(1)$ tamed hop scatters a $\Delta t$-independent fraction of them score-dark. E1/E2/E4 are immune (their jumps connect near-iso-energetic minima)."""),
         code('''from src.metrics import occupancy as _occ
+from src.samplers import CompoundPoisson as _CP
+from src.config import jump_seed as _jseed, diffusion_seed as _dseed
 
-def occ_traj(sampler, n_steps_, every, label):
-    out = []
-    for s_ in range(n_steps_):
-        sampler.step()
-        if (s_ + 1) % every == 0:
-            p = _occ(exp.labels_fn(sampler.positions()), 3)
-            out.append(((s_ + 1) * sampler.dt, [round(float(v), 4) for v in p]))
-    print(label, "->", out[-1])
-    return out
+zs_ = exp.extras["minima_latent"]
+zA_, zB_, zC_ = zs_["min_A"], zs_["min_B"], zs_["min_C"]
 
-mech_traj = {}
-for meth, dt_ in (("LSC-CP", dt_final), ("LSC-CP", dt_final / 4.0),
-                  ("CP", dt_final), ("ULA", dt_final)):
-    f = make_sampler_factory(exp, dt_, pt_betas, score_kwargs=CHOSEN_QUAD)
-    s = f(meth, 0)
-    n_ = int(round(cfg.T / dt_))
-    mech_traj[f"{meth}@dt={dt_}"] = occ_traj(s, n_, n_ // 8, f"{meth} dt={dt_}")'''),
-        code('''from src.samplers import tame as _tame
-score_m = exp.make_score(**CHOSEN_QUAD)
-zA_ = exp.extras["minima_latent"]["min_A"]
-zC_ = exp.extras["minima_latent"]["min_C"]
-mechanism_report = {"traj": {k: v[-1][1] for k, v in mech_traj.items()}}
+def _mk_law(dz_list, w=None):
+    az = torch.stack([torch.cat([d_, torch.zeros(8, device=DEV)]) for d_ in dz_list])
+    ax = exp.pot.from_latent(az)
+    w_ = (torch.full((len(dz_list),), 1.0 / len(dz_list), device=DEV)
+          if w is None else torch.as_tensor(w, dtype=torch.float64, device=DEV))
+    return ShellJumpLaw(ax, w_ / w_.sum(), 0.1 * float(ax.norm(dim=1).min()))
+
+mL = exp.extras["laplace_masses"]
+variants = {
+    "MST w=1/4 (spec)": (_mk_law([zB_-zC_, zC_-zB_, zC_-zA_, zA_-zC_]), 1.0),
+    "complete graph w=1/6": (_mk_law([zB_-zA_, zA_-zB_, zC_-zA_, zA_-zC_,
+                                      zC_-zB_, zB_-zC_]), 1.0),
+    "complete graph w~mass": (_mk_law(
+        [zB_-zA_, zA_-zB_, zC_-zA_, zA_-zC_, zC_-zB_, zB_-zC_],
+        [mL[1], mL[0], mL[2], mL[0], mL[2], mL[1]]), 1.0),
+    "direct A<->B uncapped": (_mk_law([zA_-zB_, zB_-zA_]), 1.0),
+    "direct A<->B cap=2h (production)": (exp.law, exp.cp_drift_cap),
+}
+ablation = {}
+for name_, (law_, cap_) in variants.items():
+    sc_ = ShellScore(exp.pot, law_, cfg.lam, cfg.beta, **CHOSEN_QUAD)
+    g1_ = torch.Generator(device=DEV); g1_.manual_seed(C.init_seed(0))
+    gd_ = torch.Generator(device=DEV); gd_.manual_seed(_dseed("LSC-CP", 0))
+    gj_ = torch.Generator(device=DEV); gj_.manual_seed(_jseed(0))
+    s_ = _CP(exp.pot, exp.init_fn(cfg.n_particles, g1_), dt_final, C.EPS,
+             cfg.lam, law_, gd_, gj_, exp.box, score=sc_, drift_cap=cap_)
+    for _i in range(int(round(cfg.T / dt_final))):
+        s_.step()
+    p_ = _occ(exp.labels_fn(s_.positions()), 3)
+    tv_ = 0.5 * float((p_ - exp.p_star).abs().sum())
+    ablation[name_] = dict(A=round(float(p_[0]), 4), B=round(float(p_[1]), 5),
+                           Cb=round(float(p_[2]), 5), TV=round(tv_, 4))
+    print(f"{name_:>34s}: A={p_[0]:.4f} B={p_[1]:.5f} C={p_[2]:.5f} TV={tv_:.4f}")'''),
+        code('''# parking mechanism on the MST law: uphill A->C jump-lander cohort
+from src.samplers import tame as _tame
+law_mst = exp.extras["law_mst"]
+score_mst = ShellScore(exp.pot, law_mst, cfg.lam, cfg.beta, **CHOSEN_QUAD)
+mechanism_report = {"ablation": ablation}
 for dt_ in (dt_final, dt_final / 4.0):
     g_ = torch.Generator(device=DEV); g_.manual_seed(3)
     zloc = torch.zeros(4000, 10, device=DEV)
     zloc[:, :2] = zA_ + 0.12 * torch.randn(4000, 2, generator=g_, device=DEV)
     zloc[:, 2:] = 0.1414 * torch.randn(4000, 8, generator=g_, device=DEV)
-    x_ = exp.pot.from_latent(zloc) + exp.law.atoms[2]      # jump A -> C
-    M0, _ = score_m.log_parts(x_)
+    x_ = exp.pot.from_latent(zloc) + law_mst.atoms[2]      # jump A -> C
+    M0, _ = score_mst.log_parts(x_)
     for _s in range(24):
-        S_, _d = score_m(x_)
+        S_, _d = score_mst(x_)
         b_ = -exp.pot.grad(x_) + S_
         xi_ = torch.randn(x_.shape, generator=g_, device=DEV)
         x_ = exp.box.clip(x_ + dt_ * _tame(b_, dt_) + (2 * C.EPS * dt_) ** 0.5 * xi_)
     parked = float(_occ(exp.labels_fn(x_), 3)[2].item())
-    print(f"dt={dt_}: lander median M {M0.median():.2f}; parked C fraction {parked:.3f}")
-    mechanism_report[f"parked_fraction@dt={dt_}"] = parked'''),
+    print(f"MST law, dt={dt_}: lander median M {M0.median():.2f}; "
+          f"parked C fraction {parked:.3f}")
+    mechanism_report[f"mst_parked_fraction@dt={dt_}"] = parked'''),
         code(CELL_FIGURES),
         code(cell_csv("dt_certified=dt_certified, mechanism=mechanism_report,")),
     ]

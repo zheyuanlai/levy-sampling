@@ -1,4 +1,7 @@
-results/
+# results: track the CSVs, ignore everything else (manifests, caches)
+results/**
+!results/**/
+!results/**/*.csv
 __pycache__/
 *.pyc
 .ipynb_checkpoints/

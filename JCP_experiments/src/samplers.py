@@ -21,12 +21,20 @@ from .jumps import apply_poisson_jumps
 from .config import K_MAX_JUMPS
 
 
-def tame(b: torch.Tensor, dt: float) -> torch.Tensor:
-    # overflow-safe norm: with the Levy score, ||b|| can exceed e^354 and
-    # b.norm() would overflow to inf, silently zeroing the tamed drift.
+def tame(b: torch.Tensor, dt: float, cap: float = 1.0) -> torch.Tensor:
+    """Tamed drift; the displacement dt*tame(b) is bounded by `cap`.
+
+    cap = 1 is the shared default for every method. A smaller cap may be set
+    for the coupled CP/LSC-CP pair on landscapes where the corrective score
+    forms long transport tubes: a single O(1) hop scatters landers out of
+    the tube (into side basins), while steps bounded by the jump-shell scale
+    follow the tube (E3's design-ladder ablation measures this).
+
+    Overflow-safe norm: with the Levy score, ||b|| can exceed e^354 and
+    b.norm() would overflow to inf, silently zeroing the tamed drift."""
     m = b.abs().amax(dim=-1, keepdim=True).clamp(min=1.0)
     n = m * (b / m).norm(dim=-1, keepdim=True)
-    return b / (1.0 + dt * n)
+    return b / (1.0 + dt * n / cap)
 
 
 # ------------------------------------------------------------------- boxes
@@ -369,12 +377,14 @@ class CompoundPoisson(SamplerBase):
     so their jump times and increments are pathwise identical."""
 
     def __init__(self, pot, x0, dt, eps, lam, law, gen_diff, gen_jump, box,
-                 score=None, name: str | None = None) -> None:
+                 score=None, name: str | None = None,
+                 drift_cap: float = 1.0) -> None:
         super().__init__()
         self.pot, self.x, self.dt, self.eps, self.lam = pot, x0.clone(), dt, eps, lam
         self.law, self.gen_diff, self.gen_jump, self.box = law, gen_diff, gen_jump, box
         self.score = score
         self.name = name or ("LSC-CP" if score is not None else "CP")
+        self.drift_cap = float(drift_cap)      # same cap for CP and LSC-CP
         self._noise = math.sqrt(2.0 * eps * dt)
 
     def step(self) -> None:
@@ -387,7 +397,7 @@ class CompoundPoisson(SamplerBase):
             self._acc_max("max_log_magnitude", sdiag["max_log_magnitude"])
         xi = torch.randn(self.x.shape, generator=self.gen_diff,
                          device=self.x.device, dtype=self.x.dtype)
-        x1 = self.x + self.dt * tame(b, self.dt) + self._noise * xi
+        x1 = self.x + self.dt * tame(b, self.dt, self.drift_cap) + self._noise * xi
         x1, counts = apply_poisson_jumps(x1, self.law, self.lam, self.dt,
                                          self.gen_jump, K_MAX_JUMPS)
         self.x = self.box.clip(x1)

@@ -49,6 +49,7 @@ class Experiment:
     # half-committed excursions and overstates the escape rate several-fold
     exit_committed: Callable              # x -> bool
     kramers_tau: float
+    cp_drift_cap: float = 1.0             # drift-step cap for the CP pair
     extras: dict = field(default_factory=dict)
 
     @property
@@ -161,16 +162,59 @@ def build_e3(device="cuda", basin_cache: str | None = None) -> Experiment:
         mins[key] = newton_refine(muller_brown_2d_grad, z0)
     zA, zB, zC = mins["min_A"], mins["min_B"], mins["min_C"]
 
-    # Euclidean MST on the three latent minima: edges (C,B) and (A,C),
-    # symmetrised to 4 directed atoms r_a = (dz, 0_8) B^T
-    dz_list = [zB - zC, zC - zB, zC - zA, zA - zC]
+    def _hess2_raw(z):
+        hh = 1e-5
+        H = torch.zeros(2, 2, dtype=torch.float64, device=device)
+        for j in range(2):
+            e = torch.zeros(2, dtype=torch.float64, device=device)
+            e[j] = hh
+            H[:, j] = (muller_brown_2d_grad((z + e).unsqueeze(0))[0]
+                       - muller_brown_2d_grad((z - e).unsqueeze(0))[0]) / (2 * hh)
+        return H
+
+    # Laplace basin-mass estimates at the known minima (same information
+    # class as the minima locations themselves -- no sampling oracle):
+    # m_k ~ exp(-beta U_k / s) / sqrt(det H_k), constants cancel in the
+    # normalisation (the aux Gaussian factorises out of basin ratios).
+    log_m = []
+    for zk in (zA, zB, zC):
+        Uk = float(muller_brown_2d(zk.unsqueeze(0)).item())
+        _, ld = torch.linalg.slogdet(_hess2_raw(zk))
+        log_m.append(-BETA * Uk / pot.s - 0.5 * float(ld.item()))
+    log_m_t = torch.tensor(log_m, dtype=torch.float64, device=device)
+    laplace_masses = torch.softmax(log_m_t, dim=0)           # (A, B, C)
+
+    # PRODUCTION jump law (measured design ladder, notebook ablation cells):
+    # the symmetric DIRECT A<->B pair, w = (1/2, 1/2). Design lessons, each
+    # measured: (i) pi-negligible relay basins (C, mass 5e-6) must not be
+    # jump targets -- landers park there (MST/complete-graph laws stall at
+    # TV ~ 0.11-0.20); (ii) weights must stay O(1) -- mass-ratio skew
+    # concentrates the correction into an e^{beta dV} circulating conveyor
+    # whose discretisation error swamps the tiny net flux (A stalls at
+    # ~0.5); (iii) the A-B chord crosses C's basin, so the CP pair's drift
+    # step is capped at 2h (the shell's own resolution scale): a single
+    # O(1) tamed hop scatters returned landers out of the score tube into
+    # C, while 2h-bounded steps follow the tube through.
+    dz_direct = [zA - zB, zB - zA]
     atoms_z = torch.stack([torch.cat([dz, torch.zeros(8, dtype=torch.float64,
                                                       device=device)])
-                           for dz in dz_list])
-    atoms_x = pot.from_latent(atoms_z)                       # (4, 10)
-    weights = torch.full((4,), 0.25, dtype=torch.float64, device=device)
+                           for dz in dz_direct])
+    atoms_x = pot.from_latent(atoms_z)                       # (2, 10)
+    weights = torch.tensor([0.5, 0.5], dtype=torch.float64, device=device)
     h = 0.1 * float(atoms_x.norm(dim=1).min().item())
     law = ShellJumpLaw(atoms_x, weights, h=h)
+    drift_cap = 2.0 * h
+
+    # unweighted-MST ablation law (the spec's original design)
+    dz_mst = [zB - zC, zC - zB, zC - zA, zA - zC]
+    atoms_z_mst = torch.stack([torch.cat([dz, torch.zeros(8, dtype=torch.float64,
+                                                          device=device)])
+                               for dz in dz_mst])
+    atoms_x_mst = pot.from_latent(atoms_z_mst)
+    law_mst = ShellJumpLaw(atoms_x_mst,
+                           torch.full((4,), 0.25, dtype=torch.float64,
+                                      device=device),
+                           h=0.1 * float(atoms_x_mst.norm(dim=1).min().item()))
 
     lo_lat = [-3.0, -1.5] + [-2.0] * 8
     hi_lat = [3.0, 3.5] + [2.0] * 8
@@ -242,9 +286,11 @@ def build_e3(device="cuda", basin_cache: str | None = None) -> Experiment:
         # exists; the meaningful first-passage event is B -> A.
         exit_committed=lambda x: (pot.to_latent(x)[:, :2] - zA).norm(dim=1) < 0.3,
         kramers_tau=kramers,
+        cp_drift_cap=drift_cap,
         extras={"minima_latent": mins, "atoms_z": atoms_z, "h": h,
                 "basins": basins, "barrier_B": barrier, "saddle_S2": zS2,
-                "ref": ref},
+                "ref": ref, "laplace_masses": laplace_masses,
+                "law_mst": law_mst, "atoms_z_mst": atoms_z_mst},
     )
 
 
@@ -382,7 +428,7 @@ def make_sampler_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
             score = exp.make_score(**score_kwargs) if method == "LSC-CP" else None
             return CompoundPoisson(exp.pot, x0, dt, eps, lam, exp.law,
                                    gen, g_jump, exp.box, score=score,
-                                   name=method)
+                                   name=method, drift_cap=exp.cp_drift_cap)
         raise ValueError(method)
 
     return factory
@@ -426,7 +472,7 @@ def make_batched_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
             score = exp.make_score(**score_kwargs) if method == "LSC-CP" else None
             return CompoundPoisson(exp.pot, x0, dt, eps, lam, exp.law,
                                    gen, g_jump, exp.box, score=score,
-                                   name=method)
+                                   name=method, drift_cap=exp.cp_drift_cap)
         raise ValueError(method)
 
     return factory
