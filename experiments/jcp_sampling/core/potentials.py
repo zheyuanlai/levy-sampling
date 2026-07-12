@@ -107,6 +107,59 @@ class DoubleWell1D(BasePotential):
                 "right_basin": (x[..., 0] >= 0).float()}
 
 
+class DoubleWellBarrier1D(BasePotential):
+    """Symmetric double well with an explicit barrier-height knob: ``V(x) = H (x^2-1)^2``.
+
+    Wells sit at ``x = +-1`` (depth 0) and the barrier at ``x = 0`` has height exactly ``H``, so
+    ``H`` is the saddle height ``Delta V`` and the inter-well distance ``D = 2`` is fixed for all
+    ``H``. The Gibbs target is ``exp(-V/eps)`` with ``eps`` the temperature (``beta = 1/eps``,
+    Brownian noise ``sqrt(2 eps)``). Used for the barrier-free-theorem sweep: the fixed +-2 shell
+    jump bank is ``H``-independent, so any ``H``-independence of the LSC-CP inter-well rate is a
+    property of the method, not of tuning, while local Langevin's rate is Arrhenius ``exp(-H/eps)``.
+    """
+
+    def __init__(self, H: float = 1.0, eps: float = 0.5, state_clip: float = 4.0):
+        super().__init__("double_well_barrier", 1, 1.0 / float(eps), float(state_clip))
+        self.H = float(H)
+        self.eps = float(eps)
+
+    def potential(self, x):
+        z = x[..., 0]
+        return self.H * (z * z - 1.0) ** 2
+
+    def gradient(self, x):
+        z = x[..., 0]
+        return (4.0 * self.H * z * (z * z - 1.0)).unsqueeze(-1)
+
+    def minima(self):
+        return torch.tensor([[-1.0], [1.0]], dtype=torch.float32)
+
+    def basin_labels(self, x):
+        return (x[..., 0] >= 0).long()
+
+    def target_basin_probs(self, device=None):
+        return torch.tensor([0.5, 0.5], device=device, dtype=torch.float32)
+
+    def reference(self, n, seed, device=None):
+        H = self.H
+        arr = _inverse_cdf_1d(lambda z: H * (z * z - 1.0) ** 2, self.beta, -3.0, 3.0, 20001, n, seed)
+        return torch.tensor(arr[:, None], device=device, dtype=torch.float32)
+
+    def initial_state(self, n, seed, device=None):
+        g = torch.Generator(device=device); g.manual_seed(int(seed))
+        return -1.0 + 0.08 * torch.randn(n, 1, generator=g, device=device)
+
+    def slow_cv(self, x):
+        return x[..., 0]
+
+    def observables(self, x):
+        return {"energy": self.potential(x), "x": x[..., 0], "x2": x[..., 0] ** 2,
+                "right_basin": (x[..., 0] >= 0).float()}
+
+    def metadata(self):
+        md = super().metadata(); md.update({"H": self.H, "eps": self.eps}); return md
+
+
 class TripleWell1D(BasePotential):
     """Triple-well target defined as a normalized Gaussian mixture ``p_star``.
 
@@ -656,12 +709,151 @@ class AlanineTorus2D(BasePotential):
         md = super().metadata(); md.update({"eps": self.eps, "surrogate": True}); return md
 
 
+class AlanineFES2D(BasePotential):
+    """Real alanine-dipeptide (phi, psi) free-energy surface on the torus [-pi, pi)^2.
+
+    Unlike :class:`AlanineTorus2D` (an analytic wrapped-Gaussian *surrogate*), this target's
+    potential is a **real force-field free energy** ``F(phi, psi)`` supplied from MD / metadynamics
+    (AMBER ff14SB + GB implicit, 300 K, unless noted). The cached ``.npz`` provides the grid, ``F``,
+    the real minima, and the thermal energy ``kT`` in ``F``'s units; the Gibbs target is
+    ``exp(-F/kT)`` (``beta = 1/kT``). ``F`` is represented by a smooth periodic Fourier interpolant
+    truncated to ``n_modes`` harmonics per axis, giving analytic, infinitely differentiable
+    ``potential`` and ``gradient`` that the stationary-Levy-score quadrature consumes verbatim.
+    Basin populations / reference use the raw grid ``F`` (exact), so the interpolant only enters the
+    dynamics. This is where the additive fixed-vector construction is valid: metastable (phi, psi)
+    transitions are fixed displacements on the torus (wrapped), so the real Ramachandran minima give
+    a wrapped basin-to-basin jump bank with a periodic score.
+
+    Expected ``.npz`` keys: ``phi`` (Ng,), ``psi`` (Ng,) grid axes over [-pi, pi); ``F`` (Ng, Ng),
+    indexing 'ij' so ``F[i, j] = F(phi[i], psi[j])``; ``minima`` (K, 2) radians; ``kT`` scalar.
+    """
+
+    def __init__(self, fes_path: str, n_modes: int = 12, state_clip: float = 1.0e6):
+        data = np.load(fes_path, allow_pickle=True)
+        self.fes_path = str(fes_path)
+        self.n_modes = int(n_modes)
+        phi = np.asarray(data["phi"], dtype=np.float64)
+        psi = np.asarray(data["psi"], dtype=np.float64)
+        F = np.asarray(data["F"], dtype=np.float64)
+        kT = float(np.asarray(data["kT"]))
+        super().__init__("alanine_fes", 2, 1.0 / kT, float(state_clip))
+        self.kT = kT
+        self._phi = phi; self._psi = psi
+        self._F = F
+        self._centers = torch.tensor(np.asarray(data["minima"], dtype=np.float32))
+        self.domain = (-math.pi, math.pi, -math.pi, math.pi)
+        self._probs_cache = None
+        self._build_fourier(F)
+
+    def _build_fourier(self, F: np.ndarray) -> None:
+        Ng = F.shape[0]
+        A = np.fft.fft2(F) / (Ng * Ng)
+        freqs = np.fft.fftfreq(Ng) * Ng            # integer frequencies
+        kx = np.round(freqs).astype(int)
+        Kx, Ky = np.meshgrid(kx, kx, indexing="ij")
+        keep = (np.abs(Kx) <= self.n_modes) & (np.abs(Ky) <= self.n_modes)
+        self._kp = torch.tensor(Kx[keep], dtype=torch.float32)
+        self._kq = torch.tensor(Ky[keep], dtype=torch.float32)
+        self._c_re = torch.tensor(A[keep].real, dtype=torch.float32)
+        self._c_im = torch.tensor(A[keep].imag, dtype=torch.float32)
+
+    @staticmethod
+    def _wrap(a):
+        return (a + math.pi) % (2 * math.pi) - math.pi
+
+    def _phase(self, x):
+        # x: (..., 2) -> phase (..., M); grid basis is exp(i k (phi + pi))
+        kp = self._kp.to(x.device, x.dtype); kq = self._kq.to(x.device, x.dtype)
+        u = (x[..., 0:1] + math.pi); v = (x[..., 1:2] + math.pi)
+        return u * kp + v * kq
+
+    def potential(self, x):
+        xw = self._wrap(x)
+        theta = self._phase(xw)
+        cre = self._c_re.to(x.device, x.dtype); cim = self._c_im.to(x.device, x.dtype)
+        return (cre * torch.cos(theta) - cim * torch.sin(theta)).sum(-1)
+
+    def gradient(self, x):
+        xw = self._wrap(x)
+        theta = self._phase(xw)
+        cre = self._c_re.to(x.device, x.dtype); cim = self._c_im.to(x.device, x.dtype)
+        kp = self._kp.to(x.device, x.dtype); kq = self._kq.to(x.device, x.dtype)
+        base = -cre * torch.sin(theta) - cim * torch.cos(theta)   # d/dtheta Re[c e^{i theta}]
+        g_phi = (base * kp).sum(-1)
+        g_psi = (base * kq).sum(-1)
+        return torch.stack([g_phi, g_psi], dim=-1)
+
+    def minima(self):
+        return self._centers.clone()
+
+    def basin_labels(self, x):
+        m = self._centers.to(x.device, x.dtype)
+        d = self._wrap(self._wrap(x)[..., None, :] - m)
+        return (d ** 2).sum(-1).argmin(-1)
+
+    def _grid_density(self):
+        F = torch.tensor(self._F, dtype=torch.float64)
+        logp = -F / self.kT
+        logp = logp - logp.max()
+        P = torch.exp(logp)
+        P = P / P.sum()
+        return P.numpy()
+
+    def target_basin_probs(self, device=None):
+        if self._probs_cache is None:
+            P = self._grid_density()
+            phi = torch.tensor(self._phi, dtype=torch.float32)
+            psi = torch.tensor(self._psi, dtype=torch.float32)
+            PHI, PSI = torch.meshgrid(phi, psi, indexing="ij")
+            pts = torch.stack([PHI.reshape(-1), PSI.reshape(-1)], dim=-1)
+            lab = self.basin_labels(pts).numpy().reshape(P.shape)
+            K = self._centers.shape[0]
+            probs = np.array([P[lab == k].sum() for k in range(K)], dtype=float)
+            self._probs_cache = probs / probs.sum()
+        return torch.tensor(self._probs_cache, device=device, dtype=torch.float32)
+
+    def reference(self, n, seed, device=None):
+        P = self._grid_density().ravel()
+        rng = np.random.default_rng(seed)
+        idx = rng.choice(P.size, size=n, p=P / P.sum())
+        Ng = self._F.shape[0]
+        ii, jj = np.unravel_index(idx, self._F.shape)
+        dphi = self._phi[1] - self._phi[0]; dpsi = self._psi[1] - self._psi[0]
+        phi = self._phi[ii] + rng.uniform(-0.5 * dphi, 0.5 * dphi, size=n)
+        psi = self._psi[jj] + rng.uniform(-0.5 * dpsi, 0.5 * dpsi, size=n)
+        x = self._wrap(torch.tensor(np.stack([phi, psi], axis=1), dtype=torch.float32))
+        return x.to(device=device)
+
+    def initial_state(self, n, seed, device=None):
+        # start every chain in the highest-population basin to test inter-basin communication
+        probs = self.target_basin_probs().numpy()
+        start = self._centers[int(np.argmax(probs))].to(device)
+        g = torch.Generator(device=device); g.manual_seed(int(seed))
+        return self._wrap(start + 0.1 * torch.randn(n, 2, generator=g, device=device))
+
+    def slow_cv(self, x):
+        return torch.cos(self._wrap(x)[..., 0])
+
+    def observables(self, x):
+        xw = self._wrap(x)
+        return {"energy": self.potential(x), "phi": xw[..., 0], "psi": xw[..., 1]}
+
+    def metadata(self):
+        md = super().metadata()
+        md.update({"kT": self.kT, "n_modes": self.n_modes, "fes_path": self.fes_path,
+                   "surrogate": False, "n_minima": int(self._centers.shape[0])})
+        return md
+
+
 def build_potential(cfg: dict) -> BasePotential:
     kind = cfg.get("kind", cfg.get("target", ""))
     target_cfg = dict(cfg.get("target_cfg", cfg))
     beta = float(target_cfg.get("beta", cfg.get("beta", 1.0)))
     if kind == "double_well":
         return DoubleWell1D(beta=beta, state_clip=target_cfg.get("state_clip", 4.0))
+    if kind == "double_well_barrier":
+        return DoubleWellBarrier1D(H=target_cfg.get("H", 1.0), eps=target_cfg.get("eps", 0.5),
+                                   state_clip=target_cfg.get("state_clip", 4.0))
     if kind == "triple_well":
         return TripleWell1D(eps=target_cfg.get("eps", 0.08), state_clip=target_cfg.get("state_clip", 6.0))
     if kind == "muller10d":
@@ -678,4 +870,7 @@ def build_potential(cfg: dict) -> BasePotential:
         return ManyWell(n_blocks=target_cfg.get("n_blocks", 4), beta=beta, state_clip=target_cfg.get("state_clip", 10.0))
     if kind == "alanine_torus":
         return AlanineTorus2D(eps=target_cfg.get("eps", 0.4), state_clip=target_cfg.get("state_clip", 1.0e6))
+    if kind == "alanine_fes":
+        return AlanineFES2D(fes_path=target_cfg["fes_path"], n_modes=target_cfg.get("n_modes", 12),
+                            state_clip=target_cfg.get("state_clip", 1.0e6))
     raise ValueError(f"unknown potential kind: {kind}")

@@ -1,0 +1,12 @@
+configs:
+- experiments/jcp_sampling/configs/double_well_barrier/rate/H025_eps05.yaml
+- experiments/jcp_sampling/configs/double_well_barrier/rate/H075_eps05.yaml
+- experiments/jcp_sampling/configs/double_well_barrier/rate/H15_eps05.yaml
+- experiments/jcp_sampling/configs/double_well_barrier/rate/H3_eps05.yaml
+- experiments/jcp_sampling/configs/double_well_barrier/rate/H025_eps025.yaml
+- experiments/jcp_sampling/configs/double_well_barrier/rate/H075_eps025.yaml
+- experiments/jcp_sampling/configs/double_well_barrier/rate/H15_eps025.yaml
+- experiments/jcp_sampling/configs/double_well_barrier/rate/H3_eps025.yaml
+- experiments/jcp_sampling/configs/double_well_barrier/mfpt/H025_eps05.yaml
+- experiments/jcp_sampling/configs/double_well_barrier/mfpt/H075_eps05.yaml
+- experiments/jcp_sampling/configs/double_well_barrier/mfpt/H15_eps05.yaml

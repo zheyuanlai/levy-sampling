@@ -1,0 +1,44 @@
+\section{Quantitative summary}
+\label{sec:summary}
+
+This report evaluates the L\'evy-score-corrected compound-Poisson dynamics (LSC-CP): local
+overdamped Langevin, plus finite-activity compound-Poisson jumps, plus a stationary L\'evy-score
+drift $S_{\nu,\varepsilon}$ that cancels the invariant-measure defect of the raw jumps, so the
+Boltzmann target $\mu_\varepsilon\propto\exp[-V/\varepsilon]$ is preserved. Throughout, the spine
+is \emph{local Langevin} / \emph{raw CP} / \emph{LSC-CP}: raw CP uses the identical jump law as
+LSC-CP but omits the correction (sharing one random-number stream), so it isolates exactly what the
+correction fixes. The experiments are organized as one argument:
+\begin{enumerate}
+  \item \textbf{The correction is a real invariant-measure fix, not a speed trick.} Double well:
+    LSC-CP cuts the terminal CDF-sup error from $0.109$ (raw CP) to $0.020$ and the density-$L^1$
+    error from $0.408$ to $0.130$; the raw-CP defect is \emph{timestep-independent}
+    ($0.101\!\to\!0.109$ across $\Delta t=0.006\!\to\!0.00075$), i.e.\ a wrong invariant law rather
+    than a discretization artifact (\S\ref{sec:move1}).
+  \item \textbf{It is correct for the right reason.} Started at equilibrium, LSC-CP stays on target
+    (10D M\"uller--Brown basin-TV $0.012$; triple well $0.011$) while raw CP drifts off it
+    ($0.191$; $0.165$); and geometry matters---lifted inter-basin jumps give basin-TV $0.012$
+    versus $0.124$ for a random-direction matched-length control (\S\ref{sec:move2}).
+  \item \textbf{Jump support governs which modes communicate, while correctness stays automatic.}
+    Triple well: adjacent and overlong supports both keep mode-TV small ($0.047$, $0.015$); a
+    too-short shell fails to connect modes ($0.375$); raw overlong records the omitted-correction
+    bias ($0.168$) (\S\ref{sec:move3}).
+  \item \textbf{The payoff regime is trapped / high-dimensional / lattice-structured.} ManyWell
+    $d=8$--$64$: LSC-CP block-marginal KL $8.6\times10^{-4}$--$8\times10^{-3}$ where local baselines
+    sit at $0.9$--$1.6$ and PT at $0.37$--$0.57$; the barrier-height sweep confirms the
+    \emph{barrier-free} inter-well rate; and a real alanine-dipeptide free-energy surface tests the
+    method on a genuine force field (\S\ref{sec:move4}).
+  \item \textbf{Honest scope.} The additive fixed-vector construction breaks under continuous
+    symmetries (LJ$_7$ rotation) and across steep steric barriers (LJ$_{38}$ funnel switch), where
+    the remedy is Metropolis-corrected darting (\S\ref{sec:move5}).
+\end{enumerate}
+
+\paragraph{Scoped efficiency claim (read every ESS with its bias column).}
+We do \emph{not} claim a blanket ``orders of magnitude'' speed-up. On smooth, low-dimensional
+landscapes well-tuned local samplers and parallel tempering (PT) match or beat LSC-CP: on the
+double well, BAOAB posts $1.9\times10^4$ ESS/s but at CDF-sup $0.417$, and HMC reaches $0.023$,
+against LSC-CP's $0.020$ at $3.3\times10^3$ ESS/s; on the triple well MALA ($0.007$), HMC ($0.009$)
+and PT ($0.018$) all beat LSC-CP ($0.047$). The LSC-CP advantage is specific to the trapped,
+high-dimensional, and lattice-structured regime (ManyWell, four-well, the barrier sweep), where
+local exchange is exponentially slow and the metastable transitions are fixed coordinate
+displacements. The standing limitation is that LSC-CP requires a \emph{structure-informed jump
+bank}, whereas PT and HMC are black-box.

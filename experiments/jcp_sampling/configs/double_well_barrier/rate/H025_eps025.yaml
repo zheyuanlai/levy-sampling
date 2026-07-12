@@ -1,0 +1,23 @@
+# Barrier-free-theorem sweep (Exp A) RATE point: V=H(x^2-1)^2, H=0.25, eps=0.25.
+# Start at Gibbs equilibrium; inter-well transition rate k=transition_rate_per_time is
+# lambda_inter. Fixed +-2 shell bank (H-independent). Predicted: local k ~ exp(-H/eps),
+# LSC-CP k flat; raw CP k flat but biased equilibrium (CDF-sup elevated).
+experiment_name: barrier_rate_H025_eps025
+target: double_well_barrier
+target_cfg: {H: 0.25, eps: 0.25}
+jump_banks:
+- {kind: double_well_shell, scale: 1.0, intensity: 1.0}
+run:
+  n_particles: 2048
+  n_steps: 20000
+  dt: 0.003
+  record_every: 200
+  iat_points: 2000
+  seeds: [0, 1, 2]
+  n_ref: 20000
+  init: equilibrium
+reference: {n_ref: 20000, seed: 321}
+methods: [ULA, RawCP, LSBMC]
+method_cfgs:
+  RawCP: {dt: 0.003, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}
+  LSBMC: {dt: 0.003, n_theta: 8, jump_chunk: 8, tame_cap: 5.0}

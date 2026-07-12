@@ -64,6 +64,8 @@ AGENTS.md
 # Internal working status note (regenerable; not part of the published record)
 STATUS.md
 CLAUDE.md
+fable-prompt.md
+JCP_EXPERIMENT_PLAN.md
 
 # Paper / LaTeX sources
 paper/

@@ -1,0 +1,39 @@
+\section{Jump support governs which modes communicate; correctness stays automatic}
+\label{sec:move3}
+
+The triple well is the normalized Gaussian mixture with modes $(-3,0,3)$, scales $(0.5,0.75,0.5)$
+and weights $(5/21,3/7,1/3)$ ($\varepsilon=0.08$), started in the left mode. It disentangles two
+knobs: the stationary correction controls target fidelity, while the chosen jump \emph{support}
+decides which modes exchange mass directly. The \emph{adjacent} shell connects left--middle and
+middle--right; the \emph{overlong} shell connects the two outer modes directly, bypassing the
+middle; a deliberately \emph{too-short} shell (scale $0.4$) does not reach a neighbor.
+
+Table~\ref{tab:move3} shows the separation cleanly. Both corrected supports that actually reach a
+neighboring mode keep the mode-TV small (adjacent $0.047$, overlong $0.015$)---correctness is
+automatic for any adequate support---while the too-short corrected shell collapses to local noise
+($0.375$) because no correction can create transport the jumps do not provide. The uncorrected
+overlong control records the bias of omitting the correction ($0.168$ mode-TV, $0.163$ middle-mass
+error), and local Langevin is fully trapped in the initial mode ($0.739$, zero all-basin coverage).
+The overlong support additionally gives the fastest all-basin coverage ($0.864$ vs $0.573$),
+because a single jump reaches the far mode---an illustration that support is a performance knob laid
+on top of guaranteed correctness.
+
+\begin{table}[t]
+\centering\small
+\caption{Triple well: support versus correction. Corrected supports that reach a neighbor keep
+mode-TV small regardless of which modes they connect; a too-short shell fails; uncorrected jumps are
+biased; local Langevin is trapped.}
+\label{tab:move3}
+\begin{tabular}{llccc}
+\toprule
+Method & Support & mode-TV $\downarrow$ & middle-mass err $\downarrow$ & coverage frac $\uparrow$ \\
+\midrule
+LSC-CP & overlong & \textbf{0.015} & 0.017 & 0.864 \\
+LSC-CP & adjacent & 0.047 & \textbf{0.011} & 0.573 \\
+LSC-CP & too-short & 0.375 & 0.075 & 0.074 \\
+raw CP & overlong & 0.168 & 0.163 & 0.445 \\
+raw CP & adjacent & 0.276 & 0.170 & 0.368 \\
+local  & ---      & 0.739 & 0.394 & 0.000 \\
+\bottomrule
+\end{tabular}
+\end{table}

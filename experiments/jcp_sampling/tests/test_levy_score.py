@@ -3,7 +3,7 @@ import torch
 
 from experiments.jcp_sampling.core.jump_banks import double_well_shell, minima_edge_graph
 from experiments.jcp_sampling.core.levy_score import stationary_levy_score
-from experiments.jcp_sampling.core.potentials import DoubleWell1D, TripleWell1D
+from experiments.jcp_sampling.core.potentials import DoubleWell1D, DoubleWellBarrier1D, TripleWell1D
 
 
 def test_levy_score_chunking_agrees():
@@ -45,6 +45,32 @@ def test_stationarity_identity_1d():
     sl = slice(50, -50)
     rel = (lhs[sl] - rhs[sl]).abs().max() / rhs[sl].abs().max()
     assert float(rel) < 1e-3
+
+
+def test_stationarity_identity_barrier_sweep():
+    """LSC-CP preserves exp(-V/eps) for V=H(x^2-1)^2 across the barrier-sweep grid.
+
+    The fixed +-2 shell bank does not change with H, so this confirms the correction stays exact
+    as the barrier is raised -- the invariant-law premise of the barrier-free-theorem experiment.
+    """
+    for H in (0.5, 2.0, 4.0):
+        for eps in (0.5, 0.25):
+            pot = DoubleWellBarrier1D(H=H, eps=eps)
+            beta = pot.beta
+            Vfn = lambda z: pot.potential(z)
+            bank = double_well_shell(minima=(-1.0, 1.0), scale=1.0, intensity=1.0).to(dtype=torch.float64)
+            x = torch.linspace(-3.0, 3.0, 6001, dtype=torch.float64).reshape(-1, 1)
+            S = stationary_levy_score(Vfn, x, bank, beta, n_theta=48, exponent_clip=1e9, score_clip=None)[:, 0]
+            xs = x[:, 0]
+            pi = torch.exp(-beta * Vfn(x))
+            lhs = torch.gradient(S * pi, spacing=(xs,))[0]
+            rates = bank.intensity * bank.weights
+            rhs = torch.zeros_like(xs)
+            for w, r in zip(rates, bank.vectors[:, 0]):
+                rhs = rhs + w * (torch.exp(-beta * Vfn((xs - r).reshape(-1, 1))) - pi)
+            mask = (pi > pi.max() * 1e-6) & (xs > -2.6) & (xs < 2.6)
+            rel = float((lhs[mask] - rhs[mask]).abs().max() / rhs[mask].abs().max())
+            assert rel < 1e-2, f"H={H} eps={eps} rel={rel}"
 
 
 def test_stationarity_identity_triple_well_actual_banks():

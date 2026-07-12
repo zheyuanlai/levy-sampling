@@ -1,0 +1,56 @@
+\section{The correction is a real invariant-measure fix, not a speed trick}
+\label{sec:move1}
+
+The one-dimensional double well $V(x)=x^4/4-x^2/2$ (wells at $\pm1$, $\Delta V=1/4$,
+$\varepsilon=0.125$) separates target fidelity from relaxation speed: it has an explicit Gibbs
+reference, and raw CP and LSC-CP share the same symmetric shell jump law ($|r|=2$, $\lambda_0=1$)
+and the same random jump times, so any difference between them is the stationary correction alone.
+
+\paragraph{The correction removes the raw-jump bias.} Started from the left well and integrated to
+$T=4.8$, LSC-CP reproduces the symmetric Gibbs target while raw CP relaxes toward a biased
+stationary law and local Langevin stays trapped near its initial well (Table~\ref{tab:move1-dw}).
+The correction cuts the terminal Kolmogorov (CDF-sup) error by $5.5\times$ and the density-$L^1$
+error by $3.1\times$ relative to the identical uncorrected jumps.
+
+\begin{table}[t]
+\centering\small
+\caption{Double well, terminal target fidelity at $T=4.8$ from a metastable (left-well) start.
+Lower is better; raw CP and LSC-CP use the identical jump law.}
+\label{tab:move1-dw}
+\begin{tabular}{lcc}
+\toprule
+Method & CDF-sup error $\downarrow$ & density-$L^1$ error $\downarrow$ \\
+\midrule
+local Langevin & 0.402 & 0.809 \\
+raw CP         & 0.109 & 0.408 \\
+LSC-CP         & \textbf{0.020} & \textbf{0.130} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The defect is a wrong invariant law, not a discretization artifact.} If the raw-CP error
+were a finite-step (Euler) artifact it would vanish as $\Delta t\to0$. Starting every method
+\emph{at} the Gibbs reference and measuring the residual over a fixed horizon, the raw-CP CDF-sup
+error is flat at $\approx0.10$ across a factor-of-eight timestep refinement, while LSC-CP sits at
+the finite-sample floor together with jump-free local Langevin (Table~\ref{tab:move1-timestep}).
+The raw jumps therefore change the invariant measure; the correction restores it, and does so in
+continuous time (the stationarity identity $\int A_\varepsilon\varphi\,\mathrm d\mu_\varepsilon=0$
+holds for smooth compactly supported $\varphi$, verified numerically to $\sim10^{-6}$ on every jump
+bank used here). This is the sense in which the method is a target-preservation construction, not a
+faster integrator.
+
+\begin{table}[t]
+\centering\small
+\caption{Timestep independence of the raw-CP defect (equilibrium start). The raw-CP CDF-sup error
+does not shrink as $\Delta t\to0$ (wrong invariant law); LSC-CP stays at the finite-sample floor.}
+\label{tab:move1-timestep}
+\begin{tabular}{lcccc}
+\toprule
+$\Delta t$ & 0.0060 & 0.0030 & 0.0015 & 0.00075 \\
+\midrule
+raw CP CDF-sup $\to$ (flat) & 0.101 & 0.106 & 0.106 & 0.109 \\
+LSC-CP CDF-sup $\downarrow$ (floor) & 0.019 & 0.015 & 0.016 & 0.016 \\
+local CDF-sup (floor)       & 0.020 & 0.013 & 0.014 & 0.014 \\
+\bottomrule
+\end{tabular}
+\end{table}
