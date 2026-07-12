@@ -486,7 +486,9 @@ for i, ph in enumerate(exp.extras["phases"]):
     v_tab, W_tab = PHI4_MINIMA[ph]
     W = phi4_W(V2[i].unsqueeze(0))[0].item()
     assert abs(V2[i][0].item()-v_tab[0]) < 5e-5 and abs(W - W_tab) < 5e-4
-    assert abs(exp.p_star[i].item() - PHI4_LAPLACE_MASSES[ph]) < 5e-3
+    # p_star is the EXACT (SNIS) mass; the Laplace table should agree to
+    # the anharmonic correction scale (~1e-2)
+    assert abs(exp.p_star[i].item() - PHI4_LAPLACE_MASSES[ph]) < 2e-2
 print("minima / Laplace masses verified; kink pair cost",
       round(2*exp.pot.kink_energy(), 2), ">> 1.0 coherent barrier")
 g = torch.Generator(device=DEV); g.manual_seed(0)
