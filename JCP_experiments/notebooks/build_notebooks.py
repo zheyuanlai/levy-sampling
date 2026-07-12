@@ -495,6 +495,10 @@ settings = [dict(q_theta=qt, q_rho=qr) for qt in (8, 16, 32) for qr in (4, 8, 16
 CHOSEN_QUAD, quad_table = quadrature_refinement(
     settings, run_terminal_lsc, lambda **s: cert_e4(**s)["max_residual"], floors)
 print("chosen quadrature:", CHOSEN_QUAD)
+if CHOSEN_QUAD != DEFAULT_QUAD:
+    cert_report = cert_e4(**CHOSEN_QUAD)
+    print(f"certificate at chosen orders: max R = {cert_report['max_residual']:.3e}")
+    assert cert_report["max_residual"] < 1e-6
 display(pd.DataFrame(quad_table).round(6))'''),
         code(cell_dt_production('["W2", "TV", "MMD", "EMC"]')),
         code(CELL_FIGURES),
