@@ -525,8 +525,10 @@ def cert_e4(q_theta, q_rho):
                                   nu_shifts_jump=shifts_j, nu_logw_jump=logw_j)
 
 cert_report = cert_e4(**DEFAULT_QUAD)
-print(f"max R = {cert_report['max_residual']:.3e}")
-assert cert_report["max_residual"] < 1e-6
+print(f"max R at default orders = {cert_report['max_residual']:.3e}")
+print("NOTE: the jump-aligned phis expose the theta-quadrature defect along "
+      "the coherent path at Q_theta=16; the refinement gate below selects "
+      "the smallest orders with R < 1e-6 (and re-asserts).")
 gm = torch.Generator(device=DEV); gm.manual_seed(11)
 Mv, _ = exp.make_score(**DEFAULT_QUAD).log_parts(exp.extras["laplace"].sample(100_000, gm))
 print(f"max log score magnitude on support: {Mv.max().item():.1f} << 600")
