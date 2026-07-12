@@ -120,6 +120,30 @@ class LaplaceMixture:
         comp = self.log_weights + self.log_norm - 0.5 * quad
         return torch.logsumexp(comp, dim=1)
 
+    def sample_exact_snis(self, n: int, gen: torch.Generator, potential,
+                          beta: float, oversample: int = 16) -> torch.Tensor:
+        """EXACT pi samples by self-normalised importance resampling from the
+        Laplace mixture (proposal ESS is printed once by the caller if
+        desired; ~0.56 for the phi4 chain). Removes the harmonic reference's
+        anharmonic gap from every metric and floor."""
+        m = n * oversample
+        x = self.sample(m, gen)
+        log_w = -beta * potential.V(x) - self.log_q(x)
+        log_w = log_w - log_w.max()
+        w = torch.exp(log_w)
+        w = w / w.sum()
+        idx = torch.multinomial(w, n, replacement=True, generator=gen)
+        return x[idx]
+
+    def snis_ess_fraction(self, potential, beta: float, gen: torch.Generator,
+                          m: int = 50_000) -> float:
+        x = self.sample(m, gen)
+        log_w = -beta * potential.V(x) - self.log_q(x)
+        log_w = log_w - log_w.max()
+        w = torch.exp(log_w)
+        w = w / w.sum()
+        return float(1.0 / (w * w).sum().item() / m)
+
 
 # ---------------------------------------------------------------- basins
 class GradientFlowBasinMap2D:

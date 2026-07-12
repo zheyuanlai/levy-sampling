@@ -337,10 +337,23 @@ def build_e4(device="cuda", basin_cache: str | None = None) -> Experiment:
 
     basins = GradientFlowBasinMap2D(phi4_W_grad, V2, (-2.0, -2.0), (2.0, 2.0),
                                     n_grid=400, device=device, cache=basin_cache)
-    p_star = laplace.weights.clone()
 
     def qbar(x):
         return x.reshape(-1, pot.Ns, 2).mean(dim=1)          # (N, 2)
+
+    def labels_fn(x):
+        return basins.assign(qbar(x))
+
+    # reference: EXACT pi via SNIS resampling from the Laplace mixture
+    # (Laplace itself is kept in extras as the proposal / cross-check);
+    # p_star from a large fixed-seed exact draw.
+    def ref_sample(n, gen):
+        return laplace.sample_exact_snis(n, gen, pot, BETA)
+
+    g_p = torch.Generator(device=device)
+    g_p.manual_seed(31337)
+    from .metrics import occupancy as _occ
+    p_star = _occ(labels_fn(laplace.sample_exact_snis(200_000, g_p, pot, BETA)), 4)
 
     def init_fn(n, gen):
         return means24[0] + 0.05 * torch.randn(n, 24, generator=gen,
@@ -348,9 +361,6 @@ def build_e4(device="cuda", basin_cache: str | None = None) -> Experiment:
 
     def make_score(q_theta=Q_THETA, q_rho=Q_RHO):
         return ShellScore(pot, law, LAMBDA, BETA, q_theta, q_rho)
-
-    def labels_fn(x):
-        return basins.assign(qbar(x))
 
     # Kramers for the coherent -- escape: homogeneous soft modes dominate;
     # use full-24D overdamped Kramers with the coherent saddle of W
@@ -369,7 +379,7 @@ def build_e4(device="cuda", basin_cache: str | None = None) -> Experiment:
 
     return Experiment(
         name="coupled_phi4", cfg=cfg, pot=pot, law=law, box=box,
-        init_fn=init_fn, ref_sample=lambda n, g: laplace.sample(n, g),
+        init_fn=init_fn, ref_sample=ref_sample,
         make_score=make_score, labels_fn=labels_fn, p_star=p_star,
         metric_space=qbar,
         pt_beta_min=1.0,

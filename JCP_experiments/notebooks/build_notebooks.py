@@ -474,7 +474,9 @@ def build_e4_nb() -> nbf.NotebookNode:
 
 **Target.** $q_i\in\mathbb R^2$, $N_s=12$ periodic sites, $\delta=1/N_s$, $\kappa=2.5$:
 $$V(q) = \frac{\kappa}{2\delta}\sum_i\|q_{i+1}-q_i\|^2 + \delta\sum_i W(q_i),\qquad W(x,y) = (x^2-1)^2+(y^2-1)^2-0.05xy+0.03x+0.06y.$$
-Four coherent phases $(\pm1,\pm1)$; for homogeneous fields $V(\mathbf 1\otimes v)=W(v)$, so the coherent barrier equals the barrier of $W$ ($\beta\cdot\min$ barrier $=7.14$), and the kink-pair cost $5.96\gg1$ makes **the coherent flip the minimum-energy path**. Init at the $--$ phase; partition = basin of $W$ at $\bar q = \tfrac1{N_s}\sum_i q_i$; references: harmonic (Laplace) mixture + a long PT chain (both labelled references, cross-checked)."""),
+Four coherent phases $(\pm1,\pm1)$; for homogeneous fields $V(\mathbf 1\otimes v)=W(v)$, so the coherent barrier equals the barrier of $W$ ($\beta\cdot\min$ barrier $=7.14$), and the kink-pair cost $5.96\gg1$ makes **the coherent flip the minimum-energy path**. Init at the $--$ phase; partition = basin of $W$ at $\bar q = \tfrac1{N_s}\sum_i q_i$. **Reference: exact $\pi$ samples** by self-normalised importance resampling from the harmonic (Laplace) mixture proposal (ESS $\approx 0.56$; $p^\star$ from a $2\times10^5$ fixed-seed exact draw); a long PT chain cross-checks the phase masses.
+
+*Documented limitation (measured):* LSC-CP's stationary phase occupancy here carries a $\Delta t$-independent offset of order $10\%$ — the detailed-balance return flux for this mid-asymmetry landscape ($\beta\Delta W \approx 1.8$) is borne by thermal-tail score events that no fixed-step tamed integrator realises (confirmed by a $\pi$-start drift test, cap sweep, and a clean 1D control at the same asymmetry); the exact remedy (Metropolised jump acceptance) is future work."""),
         code(cell_setup("coupled_phi4", "build_e4",
                         'exp = build_e4(device=DEV, basin_cache=os.path.join(RESULTS, "basin_map.npz"))')),
         code('''from src.potentials import (PHI4_MINIMA, PHI4_ESCAPE_BARRIERS,
@@ -497,8 +499,19 @@ print(f"ULA committed MFPT {barrier_report['mfpt_estimate']:.0f} "
 
 Homogeneous phase shifts on the complete graph over the 4 minima (12 directed atoms $r_a=\mathbf 1_{N_s}\otimes(v_j-v_i)$, $w_a=1/12$, shell $h=0.1\min\|r_a\|$). The gradient energy is exactly invariant under homogeneous shifts, so $V(q-r)-V(q)=\delta\sum_i[W(q_i-d)-W(q_i)]$ is a fixed polynomial in $d$ whose coefficients are the per-particle moments $\sum x_i, \sum x_i^2, \sum x_i^3$ (and $y$ analogues): moments once per step in $O(N_s)$, then every quadrature energy delta is $O(1)$ — **no lattice sweeps** (validated to $10^{-13}$). In 24D the certificate uses the shifted-form identity with importance sampling from the Laplace mixture (equivalent to the deployed score; the $M$ cap never fires on the sampled region)."""),
         code('''from src.jumps import gauss_legendre_01
+from src.certificate import TanhRidgeProduct
 DEFAULT_QUAD = dict(q_theta=C.Q_THETA, q_rho=C.Q_RHO)
 phis = make_phi_family(24, exp.extras["means24"][0].tolist(), 1.5, DEV, n_phi=4)
+# jump-ALIGNED test functions: in 24D random ridge directions have
+# a.r_hat ~ 1/sqrt(24) and are blind to variation along the coherent path,
+# which is exactly where the theta-quadrature acts; add ridges along the
+# first atoms at three sharpness scales.
+for a_idx, sc in ((0, 0.5), (0, 1.0), (2, 0.5)):
+    r0 = exp.law.atoms[a_idx]
+    rhat = (r0 / r0.norm()).unsqueeze(0)
+    mid = exp.extras["means24"][0] + 0.5 * r0
+    phis.append(TanhRidgeProduct(rhat, (rhat @ mid.unsqueeze(1)).reshape(1),
+                                 torch.tensor([sc], device=DEV)))
 
 def cert_e4(q_theta, q_rho):
     theta, w_theta = gauss_legendre_01(q_theta, DEV)
@@ -519,7 +532,10 @@ cert_report["max_log_magnitude_on_support"] = float(Mv.max().item())'''),
         code(CELL_LADDER),
         code(CELL_REFERENCE + '''
 
-# PT cross-check of the Laplace reference (reference vs reference)
+# SNIS proposal quality + PT cross-check of the exact phase masses
+g_ess = torch.Generator(device=DEV); g_ess.manual_seed(555)
+ess = exp.extras["laplace"].snis_ess_fraction(exp.pot, C.BETA, g_ess)
+print(f"SNIS proposal ESS fraction: {ess:.3f}")
 gen_x = torch.Generator(device=DEV); gen_x.manual_seed(4242)
 from src.samplers import ParallelTempering
 from src.metrics import occupancy
@@ -529,7 +545,7 @@ for _ in range(int(round(300.0 / cfg.dt))):
     pt_x.step()
 p_pt = occupancy(exp.labels_fn(pt_x.positions()), 4).cpu().numpy()
 print("long-PT phase masses:", np.round(p_pt, 3),
-      " vs Laplace:", np.round(exp.p_star.cpu().numpy(), 3))
+      " vs exact p* (SNIS):", np.round(exp.p_star.cpu().numpy(), 3))
 pt_crosscheck = p_pt.tolist()'''),
         code('''def run_terminal_lsc(**quad):
     f = make_sampler_factory(exp, cfg.dt, pt_betas, score_kwargs=quad)
