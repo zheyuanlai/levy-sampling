@@ -457,7 +457,7 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
         target_mass = mass / mass.sum()
 
     proj10 = None
-    if exp.name == "muller_brown_10d":
+    if exp.cfg.d == 10:      # latent-metric experiments also report full-10D W2
         proj10 = M.make_projections(10, 200, seed=778, device=device)
 
     def w2_fn(a, b):
