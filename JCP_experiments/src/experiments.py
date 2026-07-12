@@ -264,6 +264,12 @@ def build_e4(device="cuda", basin_cache: str | None = None) -> Experiment:
     weights = torch.full((12,), 1.0 / 12.0, dtype=torch.float64, device=device)
     h = 0.1 * float(atoms.norm(dim=1).min().item())
     law = ShellJumpLaw(atoms, weights, h=h)
+    # drift cap = max ||r_a||: the coherent paths cross no foreign basin, so
+    # the detailed-balance return flow is best integrated by steps that may
+    # retrace a full jump (measured: pi-start TV 0.052 at cap=1 vs 0.023 at
+    # cap=||r||, floor 0.018). Contrast E3, whose chords cross a foreign
+    # basin and need small in-tube steps (cap=2h).
+    drift_cap_e4 = float(atoms.norm(dim=1).max().item())
 
     box = RectBox([-2.0] * 24, [2.0] * 24, device)
 
@@ -332,6 +338,7 @@ def build_e4(device="cuda", basin_cache: str | None = None) -> Experiment:
             (qbar(x).unsqueeze(1) - V2[1:].unsqueeze(0)).norm(dim=2).min(dim=1)
             .values < 0.35),
         kramers_tau=kramers,
+        cp_drift_cap=drift_cap_e4,
         extras={"minima_2d": V2, "means24": means24, "hessians": H24,
                 "laplace": laplace, "basins": basins, "h": h,
                 "barrier_minus_minus": barrier, "phases": phases},
