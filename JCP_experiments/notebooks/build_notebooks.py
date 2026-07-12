@@ -103,13 +103,19 @@ for row in dt_table:
 
 n_steps = int(round(cfg.T / dt_final))
 steps_per_ck = max(1, n_steps // C.N_CHECKPOINTS)
+# dense-early checkpoint schedule: the nonlocal transient lives in the
+# first ~5% of the run; 40 dense + 48 sparse points, identical across
+# methods (measurement cadence only -- no protocol change)
+from src.runner import checkpoint_schedule
+ck_steps = checkpoint_schedule(n_steps)
 bfactory = make_batched_factory(exp, dt_final, pt_betas, cfg.seeds,
                                 score_kwargs=CHOSEN_QUAD)
 t0 = time.time()
 rows, method_info = run_experiment_batched(C.METHODS, cfg.seeds, bfactory,
                                            n_steps, steps_per_ck, dt_final,
                                            metrics_fn, exp.pot,
-                                           cfg.n_particles)
+                                           cfg.n_particles,
+                                           checkpoint_steps=ck_steps)
 print(f"production total: {{time.time()-t0:.0f}}s")
 assert max(r["nonfinite_frac"] for r in rows) == 0.0
 print("nonfinite fraction: identically zero")'''

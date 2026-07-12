@@ -113,16 +113,38 @@ def run_one(method: str, seed: int, sampler_factory, n_steps: int,
     return rows, info
 
 
+def checkpoint_schedule(n_steps: int, dense_frac: float = 0.05,
+                        n_dense: int = 40, n_sparse: int = 48) -> list[int]:
+    """Fixed non-uniform checkpoint schedule, identical across methods:
+    n_dense points uniformly over the first dense_frac of the run (the
+    nonlocal methods equilibrate within ~lambda^-1 time units, an order of
+    magnitude faster than a uniform T/50 cadence can resolve), then
+    n_sparse points to the end."""
+    dense_end = max(n_dense, int(round(n_steps * dense_frac)))
+    dense = np.linspace(dense_end / n_dense, dense_end, n_dense)
+    sparse = np.linspace(dense_end + (n_steps - dense_end) / n_sparse,
+                         n_steps, n_sparse)
+    steps = sorted(set(int(round(v)) for v in np.concatenate([dense, sparse])
+                       if v >= 1))
+    steps[-1] = n_steps
+    return steps
+
+
 def run_experiment_batched(methods, seeds, batched_factory, n_steps: int,
                            steps_per_ck: int, dt: float, metrics_fn,
                            potential, n_per_seed: int,
-                           warmup: int = 20) -> tuple[list[dict], dict]:
+                           warmup: int = 20,
+                           checkpoint_steps: list[int] | None = None
+                           ) -> tuple[list[dict], dict]:
     """Production loop with all seeds batched into one ensemble per method
     (used since wall-clock curves are not reported); per-seed metric rows
-    are computed on contiguous blocks of n_per_seed particles."""
+    are computed on contiguous blocks of n_per_seed particles.
+    checkpoint_steps (optional) overrides the uniform cadence with a fixed
+    schedule of step indices, identical across methods."""
     all_rows: list[dict] = []
     method_info: dict[str, dict] = {}
-    n_ck = n_steps // steps_per_ck
+    if checkpoint_steps is None:
+        checkpoint_steps = list(range(steps_per_ck, n_steps + 1, steps_per_ck))
     for method in methods:
         warm = batched_factory(method)
         for _ in range(warmup):
@@ -135,14 +157,14 @@ def run_experiment_batched(methods, seeds, batched_factory, n_steps: int,
         wall = 0.0
         step = 0
         t_m = time.perf_counter()
-        for _ck in range(n_ck):
+        for ck_step in checkpoint_steps:
             torch.cuda.synchronize()
             t0 = time.perf_counter()
-            for _ in range(steps_per_ck):
+            for _ in range(ck_step - step):
                 sampler.step()
             torch.cuda.synchronize()
             wall += time.perf_counter() - t0
-            step += steps_per_ck
+            step = ck_step
             pos = sampler.positions()
             diag = sampler.pop_diagnostics()
             for si, seed in enumerate(seeds):
