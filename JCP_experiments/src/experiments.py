@@ -17,13 +17,16 @@ import torch
 from .config import (BETA, EPS, LAMBDA, M_PHI, Q_RHO, Q_THETA, RunConfig,
                      diffusion_seed, init_seed, jump_seed)
 from .jumps import AnnulusJumpLaw, ShellJumpLaw, gauss_legendre_01
-from .potentials import (CoupledPhi4, DoubleWell1D, MB_CRITICAL, MoG40,
+from .potentials import (CoupledPhi4, DoubleWell1D, MB4_CRITICAL,
+                         MB_CRITICAL, MB4Latent2D, MoG40,
                          MuellerBrownLatent2D, PHI4_MINIMA,
-                         TransformedMuellerBrown10D, muller_brown_2d,
+                         TransformedMB4Well10D, TransformedMuellerBrown10D,
+                         mb4_2d, mb4_2d_grad, muller_brown_2d,
                          muller_brown_2d_grad, newton_refine, phi4_W,
                          phi4_W_grad)
 from .references import (GradientFlowBasinMap2D, Grid1DInverseCDF,
-                         LaplaceMixture, MB10DReference)
+                         LaplaceMixture, Latent2DGaussianReference,
+                         MB10DReference)
 from .samplers import (BAOAB, FLA, MALA, ULA, CompoundPoisson, LatentRectBox,
                        ParallelTempering, RectBox)
 from .score import MoG40Score, ShellScore
@@ -150,87 +153,50 @@ def build_e2(device="cuda") -> Experiment:
 
 # ===================================================================== E3
 def build_e3(device="cuda", basin_cache: str | None = None) -> Experiment:
-    pot = TransformedMuellerBrown10D(device=device)
-    cfg = RunConfig(name="muller_brown_10d", d=10, n_particles=2000, T=200.0,
+    """E3: 4-well modified Mueller-Brown (archive/mueller.py precedent),
+    embedded in 10D exactly as before (x = z B^T). At beta = 8 the target is
+    genuinely multimodal AND metastable: masses ~ (0.617, 0.338, 0.027,
+    0.018); W1<->W2 share a beta*16.5 saddle; W3/W4 are islands behind
+    plateau-level walls (beta*b ~ 80) that only nonlocal transport can
+    populate. Init on island W3."""
+    pot = TransformedMB4Well10D(device=device)
+    cfg = RunConfig(name="mb4well_10d", d=10, n_particles=2000, T=200.0,
                     dt=0.005)
 
-    # refine the latent minima to machine precision (verified against the
-    # 4-decimal table in the notebook)
     mins = {}
-    for key in ("min_A", "min_B", "min_C"):
-        z0 = torch.tensor(MB_CRITICAL[key][0], dtype=torch.float64, device=device)
-        mins[key] = newton_refine(muller_brown_2d_grad, z0)
-    zA, zB, zC = mins["min_A"], mins["min_B"], mins["min_C"]
+    for key in ("W1", "W2", "W3", "W4"):
+        z0 = torch.tensor(MB4_CRITICAL[key][0], dtype=torch.float64, device=device)
+        mins[key] = newton_refine(mb4_2d_grad, z0)
+    Z4 = torch.stack([mins[k] for k in ("W1", "W2", "W3", "W4")])
 
-    def _hess2_raw(z):
-        hh = 1e-5
-        H = torch.zeros(2, 2, dtype=torch.float64, device=device)
-        for j in range(2):
-            e = torch.zeros(2, dtype=torch.float64, device=device)
-            e[j] = hh
-            H[:, j] = (muller_brown_2d_grad((z + e).unsqueeze(0))[0]
-                       - muller_brown_2d_grad((z - e).unsqueeze(0))[0]) / (2 * hh)
-        return H
-
-    # Laplace basin-mass estimates at the known minima (same information
-    # class as the minima locations themselves -- no sampling oracle):
-    # m_k ~ exp(-beta U_k / s) / sqrt(det H_k), constants cancel in the
-    # normalisation (the aux Gaussian factorises out of basin ratios).
-    log_m = []
-    for zk in (zA, zB, zC):
-        Uk = float(muller_brown_2d(zk.unsqueeze(0)).item())
-        _, ld = torch.linalg.slogdet(_hess2_raw(zk))
-        log_m.append(-BETA * Uk / pot.s - 0.5 * float(ld.item()))
-    log_m_t = torch.tensor(log_m, dtype=torch.float64, device=device)
-    laplace_masses = torch.softmax(log_m_t, dim=0)           # (A, B, C)
-
-    # PRODUCTION jump law (measured design ladder, notebook ablation cells):
-    # the symmetric DIRECT A<->B pair, w = (1/2, 1/2). Design lessons, each
-    # measured: (i) pi-negligible relay basins (C, mass 5e-6) must not be
-    # jump targets -- landers park there (MST/complete-graph laws stall at
-    # TV ~ 0.11-0.20); (ii) weights must stay O(1) -- mass-ratio skew
-    # concentrates the correction into an e^{beta dV} circulating conveyor
-    # whose discretisation error swamps the tiny net flux (A stalls at
-    # ~0.5); (iii) the A-B chord crosses C's basin, so the CP pair's drift
-    # step is capped at 2h (the shell's own resolution scale): a single
-    # O(1) tamed hop scatters returned landers out of the score tube into
-    # C, while 2h-bounded steps follow the tube through.
-    dz_direct = [zA - zB, zB - zA]
+    # jump law by the measured E3 design rules: complete graph over the four
+    # latent minima (every well has >= 1.8% mass -- no negligible relay
+    # targets), O(1) uniform weights (mass-ratio skew measurably backfires),
+    # and the CP pair's drift step capped at 2h (shell resolution scale).
+    dz_list = [Z4[j] - Z4[i] for i in range(4) for j in range(4) if i != j]
     atoms_z = torch.stack([torch.cat([dz, torch.zeros(8, dtype=torch.float64,
                                                       device=device)])
-                           for dz in dz_direct])
-    atoms_x = pot.from_latent(atoms_z)                       # (2, 10)
-    weights = torch.tensor([0.5, 0.5], dtype=torch.float64, device=device)
+                           for dz in dz_list])
+    atoms_x = pot.from_latent(atoms_z)                       # (12, 10)
+    weights = torch.full((12,), 1.0 / 12.0, dtype=torch.float64, device=device)
     h = 0.1 * float(atoms_x.norm(dim=1).min().item())
     law = ShellJumpLaw(atoms_x, weights, h=h)
     drift_cap = 2.0 * h
 
-    # unweighted-MST ablation law (the spec's original design)
-    dz_mst = [zB - zC, zC - zB, zC - zA, zA - zC]
-    atoms_z_mst = torch.stack([torch.cat([dz, torch.zeros(8, dtype=torch.float64,
-                                                          device=device)])
-                               for dz in dz_mst])
-    atoms_x_mst = pot.from_latent(atoms_z_mst)
-    law_mst = ShellJumpLaw(atoms_x_mst,
-                           torch.full((4,), 0.25, dtype=torch.float64,
-                                      device=device),
-                           h=0.1 * float(atoms_x_mst.norm(dim=1).min().item()))
-
-    lo_lat = [-3.0, -1.5] + [-2.0] * 8
-    hi_lat = [3.0, 3.5] + [2.0] * 8
+    lo_lat = [-2.0, -1.7] + [-2.0] * 8
+    hi_lat = [2.2, 2.7] + [2.0] * 8
     box = LatentRectBox(lo_lat, hi_lat, pot)
 
-    ref = MB10DReference(pot, (-3.0, -1.5), (3.0, 3.5), BETA)
+    ref = Latent2DGaussianReference(pot, lambda z: -BETA * mb4_2d(z),
+                                    (-2.0, -1.7), (2.2, 2.7), BETA)
 
-    basins = GradientFlowBasinMap2D(
-        muller_brown_2d_grad,
-        torch.stack([zA, zB, zC]), (-3.0, -1.5), (3.0, 3.5),
-        n_grid=600, device=device, cache=basin_cache)
-    p_star = basins.p_star(lambda z: -(BETA / pot.s) * muller_brown_2d(z))
+    basins = GradientFlowBasinMap2D(mb4_2d_grad, Z4, (-2.0, -1.7), (2.2, 2.7),
+                                    n_grid=600, device=device, cache=basin_cache)
+    p_star = basins.p_star(lambda z: -BETA * mb4_2d(z))
 
     def init_fn(n, gen):
         z = torch.zeros(n, 10, dtype=torch.float64, device=device)
-        z[:, :2] = zB
+        z[:, :2] = mins["W3"]
         z += 0.05 * torch.randn(n, 10, generator=gen, device=device,
                                 dtype=torch.float64)
         return pot.from_latent(z)
@@ -244,53 +210,30 @@ def build_e3(device="cuda", basin_cache: str | None = None) -> Experiment:
     def metric_space(x):
         return pot.to_latent(x)[:, :2]
 
-    # Kramers estimate for escape from B over saddle S2, latent 2D U_MB/s
-    zS2 = newton_refine(muller_brown_2d_grad,
-                        torch.tensor(MB_CRITICAL["saddle_S2"][0],
-                                     dtype=torch.float64, device=device))
-    # barrier in V units (U_MB / s): beta * barrier = 7.18
-    barrier = float((muller_brown_2d(zS2.unsqueeze(0))
-                     - muller_brown_2d(zB.unsqueeze(0))).item()) / pot.s
+    # crude escape estimate from the W3 island: the wall is the V ~ 0
+    # plateau, so tau ~ 2 pi e^{beta * (0 - V(W3))} -- astronomically beyond
+    # any simulation; committed local exits should be ZERO.
+    barrier_W3 = float(-mb4_2d(mins["W3"].unsqueeze(0)).item())
+    kramers = 2.0 * math.pi * math.exp(min(BETA * barrier_W3, 700.0))
 
-    def _hess2(z):
-        h = 1e-5
-        H = torch.zeros(2, 2, dtype=torch.float64, device=device)
-        for j in range(2):
-            e = torch.zeros(2, dtype=torch.float64, device=device)
-            e[j] = h
-            H[:, j] = (muller_brown_2d_grad((z + e).unsqueeze(0))[0]
-                       - muller_brown_2d_grad((z - e).unsqueeze(0))[0]) / (2 * h)
-        return H / pot.s
-
-    Hb = _hess2(zB)
-    Hs = _hess2(zS2)
-    eb = torch.linalg.eigvalsh(Hb)
-    es = torch.linalg.eigvalsh(Hs)
-    lam_neg = float(-es[0].item())
-    det_b = float((eb[0] * eb[1]).item())
-    det_s = abs(float((es[0] * es[1]).item()))
-    # 2D overdamped Kramers/Langer, mobility 1 (latent-isotropic estimate):
-    # tau = (2 pi / lam_neg) sqrt(|det H_s| / det H_b) e^{beta dU}
-    kramers = (2.0 * math.pi / lam_neg) * math.sqrt(det_s / det_b) \
-        * math.exp(BETA * barrier)
-
+    zW1, zW2, zW4 = mins["W1"], mins["W2"], mins["W4"]
     return Experiment(
-        name="muller_brown_10d", cfg=cfg, pot=pot, law=law, box=box,
+        name="mb4well_10d", cfg=cfg, pot=pot, law=law, box=box,
         init_fn=init_fn, ref_sample=lambda n, g: ref.sample(n, g),
         make_score=make_score, labels_fn=labels_fn, p_star=p_star,
         metric_space=metric_space,
-        pt_beta_min=0.8,
-        # committed exit from B: arrival in the deep A core only. C is a
-        # 1.7 kT shelf at this temperature (U_S2 - U_C = 8.5 with kT*s = 5)
-        # and its 0.3-ball contains the S2 saddle, so no committed C state
-        # exists; the meaningful first-passage event is B -> A.
-        exit_committed=lambda x: (pot.to_latent(x)[:, :2] - zA).norm(dim=1) < 0.3,
+        # hot replica must climb the beta*b~80 plateau walls: beta_min such
+        # that beta_min * 10.4 ~ 2
+        pt_beta_min=0.2,
+        # committed exit from island W3: arrival in any other well core
+        exit_committed=lambda x: (
+            torch.cdist(pot.to_latent(x)[:, :2],
+                        torch.stack([zW1, zW2, zW4])).min(dim=1).values < 0.25),
         kramers_tau=kramers,
         cp_drift_cap=drift_cap,
         extras={"minima_latent": mins, "atoms_z": atoms_z, "h": h,
-                "basins": basins, "barrier_B": barrier, "saddle_S2": zS2,
-                "ref": ref, "laplace_masses": laplace_masses,
-                "law_mst": law_mst, "atoms_z_mst": atoms_z_mst},
+                "basins": basins, "barrier_W3": barrier_W3, "ref": ref,
+                "Z4": Z4},
     )
 
 

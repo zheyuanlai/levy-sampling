@@ -65,17 +65,17 @@ class Grid2DSampler:
         return self.centers[idx] + jitter
 
 
-class MB10DReference:
-    """Latent 2D MB marginal (grid inverse-CDF) x N(0, eps sigma_aux^2 I_8),
-    pushed through z -> z B^T."""
+class Latent2DGaussianReference:
+    """Generic 10D reference: latent 2D marginal (grid inverse-CDF on a
+    given log-density) x N(0, eps sigma_aux^2 I_8), pushed through
+    z -> z B^T."""
 
-    def __init__(self, pot, lo2d, hi2d, beta: float, shape=(2400, 2400)) -> None:
-        from .potentials import muller_brown_2d
+    def __init__(self, pot, latent_log_density, lo2d, hi2d, beta: float,
+                 shape=(2400, 2400)) -> None:
         self.pot = pot
         self.beta = beta
-        self.grid = Grid2DSampler(
-            lambda z: -(beta / pot.s) * muller_brown_2d(z), lo2d, hi2d,
-            shape=shape, device=pot.B.device)
+        self.grid = Grid2DSampler(latent_log_density, lo2d, hi2d,
+                                  shape=shape, device=pot.B.device)
         self.aux_std = math.sqrt((1.0 / beta)) * pot.sigma_aux
 
     def sample(self, n: int, gen: torch.Generator) -> torch.Tensor:
@@ -83,6 +83,15 @@ class MB10DReference:
         aux = self.aux_std * torch.randn(n, 8, generator=gen,
                                          device=z2.device, dtype=torch.float64)
         return self.pot.from_latent(torch.cat([z2, aux], dim=1))
+
+
+class MB10DReference(Latent2DGaussianReference):
+    """Original E3 reference (kept for the unit tests / history)."""
+
+    def __init__(self, pot, lo2d, hi2d, beta: float, shape=(2400, 2400)) -> None:
+        from .potentials import muller_brown_2d
+        super().__init__(pot, lambda z: -(beta / pot.s) * muller_brown_2d(z),
+                         lo2d, hi2d, beta, shape)
 
 
 # ---------------------------------------------------------------- E4 Laplace

@@ -295,60 +295,54 @@ print("Hungarian W2:", {k: round(v, 3) for k, v in hungarian.items()})
 
 
 # ======================================================================
-# E3 Mueller-Brown 10D
+# E3 4-well modified Mueller-Brown 10D
 # ======================================================================
-def build_e3_nb() -> nbf.NotebookNode:
-    cells = [
-        md(r"""# E3 — Transformed Müller–Brown (10D)
+CELL_E3_ASSERTS = '''from src.potentials import MB4_CRITICAL, mb4_2d, mb4_2d_grad, newton_refine
+for key, (z_tab, V_tab) in MB4_CRITICAL.items():
+    z = newton_refine(mb4_2d_grad, torch.tensor(z_tab, device=DEV))
+    Vv = mb4_2d(z.unsqueeze(0))[0].item()
+    assert abs(z[0].item()-z_tab[0]) < 5e-5 and abs(z[1].item()-z_tab[1]) < 5e-5, key
+    assert abs(Vv - V_tab) < 5e-4, (key, Vv)
+    print(f"{key}: ({z[0].item():+.4f}, {z[1].item():+.4f})  V = {Vv:.4f}")
+print("p_star (W1..W4):", np.round(exp.p_star.cpu().numpy(), 4),
+      " | S12 barrier beta*b = %.1f | island walls beta*b ~ %.0f" %
+      (8*(MB4_CRITICAL["S12"][1] - MB4_CRITICAL["W1"][1]),
+       8*exp.extras["barrier_W3"]))
 
-**Target.** $U(z) = U_{\rm MB}(z_1,z_2)/40 + \|z_{3:10}\|^2/(2\cdot0.4^2)$, sampled in mixed coordinates $x=zB^\top$ ($B = Q\,\mathrm{diag}(\mathrm{linspace}(0.75,1.45,10))$). At $\beta=8$ the occupancy target is $p^\star \approx (0.9995,\ 5\times10^{-4},\ 5\times10^{-6})$ for basins $(A,B,C)$ — **a single-basin target, intrinsic to Müller–Brown at this temperature**. Runs start in the shallow basin $B$; connectivity is the chain $A\leftrightarrow C\leftrightarrow B$ (escape barrier from B: $\beta b = 7.18$). Metrics are computed in latent 2D $z_{1:2}$ (full-10D sliced $W_2$ additionally recorded in the CSV)."""),
-        code(cell_setup("muller_brown_10d", "build_e3",
-                        'exp = build_e3(device=DEV, basin_cache=os.path.join(RESULTS, "basin_map.npz"))')),
-        code('''from src.potentials import MB_CRITICAL, muller_brown_2d, muller_brown_2d_grad, newton_refine
-for key, (z_tab, U_tab) in MB_CRITICAL.items():
-    z = newton_refine(muller_brown_2d_grad, torch.tensor(z_tab, device=DEV))
-    U = muller_brown_2d(z.unsqueeze(0))[0].item()
-    assert abs(z[0].item()-z_tab[0]) < 5e-5 and abs(z[1].item()-z_tab[1]) < 5e-5
-    assert abs(U - U_tab) < 5e-2
-print("critical points verified to 4 decimals; p_star:",
-      np.round(exp.p_star.cpu().numpy(), 6))
-# committed B->A first passage (C is a 1.7 kT shelf: no committed C state)
+# committed first passage from island W3 (expect ZERO local exits)
 g = torch.Generator(device=DEV); g.manual_seed(0)
 barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
                                    exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), C.EPS, g)
-barrier_report["kramers_tau_B_leg"] = exp.kramers_tau
-print(f"ULA committed B->A MFPT {barrier_report['mfpt_estimate']:.0f} "
-      f"({barrier_report['n_exits']} exits) vs single-leg Langer estimate "
-      f"{exp.kramers_tau:.0f} (order-of-magnitude only)")'''),
-        md(r"""## Jump law and Lévy score
+barrier_report["kramers_tau_plateau"] = exp.kramers_tau
+print(f"ULA committed exits from W3: {barrier_report['n_exits']} of "
+      f"{barrier_report['n_particles']} in T={cfg.T} "
+      f"(plateau-wall estimate: beta*b = {8*exp.extras['barrier_W3']:.0f})")'''
 
-**Production law: the symmetric direct $A\leftrightarrow B$ pair**, $r_a = (\pm(z_A-z_B),\,0_8)B^\top$, $w=(\tfrac12,\tfrac12)$, shell $h=0.1\|r\|$, $\lambda=1$; the CP pair's drift step is additionally capped at $2h$ (the shell's own resolution scale). This design is the outcome of a measured ladder (ablation section below), whose lessons are the E3 finding: (i) $\pi$-negligible relay basins must not be jump targets — landers park there (the spec MST and the complete graph stall at TV 0.11–0.20); (ii) weights must stay $O(1)$ — mass-ratio skew concentrates the correction into an $e^{\beta\Delta V}$ circulating conveyor whose discretisation error swamps the tiny net flux it balances; (iii) the $A$–$B$ chord crosses $C$'s basin, so uncapped $O(1)$ tamed hops scatter returned landers into $C$, while $2h$-bounded steps follow the score tube through. Score: generic shell with log-space accumulation (as E1); the certificate uses the exact latent-2D reduction (jumps act on $z_{1:2}$ only, the aux Gaussian factorises)."""),
-        code('''from src.potentials import MuellerBrownLatent2D
+CELL_E3_CERT = '''from src.potentials import MB4Latent2D
 from src.jumps import ShellJumpLaw
 from src.score import ShellScore
-potr = MuellerBrownLatent2D(s=exp.pot.s)
+potr = MB4Latent2D()
 dz = exp.extras["atoms_z"][:, :2]
 h_z = exp.extras["h"] * dz.norm(dim=1) / exp.law.atoms.norm(dim=1)
 law_r = ShellJumpLaw(dz, exp.law.weights.clone(), h_z)
-print("production atoms (latent):", np.round(dz.cpu().numpy(), 4).tolist(),
-      " w:", exp.law.weights.tolist(), " h:", round(exp.extras["h"], 4),
-      " drift cap (CP pair):", round(exp.cp_drift_cap, 4))
+print("atoms (latent):", np.round(dz.cpu().numpy(), 3).tolist())
+print("h =", round(exp.extras["h"], 4), " drift cap (CP pair) =",
+      round(exp.cp_drift_cap, 4))
 DEFAULT_QUAD = dict(q_theta=C.Q_THETA, q_rho=C.Q_RHO)
-phis = make_phi_family(2, [0.0, 0.8], 0.8, DEV)
+phis = make_phi_family(2, [0.1, 0.5], 0.9, DEV)
 
 def cert_e3(q_theta, q_rho):
     score = ShellScore(potr, law_r, cfg.lam, cfg.beta, q_theta, q_rho)
     shifts, logw = law_r.quadrature_shifts(64)
     return certificate_grid(potr, score, shifts, logw, cfg.lam, cfg.beta, phis,
-                            [-4.2, -2.7], [4.2, 4.7],
-                            n_panels=130, nodes_per_panel=8, chunk=8192)
+                            [-4.2, -3.9], [4.4, 4.9],
+                            n_panels=170, nodes_per_panel=8, chunk=4096)
 
 cert_report = cert_e3(**DEFAULT_QUAD)
 print(f"max R = {cert_report['max_residual']:.3e}")
-assert cert_report["max_residual"] < 1e-6'''),
-        code(CELL_LADDER),
-        code(CELL_REFERENCE),
-        code('''def run_terminal_lsc(**quad):
+assert cert_report["max_residual"] < 1e-6'''
+
+CELL_E3_QUAD = '''def run_terminal_lsc(**quad):
     f = make_sampler_factory(exp, cfg.dt, pt_betas, score_kwargs=quad)
     n_ = int(round(cfg.T / cfg.dt))
     r_, _ = run_one("LSC-CP", 0, f, n_, n_, cfg.dt, metrics_fn, exp.pot, quiet=True)
@@ -358,107 +352,47 @@ settings = [dict(q_theta=qt, q_rho=qr) for qt in (8, 16, 32) for qr in (4, 8, 16
 CHOSEN_QUAD, quad_table = quadrature_refinement(
     settings, run_terminal_lsc, lambda **s: cert_e3(**s)["max_residual"], floors)
 print("chosen quadrature:", CHOSEN_QUAD)
-display(pd.DataFrame(quad_table).round(6))'''),
-        code('''# dt: the dyadic rule cannot certify any practical dt for LSC-CP here (see
-# mechanism below: taming turns the e^{beta dV}-stiff detailed-balance
-# return drift into an O(1) hop; the effect is dt-independent). Production
-# runs at the declared dt0; certification status is recorded.
-MAIN_METRICS = ["W2", "TV", "MMD", "EMC", "W2_10d"]
+display(pd.DataFrame(quad_table).round(6))'''
 
-def run_terminal_all(dt_):
-    n_ = int(round(cfg.T / dt_))
-    factory = make_sampler_factory(exp, dt_, pt_betas, score_kwargs=CHOSEN_QUAD)
-    out = {}
-    for m in C.METHODS:
-        rows_, _ = run_one(m, 0, factory, n_, n_, dt_, metrics_fn, exp.pot, quiet=True)
-        out[m] = {k: rows_[-1][k] for k in MAIN_METRICS}
-    print(f"  refine_dt: finished pass at dt={dt_}", flush=True)
-    return out
+CELL_E3_PISTART = '''# pi-start hold test: initialise at the reference and measure any stationary
+# drift of the discretised LSC-CP chain (mid-asymmetry honesty check)
+g_h = torch.Generator(device=DEV); g_h.manual_seed(777)
+x_pi = exp.ref_sample(4000, g_h)
+from src.metrics import occupancy as _occ
+bf = make_batched_factory(exp, dt_final, pt_betas, (0,), n_particles=4000,
+                          score_kwargs=CHOSEN_QUAD)
+s_h = bf("LSC-CP")
+s_h.x = x_pi.clone()
+p0 = _occ(exp.labels_fn(s_h.positions()), 4)
+for _i in range(int(round(100.0 / dt_final))):
+    s_h.step()
+p1 = _occ(exp.labels_fn(s_h.positions()), 4)
+hold_tv = 0.5 * float((p1 - exp.p_star).abs().sum())
+pi_start_hold = {"init": [round(float(v), 4) for v in p0],
+                 "after_T100": [round(float(v), 4) for v in p1],
+                 "TV_vs_pstar": round(hold_tv, 4)}
+print("pi-start hold:", pi_start_hold)'''
 
-_, dt_table = refine_dt(run_terminal_all, cfg.dt, floors,
-                        exclude=("FLA", "CP"), max_halvings=1)
-dt_certified = bool(dt_table[0]["pass"])
-for row in dt_table:
-    print(row)
-dt_final = cfg.dt
-print(f"dt_certified = {dt_certified}; production at declared dt0 = {dt_final}")
 
-n_steps = int(round(cfg.T / dt_final))
-steps_per_ck = max(1, n_steps // C.N_CHECKPOINTS)
-bfactory = make_batched_factory(exp, dt_final, pt_betas, cfg.seeds,
-                                score_kwargs=CHOSEN_QUAD)
-t0 = time.time()
-rows, method_info = run_experiment_batched(C.METHODS, cfg.seeds, bfactory,
-                                           n_steps, steps_per_ck, dt_final,
-                                           metrics_fn, exp.pot, cfg.n_particles)
-print(f"production total: {time.time()-t0:.0f}s")
-assert max(r["nonfinite_frac"] for r in rows) == 0.0'''),
-        md(r"""## Jump-design ladder (ablation) and the parking mechanism
+def build_e3_nb() -> nbf.NotebookNode:
+    cells = [
+        md(r"""# E3 — 4-well modified Müller–Brown (10D)
 
-Each variant runs LSC-CP for the full $T$ at $\Delta t_0$ (single seed): the spec's unweighted MST, the unweighted complete graph, the mass-weighted complete graph, the direct pair uncapped, and the production direct pair with the $2h$ drift cap. The cohort cell then measures the parking mechanism on the MST law: uphill $A\to C$ jump-landers arrive with an enormous, correctly-aimed score, but a single $O(1)$ tamed hop scatters a $\Delta t$-independent fraction of them score-dark. E1/E2/E4 are immune (their jumps connect near-iso-energetic minima)."""),
-        code('''from src.metrics import occupancy as _occ
-from src.samplers import CompoundPoisson as _CP
-from src.config import jump_seed as _jseed, diffusion_seed as _dseed
+**Target.** The equal-amplitude 4-well Müller–Brown variant (all four Gaussian amplitudes $-200\times0.05$; the true MB's repulsive hump replaced by a fourth well at $(-0.8,-0.5)$ — `archive/mueller.py` precedent), embedded in 10D exactly as before: $U(z) = V_4(z_1,z_2) + \|z_{3:10}\|^2/(2\cdot0.4^2)$, $x = zB^\top$. Unlike the true MB — whose depth gap equals its barrier scale, so *no* temperature is simultaneously multimodal and metastable — this target at $\beta=8$ has masses $p^\star \approx (0.617,\ 0.338,\ 0.027,\ 0.018)$ with a $\beta b = 16.5$ saddle between the two major wells and **plateau-level walls ($\beta b \approx 80$) around the two minor island wells** — locals provably never move, PT needs a deep ladder, and only nonlocal jumps can populate the islands at the right mass. Runs start on island W3 (2.7% mass). Metrics in latent 2D $z_{1:2}$ (full-10D sliced $W_2$ in the CSV)."""),
+        code(cell_setup("mb4well_10d", "build_e3",
+                        'exp = build_e3(device=DEV, basin_cache=os.path.join(RESULTS, "basin_map.npz"))')),
+        code(CELL_E3_ASSERTS),
+        md(r"""## Jump law and Lévy score
 
-zs_ = exp.extras["minima_latent"]
-zA_, zB_, zC_ = zs_["min_A"], zs_["min_B"], zs_["min_C"]
-
-def _mk_law(dz_list, w=None):
-    az = torch.stack([torch.cat([d_, torch.zeros(8, device=DEV)]) for d_ in dz_list])
-    ax = exp.pot.from_latent(az)
-    w_ = (torch.full((len(dz_list),), 1.0 / len(dz_list), device=DEV)
-          if w is None else torch.as_tensor(w, dtype=torch.float64, device=DEV))
-    return ShellJumpLaw(ax, w_ / w_.sum(), 0.1 * float(ax.norm(dim=1).min()))
-
-mL = exp.extras["laplace_masses"]
-variants = {
-    "MST w=1/4 (spec)": (_mk_law([zB_-zC_, zC_-zB_, zC_-zA_, zA_-zC_]), 1.0),
-    "complete graph w=1/6": (_mk_law([zB_-zA_, zA_-zB_, zC_-zA_, zA_-zC_,
-                                      zC_-zB_, zB_-zC_]), 1.0),
-    "complete graph w~mass": (_mk_law(
-        [zB_-zA_, zA_-zB_, zC_-zA_, zA_-zC_, zC_-zB_, zB_-zC_],
-        [mL[1], mL[0], mL[2], mL[0], mL[2], mL[1]]), 1.0),
-    "direct A<->B uncapped": (_mk_law([zA_-zB_, zB_-zA_]), 1.0),
-    "direct A<->B cap=2h (production)": (exp.law, exp.cp_drift_cap),
-}
-ablation = {}
-for name_, (law_, cap_) in variants.items():
-    sc_ = ShellScore(exp.pot, law_, cfg.lam, cfg.beta, **CHOSEN_QUAD)
-    g1_ = torch.Generator(device=DEV); g1_.manual_seed(C.init_seed(0))
-    gd_ = torch.Generator(device=DEV); gd_.manual_seed(_dseed("LSC-CP", 0))
-    gj_ = torch.Generator(device=DEV); gj_.manual_seed(_jseed(0))
-    s_ = _CP(exp.pot, exp.init_fn(cfg.n_particles, g1_), dt_final, C.EPS,
-             cfg.lam, law_, gd_, gj_, exp.box, score=sc_, drift_cap=cap_)
-    for _i in range(int(round(cfg.T / dt_final))):
-        s_.step()
-    p_ = _occ(exp.labels_fn(s_.positions()), 3)
-    tv_ = 0.5 * float((p_ - exp.p_star).abs().sum())
-    ablation[name_] = dict(A=round(float(p_[0]), 4), B=round(float(p_[1]), 5),
-                           Cb=round(float(p_[2]), 5), TV=round(tv_, 4))
-    print(f"{name_:>34s}: A={p_[0]:.4f} B={p_[1]:.5f} C={p_[2]:.5f} TV={tv_:.4f}")'''),
-        code('''# parking mechanism on the MST law: uphill A->C jump-lander cohort
-from src.samplers import tame as _tame
-law_mst = exp.extras["law_mst"]
-score_mst = ShellScore(exp.pot, law_mst, cfg.lam, cfg.beta, **CHOSEN_QUAD)
-mechanism_report = {"ablation": ablation}
-for dt_ in (dt_final, dt_final / 4.0):
-    g_ = torch.Generator(device=DEV); g_.manual_seed(3)
-    zloc = torch.zeros(4000, 10, device=DEV)
-    zloc[:, :2] = zA_ + 0.12 * torch.randn(4000, 2, generator=g_, device=DEV)
-    zloc[:, 2:] = 0.1414 * torch.randn(4000, 8, generator=g_, device=DEV)
-    x_ = exp.pot.from_latent(zloc) + law_mst.atoms[2]      # jump A -> C
-    M0, _ = score_mst.log_parts(x_)
-    for _s in range(24):
-        S_, _d = score_mst(x_)
-        b_ = -exp.pot.grad(x_) + S_
-        xi_ = torch.randn(x_.shape, generator=g_, device=DEV)
-        x_ = exp.box.clip(x_ + dt_ * _tame(b_, dt_) + (2 * C.EPS * dt_) ** 0.5 * xi_)
-    parked = float(_occ(exp.labels_fn(x_), 3)[2].item())
-    print(f"MST law, dt={dt_}: lander median M {M0.median():.2f}; "
-          f"parked C fraction {parked:.3f}")
-    mechanism_report[f"mst_parked_fraction@dt={dt_}"] = parked'''),
+Complete graph over the four latent minima (12 directed atoms $r_a = (\Delta z, 0_8)B^\top$, $w_a = 1/12$, shell $h = 0.1\min\|r_a\|$, $\lambda = 1$), with the CP pair's drift step capped at $2h$ — all three measured E3 design rules apply: every well here carries $\geq 1.8\%$ mass (no negligible relay targets), weights stay $O(1)$ (mass-ratio skew measurably backfires), and the step cap keeps returned landers inside the score tube. Score: generic shell with log-space accumulation; certificate on the exact latent-2D reduction. *Known regime note:* inter-well asymmetries $\beta\Delta V \in [0.6, 3.3]$ put this landscape partly in the measured mid-asymmetry zone where fixed-step tamed integration of the detailed-balance return flux is imperfect; the $\pi$-start hold test below quantifies the resulting stationary offset honestly."""),
+        code(CELL_E3_CERT),
+        code(CELL_LADDER),
+        code(CELL_REFERENCE),
+        code(CELL_E3_QUAD),
+        code(cell_dt_production('["W2", "TV", "MMD", "EMC", "W2_10d"]')),
+        code(CELL_E3_PISTART),
         code(CELL_FIGURES),
-        code(cell_csv("dt_certified=dt_certified, mechanism=mechanism_report,")),
+        code(cell_csv("pi_start_hold=pi_start_hold,")),
     ]
     nb = nbf.v4.new_notebook()
     nb.cells = cells
@@ -576,7 +510,7 @@ if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     for name, builder in [("01_double_well", build_e1_nb),
                           ("02_mog40", build_e2_nb),
-                          ("03_muller_brown_10d", build_e3_nb),
+                          ("03_mb4well_10d", build_e3_nb),
                           ("04_coupled_phi4", build_e4_nb)]:
         nb = builder()
         nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3",

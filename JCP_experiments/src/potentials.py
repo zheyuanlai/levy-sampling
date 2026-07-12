@@ -319,6 +319,114 @@ class CoupledPhi4(Potential):
         return (4.0 / 3.0) * math.sqrt(2.0 * self.kappa)
 
 
+# ============================================== E3 (4-well modified MB)
+# Archive-precedent landscape (archive/mueller.py): all four Gaussian
+# amplitudes equalised at A = -200 (the true MB's repulsive +15 hump is
+# replaced by a fourth well at (-0.8, -0.5)) and scaled by 0.05. Unlike the
+# true MB -- whose depth gap (38.5) equals its barrier scale (35.9), so no
+# temperature is simultaneously multimodal and metastable -- this surface at
+# beta = 8 has masses (0.617, 0.338, 0.027, 0.018) with a beta*16.5 saddle
+# between the two major wells and plateau-level (beta*b ~ 80) walls around
+# the two minor island wells.
+_MB4 = (
+    (-200.0 * 0.05, -1.0, 0.0, -10.0, 1.0, 0.0),
+    (-200.0 * 0.05, -1.0, 0.0, -10.0, 0.0, 0.5),
+    (-200.0 * 0.05, -6.5, 11.0, -6.5, -0.5, 1.5),
+    (-200.0 * 0.05, -3.0, 0.0, -3.0, -0.8, -0.5),
+)
+
+# verified critical points (asserted in the notebook to 4 decimals)
+MB4_CRITICAL = {
+    "W1": ((0.0193, 0.4793), -10.4129),
+    "W2": ((0.9619, 0.0189), -10.3420),
+    "W3": ((-0.7979, -0.4943), -10.0334),
+    "W4": ((-0.5002, 1.4998), -10.0004),
+    "S12": ((0.4971, 0.2484), -8.3490),   # only true saddle; W3/W4 connect
+}                                          # via the V ~ 0 plateau (beta*b ~ 80)
+
+
+def mb4_2d(z: torch.Tensor) -> torch.Tensor:
+    z1, z2 = z[..., 0], z[..., 1]
+    out = torch.zeros_like(z1)
+    for A, a, b, c, x0, y0 in _MB4:
+        dx, dy = z1 - x0, z2 - y0
+        out = out + A * torch.exp(a * dx * dx + b * dx * dy + c * dy * dy)
+    return out
+
+
+def mb4_2d_grad(z: torch.Tensor) -> torch.Tensor:
+    z1, z2 = z[..., 0], z[..., 1]
+    g1 = torch.zeros_like(z1)
+    g2 = torch.zeros_like(z1)
+    for A, a, b, c, x0, y0 in _MB4:
+        dx, dy = z1 - x0, z2 - y0
+        e = A * torch.exp(a * dx * dx + b * dx * dy + c * dy * dy)
+        g1 = g1 + e * (2.0 * a * dx + b * dy)
+        g2 = g2 + e * (b * dx + 2.0 * c * dy)
+    return torch.stack([g1, g2], dim=-1)
+
+
+class TransformedMB4Well10D(Potential):
+    """U(z) = V4(z1, z2) + ||z_{3:10}||^2 / (2 sigma_aux^2), sampled in mixed
+    coordinates x = z B^T with the SAME embedding B as the original E3
+    (Q from QR of default_rng(12345), singular values 0.75..1.45)."""
+
+    d = 10
+    name = "mb4well_10d"
+    sigma_aux = 0.4
+
+    def __init__(self, device: str | torch.device = "cuda") -> None:
+        super().__init__()
+        rng = np.random.default_rng(12345)
+        Q, _ = np.linalg.qr(rng.standard_normal((10, 10)))
+        B = Q @ np.diag(np.linspace(0.75, 1.45, 10))
+        self.B = torch.as_tensor(B, dtype=torch.float64, device=device)
+        self.Binv = torch.as_tensor(np.linalg.inv(B), dtype=torch.float64, device=device)
+
+    def to_latent(self, x: torch.Tensor) -> torch.Tensor:
+        return x @ self.Binv.T
+
+    def from_latent(self, z: torch.Tensor) -> torch.Tensor:
+        return z @ self.B.T
+
+    def _V_raw(self, x: torch.Tensor) -> torch.Tensor:
+        z = self.to_latent(x)
+        aux = z[..., 2:]
+        return mb4_2d(z[..., :2]) + 0.5 * (aux * aux).sum(-1) / self.sigma_aux**2
+
+    def V(self, x: torch.Tensor) -> torch.Tensor:
+        self.n_V += int(np.prod(x.shape[:-1]))
+        return self._V_raw(x)
+
+    def grad(self, x: torch.Tensor) -> torch.Tensor:
+        self.n_grad += int(np.prod(x.shape[:-1]))
+        z = self.to_latent(x)
+        gz = torch.zeros_like(z)
+        gz[..., :2] = mb4_2d_grad(z[..., :2])
+        gz[..., 2:] = z[..., 2:] / self.sigma_aux**2
+        return gz @ self.Binv
+
+
+class MB4Latent2D(Potential):
+    """Reduced latent 2D potential (certificate; the reduction is exact as
+    for the original E3: jumps act on z_{1:2}, dot products are
+    affine-invariant, the aux Gaussian factorises)."""
+
+    d = 2
+    name = "mb4_latent2d"
+
+    def _V_raw(self, z: torch.Tensor) -> torch.Tensor:
+        return mb4_2d(z)
+
+    def V(self, z: torch.Tensor) -> torch.Tensor:
+        self.n_V += int(np.prod(z.shape[:-1]))
+        return self._V_raw(z)
+
+    def grad(self, z: torch.Tensor) -> torch.Tensor:
+        self.n_grad += int(np.prod(z.shape[:-1]))
+        return mb4_2d_grad(z)
+
+
 class MuellerBrownLatent2D(Potential):
     """Reduced latent 2D potential U_MB(z)/s (used by the E3 certificate:
     jumps and test functions act on z_{1:2} only, dot products are
