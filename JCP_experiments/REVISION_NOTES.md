@@ -377,3 +377,47 @@ DUAL/RA); figures report one "Raw-CP" line (metric_single/metric_grid gain
 `CP-RA` → "Raw-CP"). The in-flight run's E1/E2 keep `CP` (drop `CP-RA`); its
 E3/E4 raw baseline is `CP-RA` relabelled "Raw-CP" (≡ full-law CP; a fresh run
 would use `CP`).
+
+---
+
+## Production run + two estimator/discretization fixes (post-launch forensics)
+
+**Single-atom RA breaks at high β / many atoms → multi-atom estimator.** The
+first production pass used the single-realization estimator `LSC-CP-RA` (one shift
+`R_n` per step, score against that one `R_n`) on E3/E4. It is a correct *unbiased*
+estimator of the Lévy score, but its per-step variance grows with the atom count
+A and with β (atom-selection variance). It was fine on E1 (A=2, β=8) and E2
+(annulus, β=8) — E2: `LSC-CP-RA` W2 2.54 / EMC 0.968 ≈ exact 2.96 / 0.987, both
+crushing PT 6.5 and raw-CP 9.9 — but it **broke** on E3 (β=24: over-populated the
+far well, occ(A)=0.44 vs π=0.31, ≈ raw-CP) and E4 (A=8). Fix: `MultiAtomShellScore`
+(`LSC-CP-MA`) sums over *all* A atoms each step (one ρ per atom), A·q_θ V-evals
+(vs q_θ for single-R, still ≪ exact's A·q_θ·q_ρ). E3 with MA: occ(A)=0.319 (π=0.31),
+matching PT and beating raw-CP (0.43), reaching correct masses ~10× faster than PT.
+**Positioning:** the single-atom form stays valid where it's cheap and accurate
+(E1/E2); multi-atom is the robust estimator for high β / many atoms (E3/E4). Exact
+LSC-CP remains the proven method; both RA forms are estimators of the same score.
+
+**E4 drift_cap: taming saturation → score overshoot (fixed 6.93 → 2h=1.39).** With
+MA in place, E4's `LSC-CP-MA` was still *worse than raw-CP* (basin_rel_max 0.54 vs
+0.25). Diagnosis: **exact LSC-CP ≈ LSC-CP-MA on E4** (both ~0.55) — so it is *not*
+estimator variance. Root cause is the P3 tuning `drift_cap = max‖r_a‖ = 6.93`.
+Under `tame(b,dt,cap)=b/(1+dt‖b‖/cap)`, when ‖b‖ is huge the *step* length →
+`cap`, so cap=6.93 makes the (astronomically large, β=8 over 24 coupled dims)
+Lévy score take length-6.9 steps toward the deepest well and **overshoot**:
+occ(--)=0.50 vs π=0.325 (raw-CP *under*-shoots at 0.254). Per-basin at cap=‖r‖:
+
+| phase | π | raw-CP | exact LSC-CP | LSC-CP-MA |
+|---|---|---|---|---|
+| -- (deepest) | 0.325 | 0.254 | 0.496 | 0.534 |
+| -+ | 0.211 | 0.240 | 0.118 | 0.099 |
+
+`drift_cap` sweep (N=800, 6000 steps): cap∈{2h=1.39, 1.73, 3.46} all give LSC-CP
+occ(--)≈0.32–0.34, basin_rel_max 0.06–0.08; cap=6.93 gives 0.53. **raw-CP is
+cap-insensitive on every production metric** (W2 0.267/0.268, MMD 0.090/0.090,
+EMC 0.995/0.995, basin 0.219/0.219 at 2h vs ‖r‖) — the old cap optimized raw-CP's
+isolated π-start return flow but the from-init benchmark metrics don't see it, so
+tightening the cap costs raw-CP nothing. Fix: `drift_cap_e4 = 2h` (one shell
+width, same rule as E3). At cap=2h, **LSC-CP beats raw-CP on all metrics**: W2
+0.11 vs 0.27, MMD 0.02 vs 0.09, basin 0.08 vs 0.22, and MA tracks exact
+(0.099/0.015/0.058). Both estimators agree → deterministic taming-saturation, not
+variance. Production E4 re-run at cap=2h in progress.

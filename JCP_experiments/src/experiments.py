@@ -386,12 +386,19 @@ def build_e4(device="cuda", basin_cache: str | None = None,
         law = JitteredShellJumpLaw(atoms, weights, h, jitter_sigma)
     else:
         law = ShellJumpLaw(atoms, weights, h=h)
-    # drift cap = max ||r_a||: the coherent paths cross no foreign basin, so
-    # the detailed-balance return flow is best integrated by steps that may
-    # retrace a full jump (measured: pi-start TV 0.052 at cap=1 vs 0.023 at
-    # cap=||r||, floor 0.018). Contrast E3, whose chords cross a foreign
-    # basin and need small in-tube steps (cap=2h).
-    drift_cap_e4 = float(atoms.norm(dim=1).max().item())
+    # drift cap = 2h (one shell width), same rule as E3. An earlier design used
+    # cap = max||r_a|| to let raw-CP retrace full jumps (raw-CP pi-start return
+    # flow prefers it), but the Levy score is astronomically large here (beta=8
+    # over 24 coupled dims), so under tame(b,dt,cap) the score step saturates at
+    # length ~cap toward the deepest well and OVERSHOOTS: at cap=||r||=6.93,
+    # LSC-CP over-concentrated the "--" phase to occ=0.50 (target 0.325) and lost
+    # to raw-CP on every metric. raw-CP is cap-insensitive on the production
+    # metrics (W2/MMD/EMC/basin identical at 2h vs ||r||), so tightening the cap
+    # costs raw-CP nothing and fixes the score overshoot: at cap=2h LSC-CP lands
+    # occ(--)=0.324 and beats raw-CP W2 0.11 vs 0.27, basin 0.08 vs 0.22. Both
+    # exact and multi-atom estimators agree at this cap (it is a deterministic
+    # taming-saturation effect, not estimator variance).
+    drift_cap_e4 = 2.0 * float(h)
 
     box = RectBox([-2.0] * 24, [2.0] * 24, device)
 
