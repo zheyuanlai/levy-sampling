@@ -1,4 +1,85 @@
-<!-- TOP-OF-FILE SUMMARY is written LAST (see end of file until then). -->
+# RA-LSC revision — SUMMARY (read this first)
+
+Branch `ra-lsc-revision` off `main@cdb87c4` (contains all prior history incl.
+e211839). Env `jcp-exp`, GPU 5. **All work at smoke scale; production NOT run.**
+Baseline suite 22 passed → final **31 passed** (7 RA + 2 NFE-ledger added).
+
+### Per-task status
+| Task | Status | One-line result |
+|---|---|---|
+| P0 raw-CP forensic | **DONE** | raw CP matches the *predicted* biased law (not a bug) |
+| P1 RA-LSC estimator | **DONE** | estimator + 3 gating tests + NFE win, consistent with exact |
+| P2 E3 3-well MB β=24 | **DONE** | constants re-derived & matched; cert 9e-15; two timescales verified |
+| P3 E4 8-edge atoms | **DONE** | cert 3.8e-13; p_star unchanged |
+| P4 metrics/NFE/plots | **DONE** | extended CSV, n=0 frame, NFE ledger, log-y 3-axis figures |
+| P5 production script | **DONE** | gated launcher; refusal path verified; NOT executed |
+| P6 manuscript list | **DONE** | change-list keyed to paper/jcp/main.tex (LaTeX not edited) |
+
+### Gate numbers (all pass)
+- P0: λ→0 self-check 4.7e-6; W1(emp,pred)=0.047 (within floor) vs W1(emp,Gibbs)=0.089.
+- P1: atomwise cert < 1e-6 (32 shifts), mismatch residual > 1e-2, 3 tests pass;
+  NFE/step/particle exact-LSC 257 vs RA 18 (~14× E1).
+- P2: constants match targets to 1e-4; mixture cert **9.4e-15**, atomwise **4.3e-15**;
+  masses (0.31,0.42,0.27); ULA C→A=0/64, C→B=62/64; τ(A↔B)=4.2e5 ≫ T.
+- P3: 24D importance cert **3.8e-13**; p_star (0.325,0.211,0.237,0.227) unchanged.
+- P4: n=0 bit-identical across methods; NFE-ledger test passes; 9 figures.
+- P5: bash -n OK; refusal-path dry-run refuses all 4, runs nothing; real-tol
+  residuals E1 5.5e-8 / E2 7.9e-13 / E3 9.4e-15 / E4 3.8e-13.
+
+### Key verdicts
+- **P0:** raw-CP is CORRECT — converges to the theory-predicted biased law
+  (bias mild at λ=1), score removes exactly this bias. No bug hunt needed.
+  Reusable tool `src/stationary.doublewell_rawcp_forensic` to check `experiments_CY`.
+- **P1 exact-vs-RA consistency (E1 smoke):** agree within the seed band (W2 0.24σ,
+  MMD 0.19σ, EMC 0.65σ; TV_density 5.5σ only at the final checkpoint — a tiny-sd
+  artifact at N=64, curves overlap throughout). **Full-scale confirmation
+  recommended.**
+
+### Flags for the author (decisions / not-changed)
+- **E3 β = 24** built (locked this session); switch to 32 is a one-line constant
+  in `build_e3` if the dt/T budget argues for stronger metastability. No constant
+  disagreed with targets (would have halted P2).
+- **dt/quadrature refinement** for E3 deferred to the notebook production run
+  (cannot run at smoke); `cfg.dt=0.005` inherited (mb3 is gentler than mb4).
+- **Wall-clock axis** is meaningful only via the sequential `run_experiment` path
+  (batched runner reports informational wall-clock).
+- **IAT/ESS/round-trips** provided as functions; only checkpoint-cadence split-R̂
+  is wired (`convergence_report`). Dense per-step recording needed for accurate ESS.
+- **Live notebooks 01/02/04** have stale outputs (all `src` changed); `run_production.sh`
+  regenerates them (`build_notebooks.py`) before running. Old 4-well E3 notebook
+  archived with outputs at `archive/03_mb4well_10d.ipynb` (builder → `build_e3_mb4well`).
+- **E4 RA moment fast-path** not used (RA uses generic V on φ⁴); a per-particle
+  homogeneous path is a possible optimization.
+- **paper/jcp/main.tex NOT edited** — change-list in `REVISION_NOTES_manuscript.md`.
+
+### Reproduce (env `jcp-exp`, one GPU 4–7)
+```
+cd JCP_experiments
+JCP_GPU=5 python -m pytest tests/ -q                                   # 31 passed
+CUDA_VISIBLE_DEVICES="" python /tmp/.../scratchpad/p0_forensic.py      # P0 (see scratchpad)
+JCP_GPU=5 python /tmp/.../scratchpad/p2_derive.py                      # P2 constants
+JCP_GPU=5 python /tmp/.../scratchpad/p2_verify.py                      # P2 cert+barriers
+JCP_GPU=5 python /tmp/.../scratchpad/p3_verify.py                      # P3 E4 cert
+JCP_GPU=5 python /tmp/.../scratchpad/p4_smoke.py                       # P4 pipeline
+JCP_GPU=5 python scripts/certificate_gate.py mb3well_10d              # P5 gate
+# launch production (author, hours):  JCP_GPU=5 ./run_production.sh
+```
+(Scratchpad drivers live under the session scratchpad; the notebook cells and
+`src/stationary.py` reproduce P0 at production scale.)
+
+### Commit graph
+```
+9e518f4 [P6] manuscript revision change-list
+e44b1f1 [P5] production launch script (not executed)
+52419f1 [P4] chemistry + MCMC-convergence metrics, NFE counter, n=0 frame, log-y plots
+4578fb2 [P3] E4 8-edge-atom jump design
+62bee42 [P2] E3 depth-retuned 3-well MB (beta=24) + relay jump law
+7f61a80 [P1] RandomAtomicShellScore estimator + atomwise certificate/mismatch/state tests
+5db5aec [P0] raw-CP stationary-law forensic + E1 CDF overlay
+cdb87c4 (main) JCP notebooks 03/04 ...
+```
+
+---
 
 # RA-LSC revision — running log
 
