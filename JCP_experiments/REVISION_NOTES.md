@@ -130,6 +130,43 @@ the JCP raw-CP path. The diagnostic checklist item (3) is verified in code:
 
 ---
 
+## P0 addendum — reconciliation with the collaborator's method
+
+Compared our raw-CP forensic against the collaborator's
+`experiments_CY/common/levy/doublewell_definitive.py`. **Two methods are
+fundamentally different:**
+
+| | Collaborator (CY) | Us (JCP_experiments) |
+|---|---|---|
+| Dynamics | discretized-**generator** CTMC on a **Gibbs-adaptive** grid, propagate density `p·e^{tQ}` exactly | **particle** tamed Euler–Maruyama SDE + Poisson jumps |
+| Time / bias | exact-in-time (no dt bias, no taming); particles only add multinomial metric noise | finite dt, tamed drift, box clip |
+| LSC-CP score | **discrete flux correction** on grid edges (`_stationary_flux_correction` forces μ stationary on the grid) | **continuous θ-integral Lévy score** `S_ν=-λ∫R e^{β[V(x)-V(x-θR)]}dθ` |
+| raw-CP | **not propagated**; only `raw_jump_stationary_residual` reported | first-class simulated method |
+| jump law | Poisson counts, `ρ~U(-h,h)` shell — **matches ours** (center ±2, h≈0.22, λ=1) | same |
+| potential | `0.25x⁴-0.5x² = ¼(x²-1)²-¼` — **our well scaled by ¼**, so `β=1/(4ε)` | `(x²-1)²` |
+
+**Root cause of "raw-CP looks bad on the CDF" — a grid artifact, not a bug.**
+Building raw-CP on their generator (`local_q+jump_q`, no correction) and taking
+its stationary null-vector gives a law that **differs from the true biased law by
+W1≈0.10 and does not converge with refinement**: at every `n_cells∈{80..1280}`
+there are **zero cells beyond |x|>1.5** (max cell center |x|=1.32), because cells
+are equi-probable under Gibbs and Gibbs has ~no mass there — yet that tail/barrier
+region is exactly where raw CP injects its ~15% bias mass (`W1(ours,Gibbs)=0.17`).
+So their Gibbs-adaptive grid **structurally cannot represent the raw-CP biased
+law** (it truncates the tail mass at ~±1.3). Their propagated methods (Langevin,
+LSC-CP) both target Gibbs, so the grid is ideal for them — raw-CP is the one law
+that lives where the grid has no resolution. Our uniform-grid solver and particle
+SDE resolve it correctly. Tool: `scripts/rawcp_crosscheck_CY.py`; figure
+`figures/double_well/rawcp_crosscheck_CY.{png,pdf}`.
+
+**Also note:** the CY LSC-CP is a *discrete flux correction* (a
+structure-preserving discretization that forces μ stationary on the grid), which
+is a different object from our continuous θ-integral Lévy score — they agree in
+the continuum limit but not on a finite grid. Worth stating in the paper if both
+implementations are cited.
+
+---
+
 ## P1 — RA-LSC estimator + gating tests — DONE ✓
 
 **What.**
