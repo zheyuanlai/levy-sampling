@@ -557,6 +557,9 @@ print(f"ULA T={cfg.T}: committed C->A (far well) = {rep_A['n_exits']}/{rep_A['n_
 assert rep_A['exit_fraction'] < 0.2 * float(exp.p_star[0]), \
     "local ULA must stay far from equilibrating the far well A"
 assert rep_B['n_exits'] > 0, "B<->C must be reachable (two-timescale structure)"
+# barrier_report is consumed by the shared manifest cell (far-well C->A passage)
+barrier_report = {**rep_A, "exit_to_B_fraction": rep_B["exit_fraction"],
+                  "kramers_tau": exp.kramers_tau}
 print(f"Kramers tau(A<->B) = {exp.kramers_tau:.2e} time units >> T={cfg.T}")'''
 
 MD_E3_TARGET_MB3 = r"""## Target density: explicit form and visualization
