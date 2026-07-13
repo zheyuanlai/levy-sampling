@@ -324,6 +324,91 @@ print(f"ULA committed exits from W3: {barrier_report['n_exits']} of "
       f"{barrier_report['n_particles']} in T={cfg.T} "
       f"(plateau-wall estimate: beta*b = {8*exp.extras['barrier_W3']:.0f})")'''
 
+MD_E3_TARGET = r"""## Target density: explicit form and visualization
+
+The target is $\pi(x)\propto e^{-\beta U(x)}$ on $\mathbb R^{10}$ at $\beta=8$. In latent coordinates $z = xB^{-\top}$ (equivalently $x = zB^\top$, with $B = Q\,\mathrm{diag}(0.75,\dots,1.45)$ and $Q$ a frozen Haar rotation from `default_rng(12345)`):
+
+$$U(z) \;=\; V_4(z_1,z_2)\;+\;\frac{\|z_{3:10}\|^2}{2\sigma_{\mathrm{aux}}^2},\qquad \sigma_{\mathrm{aux}}=0.4,$$
+
+$$V_4(z_1,z_2) \;=\; \sum_{k=1}^{4} A_k\, \exp\!\big(a_k(z_1-\bar x_k)^2 + b_k(z_1-\bar x_k)(z_2-\bar y_k) + c_k(z_2-\bar y_k)^2\big),$$
+
+with all $A_k=-10$ and
+
+| $k$ | $a_k$ | $b_k$ | $c_k$ | $\bar x_k$ | $\bar y_k$ |
+|---|---|---|---|---|---|
+| 1 | $-1$   | $0$  | $-10$  | $1$    | $0$    |
+| 2 | $-1$   | $0$  | $-10$  | $0$    | $0.5$  |
+| 3 | $-6.5$ | $11$ | $-6.5$ | $-0.5$ | $1.5$  |
+| 4 | $-3$   | $0$  | $-3$   | $-0.8$ | $-0.5$ |
+
+Because $x = zB^\top$ is an invertible linear map (constant Jacobian), the density factorises **exactly** in latent coordinates:
+$$\pi(z)\;=\;\underbrace{\frac{e^{-\beta V_4(z_1,z_2)}}{Z_2}}_{\text{4-well 2D marginal }\pi_2}\;\times\;\prod_{j=3}^{10}\mathcal N\!\left(z_j;\,0,\,\sigma_{\mathrm{aux}}^2\right).$$
+All multimodal structure of the 10D target lives in the 2D marginal $\pi_2\propto e^{-\beta V_4}$ plotted below; the well masses $p^\star$ are integrals of $\pi_2$ over the basins and are unchanged by the embedding."""
+
+CELL_E3_TARGET_VIZ = r'''# Target visualization (self-contained, CPU-safe; touches no run state).
+# Exact latent-2D marginal pi_2(z1,z2) ~ exp(-beta V4): the aux coords are
+# i.i.d. N(0, 0.4^2) and x = z B^T is linear, so ALL multimodal structure
+# of the 10D target is in this 2D density -- no projection artefact.
+import os, sys, math
+sys.path.insert(0, os.path.abspath(".."))
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+from src.potentials import mb4_2d, MB4_CRITICAL
+
+beta_viz = 8.0
+zg1 = torch.linspace(-1.8, 1.8, 701, dtype=torch.float64)
+zg2 = torch.linspace(-1.2, 2.2, 701, dtype=torch.float64)
+ZZ = torch.stack(torch.meshgrid(zg1, zg2, indexing="ij"), dim=-1)
+Vg = mb4_2d(ZZ)
+cell_area = float((zg1[1] - zg1[0]) * (zg2[1] - zg2[0]))
+logp2 = -beta_viz * Vg
+logp2 = logp2 - (torch.logsumexp(logp2.reshape(-1), 0) + math.log(cell_area))
+
+# grid well masses via nearest-minimum partition (basins are this tight
+# at beta=8); should reproduce the p_star printed above
+wells = ["W1", "W2", "W3", "W4"]
+zw = torch.tensor([MB4_CRITICAL[k][0] for k in wells], dtype=torch.float64)
+lab_g = torch.cdist(ZZ.reshape(-1, 2), zw).argmin(1)
+p2_flat = torch.exp(logp2.reshape(-1))
+mass = torch.tensor([float(p2_flat[lab_g == i].sum()) for i in range(4)])
+mass = mass / mass.sum()
+print("latent-2D grid well masses:", np.round(mass.numpy(), 4),
+      " (cf. p_star printed above)")
+
+fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.6), constrained_layout=True)
+lv = np.linspace(-10.5, 0.0, 22)
+cf0 = axes[0].contourf(zg1, zg2, Vg.T, levels=lv, cmap="viridis")
+axes[0].contour(zg1, zg2, Vg.T, levels=lv, colors="k", linewidths=0.25, alpha=0.4)
+for k in wells:
+    (zx, zy), Vk = MB4_CRITICAL[k]
+    axes[0].plot(zx, zy, "o", ms=5, mfc="w", mec="k")
+    axes[0].annotate(f"{k}  V={Vk:.2f}", (zx, zy), textcoords="offset points",
+                     xytext=(7, 5), fontsize=8, color="w")
+(sx, sy), Vs = MB4_CRITICAL["S12"]
+axes[0].plot(sx, sy, "x", ms=7, color="r")
+axes[0].annotate(f"S12  V={Vs:.2f}", (sx, sy), textcoords="offset points",
+                 xytext=(-7, -3), ha="right", fontsize=8, color="r")
+axes[0].set(title=r"latent potential $V_4(z_1, z_2)$", xlabel="$z_1$", ylabel="$z_2$")
+fig.colorbar(cf0, ax=axes[0], label="$V_4$")
+
+l10 = (logp2 / math.log(10.0)).numpy()
+lv1 = np.linspace(l10.max() - 8.0, l10.max(), 33)
+cf1 = axes[1].contourf(zg1, zg2, np.maximum(l10.T, lv1[0]), levels=lv1, cmap="magma")
+for k, m in zip(wells, mass):
+    (zx, zy), _ = MB4_CRITICAL[k]
+    axes[1].annotate(f"{k}: {float(m):.3f}", (zx, zy), textcoords="offset points",
+                     xytext=(7, 5), fontsize=8, color="w")
+axes[1].set(title=r"2D marginal $\log_{10}\pi_2$ at $\beta=8$ (labels: basin masses)",
+            xlabel="$z_1$", ylabel="$z_2$")
+fig.colorbar(cf1, ax=axes[1], label=r"$\log_{10}\pi_2$")
+os.makedirs(os.path.join("..", "figures", "mb4well_10d"), exist_ok=True)
+for ext in ("png", "pdf"):
+    fig.savefig(os.path.join("..", "figures", "mb4well_10d",
+                             "mb4well_10d_target." + ext), dpi=200,
+                bbox_inches="tight")
+plt.show()'''
+
 CELL_E3_CERT = '''from src.potentials import MB4Latent2D
 from src.jumps import ShellJumpLaw
 from src.score import ShellScore
@@ -388,6 +473,8 @@ def build_e3_nb() -> nbf.NotebookNode:
         code(cell_setup("mb4well_10d", "build_e3",
                         'exp = build_e3(device=DEV, basin_cache=os.path.join(RESULTS, "basin_map.npz"))')),
         code(CELL_E3_ASSERTS),
+        md(MD_E3_TARGET),
+        code(CELL_E3_TARGET_VIZ),
         md(r"""## Jump law and Lévy score
 
 Complete graph over the four latent minima (12 directed atoms $r_a = (\Delta z, 0_8)B^\top$, $w_a = 1/12$, shell $h = 0.1\min\|r_a\|$, $\lambda = 1$), with the CP pair's drift step capped at $2h$ — all three measured E3 design rules apply: every well here carries $\geq 1.8\%$ mass (no negligible relay targets), weights stay $O(1)$ (mass-ratio skew measurably backfires), and the step cap keeps returned landers inside the score tube. Score: generic shell with log-space accumulation; certificate on the exact latent-2D reduction. *Known regime note:* inter-well asymmetries $\beta\Delta V \in [0.6, 3.3]$ put this landscape partly in the measured mid-asymmetry zone where fixed-step tamed integration of the detailed-balance return flux is imperfect; the $\pi$-start hold test below quantifies the resulting stationary offset honestly."""),
@@ -408,6 +495,75 @@ Complete graph over the four latent minima (12 directed atoms $r_a = (\Delta z, 
 # ======================================================================
 # E4 coupled phi4
 # ======================================================================
+MD_E4_TARGET = r"""## Target density: explicit form and visualization
+
+The state is $q=(q_1,\dots,q_{12})\in\mathbb R^{24}$ with sites $q_i=(x_i,y_i)\in\mathbb R^2$, periodic ($q_{13}\equiv q_1$). With $\delta=1/12$, $\kappa=2.5$, $\beta=8$ the target density is, explicitly,
+
+$$\pi(q)\;\propto\;\exp\Big[-\beta\Big(\underbrace{\tfrac{\kappa}{2\delta}}_{=\,15}\sum_{i=1}^{12}\|q_{i+1}-q_i\|^2\;+\;\underbrace{\tfrac{1}{12}}_{=\,\delta}\sum_{i=1}^{12}W(q_i)\Big)\Big],$$
+$$W(x,y)=(x^2-1)^2+(y^2-1)^2-0.0125\,xy+0.0075\,x+0.015\,y$$
+
+(un-normalised; $Z$ has no closed form). Structure:
+
+- **Four phases.** $W$ has four minima at $v\approx(\pm1,\pm1)$ (tilt-shifted in the 3rd decimal) with $W$-values $-0.0351\,(--)$, $+0.0050\,(+-)$, $+0.0100\,(++)$, $+0.0200\,(-+)$: inter-phase asymmetries $\beta\Delta W\le0.44$, escape barriers $\beta b\approx7.8$–$8.2$. The global minima of $V$ are the four coherent fields $\mathbf 1\otimes v$.
+- **Stiff coupling.** A bond deviation costs $\beta\kappa/(2\delta)=120$ per unit squared distance, so $\pi$ concentrates in four narrow tubes around the coherent fields; the cheapest non-coherent excursion (a kink pair, cost $5.96$) is far above the coherent barrier $\approx1.0$, so phase changes proceed coherently.
+- **Slice vs marginal.** On the homogeneous slice $q_i\equiv v$ the coupling term vanishes and $V(\mathbf 1\otimes v)=W(v)$ exactly, so the right panel below ($e^{-\beta W}/Z_W$) is the exact restriction of $\pi$ to the coherent 2-plane. It is a slice, **not** a marginal: the phase masses $p^\star=(0.325,\,0.211,\,0.237,\,0.227)$ are 24D basin integrals (SNIS reference below) that also count transverse fluctuations, and agree with the Laplace (harmonic) prediction to $\sim10^{-2}$."""
+
+CELL_E4_TARGET_VIZ = r'''# Target visualization (self-contained, CPU-safe; touches no run state).
+# Left: site potential W whose four minima define the coherent phases.
+# Right: exact coherent-slice density exp(-beta W)/Z_W -- V(1 (x) v) = W(v),
+# so this is pi restricted to the homogeneous 2-plane (a slice, NOT a
+# marginal; the exact 24D phase masses also count transverse fluctuations).
+import os, sys, math
+sys.path.insert(0, os.path.abspath(".."))
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+from src.potentials import phi4_W, PHI4_MINIMA, PHI4_LAPLACE_MASSES
+
+beta_viz = 8.0
+vg = torch.linspace(-1.9, 1.9, 601, dtype=torch.float64)
+VX, VY = torch.meshgrid(vg, vg, indexing="ij")
+Wg = phi4_W(torch.stack([VX, VY], dim=-1))
+dens_slice = torch.exp(-beta_viz * (Wg - Wg.min()))
+dens_slice = dens_slice / (dens_slice.sum() * float(vg[1] - vg[0]) ** 2)
+
+W0 = PHI4_MINIMA["--"][1]
+for ph, (v, Wv) in PHI4_MINIMA.items():
+    print(f"  phase {ph}: v = ({v[0]:+.4f}, {v[1]:+.4f})   W = {Wv:+.4f}   "
+          f"beta*dW vs '--' = {beta_viz*(Wv - W0):.2f}   "
+          f"Laplace mass = {PHI4_LAPLACE_MASSES[ph]:.3f}")
+
+fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.6), constrained_layout=True)
+lv = np.linspace(-0.05, 3.0, 25)
+cf0 = axes[0].contourf(vg, vg, Wg.T.clamp(max=3.0), levels=lv, cmap="viridis")
+axes[0].contour(vg, vg, Wg.T.clamp(max=3.0), levels=lv, colors="k",
+                linewidths=0.25, alpha=0.4)
+for ph, (v, Wv) in PHI4_MINIMA.items():
+    axes[0].plot(v[0], v[1], "o", ms=5, mfc="w", mec="k")
+    axes[0].annotate(f"{ph}: W={Wv:+.3f}", (v[0], v[1]),
+                     textcoords="offset points", xytext=(-14, 9),
+                     fontsize=8, color="w")
+axes[0].set(title=r"site potential $W(x,y)$ (clipped at 3)",
+            xlabel="$x$", ylabel="$y$")
+fig.colorbar(cf0, ax=axes[0], label="$W$")
+
+cf1 = axes[1].contourf(vg, vg, dens_slice.T, levels=30, cmap="magma")
+for ph, (v, _) in PHI4_MINIMA.items():
+    axes[1].annotate(f"{ph}: $p^\\star$={PHI4_LAPLACE_MASSES[ph]:.3f}",
+                     (v[0], v[1]), textcoords="offset points",
+                     xytext=(-18, 10), fontsize=8, color="w")
+axes[1].set(title=r"coherent-slice density $e^{-\beta W}/Z_W$ at $\beta=8$"
+                  r" (labels: 24D phase masses)",
+            xlabel="$x$", ylabel="$y$")
+fig.colorbar(cf1, ax=axes[1], label="slice density")
+os.makedirs(os.path.join("..", "figures", "coupled_phi4"), exist_ok=True)
+for ext in ("png", "pdf"):
+    fig.savefig(os.path.join("..", "figures", "coupled_phi4",
+                             "coupled_phi4_target." + ext), dpi=200,
+                bbox_inches="tight")
+plt.show()'''
+
+
 def build_e4_nb() -> nbf.NotebookNode:
     cells = [
         md(r"""# E4 — Coupled $\phi^4$ chain (24D)
@@ -435,6 +591,8 @@ barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles
 barrier_report["kramers_tau_langer"] = exp.kramers_tau
 print(f"ULA committed MFPT {barrier_report['mfpt_estimate']:.0f} "
       f"({barrier_report['n_exits']} exits) vs 24D Langer {exp.kramers_tau:.0f}")'''),
+        md(MD_E4_TARGET),
+        code(CELL_E4_TARGET_VIZ),
         md(r"""## Jump law and Lévy score (moment-exact)
 
 Homogeneous phase shifts on the complete graph over the 4 minima (12 directed atoms $r_a=\mathbf 1_{N_s}\otimes(v_j-v_i)$, $w_a=1/12$, shell $h=0.1\min\|r_a\|$). The gradient energy is exactly invariant under homogeneous shifts, so $V(q-r)-V(q)=\delta\sum_i[W(q_i-d)-W(q_i)]$ is a fixed polynomial in $d$ whose coefficients are the per-particle moments $\sum x_i, \sum x_i^2, \sum x_i^3$ (and $y$ analogues): moments once per step in $O(N_s)$, then every quadrature energy delta is $O(1)$ — **no lattice sweeps** (validated to $10^{-13}$). In 24D the certificate uses the shifted-form identity with importance sampling from the Laplace mixture (equivalent to the deployed score; the $M$ cap never fires on the sampled region)."""),
