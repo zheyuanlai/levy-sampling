@@ -54,6 +54,24 @@ fixed-R subsystem individually exact — not merely correct in expectation.)
 `P_h = E_R[P_h^R]` satisfies `μP_h = μ` at ANY refresh length `h` (an exact
 equality, not a small-h limit).
 
+**Remark 4 (multi-atom estimator; variance control — needed for the benchmarks).**
+The single-`R_n` estimator is unbiased but its per-step variance grows with the
+atom count `A` and with `β`: the realized shift lands in one atom's shell, so the
+other atoms' score contributions are unseen that step, and — because the score
+enters the *nonlinear* tamed drift — this variance re-appears as a discretization
+bias. Empirically it is negligible at small `A` / moderate `β` (E1 `A=2`, E2
+annulus, `β=8`: the single-atom estimator matches the exact score, W₂ 2.5 vs 3.0
+on E2) but breaks at `β=24` (E3: over-populates the far well, `occ(A)=0.44` vs
+`π=0.31`) and `A=8` (E4). The fix is the **multi-atom estimator**
+`\tilde S_n = Σ_a w̄_a \tilde S_{a,n}` — one shell draw `ρ_a` per atom, scored
+against the full atom set — costing `A·q_theta` evaluations (still ≪ exact's
+`A·q_theta·q_rho`, e.g. 128 vs 1024 on E4). It is the estimator deployed on E3/E4
+and inherits Remarks 1–3: each atomwise sub-generator is individually μ-invariant,
+so any fixed convex combination is too. Positioning for the paper: single-atom RA
+is the minimal estimator (valid and cheapest where `A`, `β` are small); multi-atom
+RA is the robust default at high `β` / many atoms; exact LSC-CP is the proven
+reference. All three estimate the same Lévy score.
+
 **Do NOT claim** (one sentence, for rigor): finite-h spectral-gap transfer, the
 high-refresh-rate averaging limit, or exact target-preservation of the
 Euler–Poisson discretization — the discretization bias is O(h) weak error,
@@ -137,6 +155,16 @@ whose coherent chords pass through the field-zero hilltop. Use the **8 edge
 atoms** of the phase square; relay diagonal transitions through a mixed phase in
 two hops. (Optional per-site jitter is free under the RA estimator — no
 closed-form quadrature over the jump law is needed.)
+
+**Taming cap (report as a discretization detail).** The coherent 24-D shifts make
+the Lévy score astronomically large, so under `tame(b,h,c)=b/(1+h‖b‖/c)` the score
+step saturates at length `~c`. Set `c = 2h_shell` (one shell width, matching E3);
+a larger cap (`c = max‖r_a‖`) lets the saturated score overshoot the deepest
+phase (`occ(--)=0.50` vs `π=0.325`) and lose to raw-CP. raw-CP is cap-insensitive
+on every reported metric, so the tight cap is a fair, method-agnostic choice —
+exact LSC-CP and the multi-atom estimator agree at it (the overshoot is
+deterministic taming saturation, not estimator variance). At `c=2h`, LSC-CP-MA
+beats raw-CP on all metrics (W₂ 0.11 vs 0.29, per-basin mass error 0.08 vs 0.25).
 
 ---
 
