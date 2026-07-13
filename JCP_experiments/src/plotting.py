@@ -45,6 +45,11 @@ METRIC_LABEL = {
     "V_mean_err": r"$|\langle V\rangle-\langle V\rangle_\pi|$",
     "V_var_err": r"$|\mathrm{Var}(V)-\mathrm{Var}_\pi(V)|$",
     "E_overlap_deficit": "energy overlap deficit", "KSD": "KSD",
+    "W1_cdf": r"$W_1$  ($\int|\hat F-F^\star|$)", "CDF_sup": "CDF sup (KS)",
+    "cdf_L2": r"CDF $L_2$", "pdf_L1": r"pdf $L_1$", "pdf_L2": r"pdf $L_2$",
+    "KDE_chi2": r"KDE $\chi^2$", "well_TV": "well TV",
+    "bin_chi2_M40": r"bin $\chi^2$ (M=40)", "bin_chi2_M80": r"bin $\chi^2$ (M=80)",
+    "bin_chi2_M120": r"bin $\chi^2$ (M=120)",
 }
 
 X_AXIS = {

@@ -617,6 +617,18 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
     ref_ehist = torch.bincount(_ei, minlength=e_edges.shape[0] - 1).to(torch.float64)
     ref_ehist = ref_ehist / ref_ehist.sum()
 
+    # ---- 1D density/CDF target along the CV (collaborator-parity metrics) ---
+    # target from the frozen reference sample: empirical CDF + matched-bandwidth
+    # KDE (both empirical and target KDE'd identically, so the smoothing bias
+    # largely cancels). Grid extends into the tails to catch nonlocal bias mass.
+    dens_grid = torch.linspace(cv_lo - 4.0 * cv_pad, cv_hi + 4.0 * cv_pad, 512,
+                               dtype=torch.float64, device=device)
+    _rcs = torch.sort(ref_cv).values
+    target_cdf_g = torch.searchsorted(_rcs, dens_grid, right=True).to(torch.float64) / ref_cv.numel()
+    dens_bw = max(float(ref_cv.std().item()) * n ** (-0.2), 1e-3)   # Silverman-ish
+    target_pdf_g = M.kde_on_grid(ref_cv, dens_grid, dens_bw)
+    chi_mask = (target_cdf_g >= 0.01) & (target_cdf_g <= 0.99)
+
     is_e1 = exp.name == "double_well"
     if is_e1:
         lo, hi = exp.extras["density_tv_box"]
@@ -672,6 +684,12 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
         out["V_var_err"] = eVar
         out["E_overlap_deficit"] = 1.0 - M.energy_hist_overlap(V, e_edges, ref_ehist)
         out["KSD"] = M.ksd_imq(x, -beta_m * gV)
+        # 1D density/CDF metrics along the CV (collaborator parity + pdf/cdf L1/L2)
+        out.update(M.density_cdf_metrics(cv, dens_grid, target_pdf_g, target_cdf_g,
+                                         dens_bw, chi_mask))
+        for MM in (40, 80, 120):
+            out[f"bin_chi2_M{MM}"] = M.bin_chi2_pit(cv, dens_grid, target_cdf_g, MM)
+        out["well_TV"] = M.well_tv(p_hat, exp.p_star)
         return out
 
     two = {"W2": w2_fn, "MMD": lambda a, b: M.mmd_biased(a, b, bw)}

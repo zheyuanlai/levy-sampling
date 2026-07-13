@@ -29,6 +29,8 @@ CSV_BASE_COLUMNS = [
     "W2", "TV", "TV_density", "MMD", "EMC", "EJS",
     "e_F", "basin_rel_max", "basin_L1", "V_mean_err", "V_var_err",
     "E_overlap_deficit", "KSD",
+    "W1_cdf", "CDF_sup", "cdf_L2", "pdf_L1", "pdf_L2", "KDE_chi2",
+    "bin_chi2_M40", "bin_chi2_M80", "bin_chi2_M120", "well_TV",
     "nonfinite_frac", "m_clip_fraction", "max_log_magnitude",
     "mala_accept", "pt_swap_accept", "jump_count_mean",
 ]

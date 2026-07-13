@@ -326,6 +326,17 @@ IAT/ESS/round-trips (the functions are provided; checkpoint-cadence split-R̂ is
 wired via `convergence_report`). Wall-clock axis is meaningful only via the
 sequential `run_experiment` path (batched gives informational wall-clock).
 
+**Follow-up — collaborator-parity 1D density/CDF metrics added.** Ported the CY
+metrics + the requested pdf/cdf L1/L2, all per-frame along the CV: `W1_cdf`
+(`∫|F̂−F*|`), `CDF_sup` (KS), `cdf_L2`, `pdf_L1`, `pdf_L2`, `KDE_chi2`
+(`∫(ρ̂−ρ*)²/ρ*` on [1%,99%]), `bin_chi2_M{40,80,120}` (PIT χ²: bin `F*(cv)` into
+M equal bins vs `1/M`), `well_TV`. Target built from the frozen reference sample
+(empirical CDF + matched-bandwidth KDE, so smoothing bias largely cancels; we use
+KDE-of-ref rather than the exact density the CY 1D code uses, to keep one path for
+E2/E3/E4 where no closed-form CV-marginal exists). All finite, n=0 identical
+across methods, in the CSV + plot labels. `metrics.density_cdf_metrics`,
+`bin_chi2_pit`, `kde_on_grid`, `well_tv`.
+
 ---
 
 ## P5 — Production launch script (NOT executed) — DONE ✓

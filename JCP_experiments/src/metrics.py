@@ -212,6 +212,73 @@ def ksd_imq(x: torch.Tensor, score: torch.Tensor, c: float = 1.0,
     return float(torch.sqrt(torch.clamp(val, min=0.0)).item())
 
 
+# ============================ 1D density / CDF metrics (collaborator parity)
+def _trapz(f: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    return (0.5 * (f[1:] + f[:-1]) * (x[1:] - x[:-1])).sum()
+
+
+def _torch_interp(xq: torch.Tensor, xp: torch.Tensor, fp: torch.Tensor) -> torch.Tensor:
+    idx = torch.searchsorted(xp, xq).clamp(1, xp.numel() - 1)
+    x0, x1 = xp[idx - 1], xp[idx]
+    f0, f1 = fp[idx - 1], fp[idx]
+    t = (xq - x0) / (x1 - x0).clamp(min=1e-30)
+    return f0 + t * (f1 - f0)
+
+
+def kde_on_grid(cv: torch.Tensor, x_grid: torch.Tensor, bandwidth: float) -> torch.Tensor:
+    """Gaussian-KDE density of `cv` evaluated on x_grid, normalised on the grid."""
+    z = (x_grid.unsqueeze(1) - cv.reshape(1, -1)) / bandwidth
+    rho = torch.exp(-0.5 * z * z).sum(1) / (cv.numel() * bandwidth * math.sqrt(2.0 * math.pi))
+    return rho / _trapz(rho, x_grid).clamp(min=1e-300)
+
+
+def density_cdf_metrics(cv: torch.Tensor, x_grid: torch.Tensor,
+                        target_pdf: torch.Tensor, target_cdf: torch.Tensor,
+                        bandwidth: float, chi_mask: torch.Tensor) -> dict:
+    """1D density/CDF errors of an empirical sample against a target given on
+    x_grid (all along a collective variable cv = 1D). Returns:
+      W1        = int|F_hat - F*| dx           (= CDF L1; collaborator 'W1')
+      CDF_sup   = sup|F_hat - F*|              (Kolmogorov-Smirnov; 'CDF_sup')
+      cdf_L2    = sqrt(int (F_hat-F*)^2 dx)    (Cramer-von-Mises-like)
+      pdf_L1    = int|rho_hat - rho*| dx       (= 2 x density-TV)
+      pdf_L2    = sqrt(int (rho_hat-rho*)^2 dx)
+      KDE_chi2  = int (rho_hat-rho*)^2/rho* dx  on [1%,99%] (collaborator 'KDE_chi2')
+    """
+    cv = cv.reshape(-1)
+    s = torch.sort(cv).values
+    Femp = torch.searchsorted(s, x_grid, right=True).to(torch.float64) / cv.numel()
+    dC = Femp - target_cdf
+    rho = kde_on_grid(cv, x_grid, bandwidth)
+    dP = rho - target_pdf
+    m = chi_mask
+    return {
+        "W1_cdf": float(_trapz(dC.abs(), x_grid).item()),
+        "CDF_sup": float(dC.abs().max().item()),
+        "cdf_L2": float(torch.sqrt(_trapz(dC * dC, x_grid).clamp(min=0)).item()),
+        "pdf_L1": float(_trapz(dP.abs(), x_grid).item()),
+        "pdf_L2": float(torch.sqrt(_trapz(dP * dP, x_grid).clamp(min=0)).item()),
+        "KDE_chi2": float(_trapz((dP[m] ** 2) / target_pdf[m].clamp(min=1e-300),
+                                 x_grid[m]).item()),
+    }
+
+
+def bin_chi2_pit(cv: torch.Tensor, x_grid: torch.Tensor, target_cdf: torch.Tensor,
+                 n_bins: int) -> float:
+    """PIT chi-squared: under the target, F*(X) ~ Uniform[0,1]. Bin F*(cv) into
+    n_bins equal bins and compare to 1/n_bins (collaborator 'bin_chi2_M')."""
+    u = _torch_interp(cv.reshape(-1), x_grid, target_cdf).clamp(0.0, 1.0)
+    idx = (u * n_bins).long().clamp(0, n_bins - 1)
+    counts = torch.bincount(idx, minlength=n_bins).to(torch.float64)
+    p = counts / counts.sum()
+    return float((n_bins * ((p - 1.0 / n_bins) ** 2).sum()).item())
+
+
+def well_tv(p_hat: torch.Tensor, p_star: torch.Tensor) -> float:
+    """Occupancy TV on the well partition (collaborator 'well_TV'); for 2 equal
+    wells this is |p_hat[0] - 0.5|, identical to occupancy_tv there."""
+    return float(0.5 * (p_hat - p_star).abs().sum().item())
+
+
 # ==================================================== MCMC convergence (post-hoc)
 def _acf_1d(x: np.ndarray) -> np.ndarray:
     x = x - x.mean()
