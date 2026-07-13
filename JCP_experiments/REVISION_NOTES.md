@@ -165,6 +165,13 @@ is a different object from our continuous θ-integral Lévy score — they agree
 the continuum limit but not on a finite grid. Worth stating in the paper if both
 implementations are cited.
 
+**Follow-up (box widened):** E1 sampling box `[-3,3] → [-5.2,5.2]` (= the
+certificate domain), with the reference grid and density-TV bins (350) synced.
+LSC-CP is unaffected (π has ~no mass beyond ±2, never hits the boundary); raw-CP's
+tail/barrier bias mass now spreads freely instead of piling at ±3 — so the
+production raw-CP CDF matches the predicted biased law without the clip artifact.
+Suite still 31 passed.
+
 ---
 
 ## P1 — RA-LSC estimator + gating tests — DONE ✓

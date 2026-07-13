@@ -77,8 +77,12 @@ def build_e1(device="cuda") -> Experiment:
     atoms = torch.tensor([[2.0], [-2.0]], dtype=torch.float64, device=device)
     weights = torch.tensor([0.5, 0.5], dtype=torch.float64, device=device)
     law = ShellJumpLaw(atoms, weights, h=0.2)     # +-2 maps minimum to minimum
-    box = RectBox([-3.0], [3.0], device)
-    ref = Grid1DInverseCDF(lambda x: -BETA * (x * x - 1.0) ** 2, -3.0, 3.0,
+    # generous box = the certificate domain: pi has ~no mass beyond +-2, so
+    # LSC-CP never hits the boundary, but raw CP injects tail/barrier mass out to
+    # ~+-3.5 -- a tight [-3,3] clip would pile that mass at the edge and confound
+    # the raw-CP CDF. Widening removes the clip artifact (LSC-CP unaffected).
+    box = RectBox([-5.2], [5.2], device)
+    ref = Grid1DInverseCDF(lambda x: -BETA * (x * x - 1.0) ** 2, -5.2, 5.2,
                            device=device)
 
     def init_fn(n, gen):
@@ -98,7 +102,8 @@ def build_e1(device="cuda") -> Experiment:
         pt_beta_min=1.0,
         exit_committed=lambda x: x[:, 0] > 0.7,     # right-well core arrival
         kramers_tau=DoubleWell1D.kramers_time(BETA),
-        extras={"ref": ref, "density_tv_box": (-3.0, 3.0), "density_tv_bins": 200},
+        # density-TV bins span the widened box; bump count to keep ~0.03 width
+        extras={"ref": ref, "density_tv_box": (-5.2, 5.2), "density_tv_bins": 350},
     )
 
 
