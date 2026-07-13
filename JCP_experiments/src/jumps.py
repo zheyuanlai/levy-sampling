@@ -65,6 +65,32 @@ class ShellJumpLaw:
         return float((self.atoms.norm(dim=1) + self.h).max())
 
 
+class JitteredShellJumpLaw(ShellJumpLaw):
+    """Shell law + fresh per-draw transverse Gaussian jitter:
+    r = r_a + rho u_a + sigma xi,  xi ~ N(0, I_d).
+
+    RA-LSC ONLY. The random-atomic score integrates the chord for the realised
+    r, so no closed-form quadrature over the jump law is needed -- continuous
+    jitter is free. `quadrature_shifts` is therefore unsupported (there is no
+    finite-atom representation of the jittered nu), so the exact-quadrature
+    score and the certificate cannot use this law. Off by default (sigma = 0)."""
+
+    def __init__(self, atoms, weights, h, jitter_sigma: float) -> None:
+        super().__init__(atoms, weights, h)
+        self.jitter_sigma = float(jitter_sigma)
+
+    def sample(self, n: int, gen: torch.Generator) -> torch.Tensor:
+        r = super().sample(n, gen)
+        if self.jitter_sigma > 0.0:
+            r = r + self.jitter_sigma * torch.randn(
+                r.shape, generator=gen, device=r.device, dtype=r.dtype)
+        return r
+
+    def quadrature_shifts(self, q_rho: int):
+        raise NotImplementedError(
+            "JitteredShellJumpLaw has no finite-atom quadrature (RA-LSC only)")
+
+
 class AnnulusJumpLaw:
     """E2 law: r = rho u_phi, rho ~ Unif[a, b], phi ~ Unif[0, 2 pi). d = 2.
 

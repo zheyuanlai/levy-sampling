@@ -141,4 +141,25 @@ the dt-refinement and quadrature-refinement studies (`cfg.dt=0.005` inherited;
 mb3 is gentler than mb4 so this is conservative), and the PT-ladder tuning.
 
 ---
+
+## P3 — E4 8-edge-atom jump redesign — DONE ✓
+
+**What.** `src/experiments.py::build_e4`: replaced the 12-atom complete graph
+with the **8 edge atoms** of the phase square — dropped the two diagonal pairs
+`--↔++` (indices {0,3}) and `-+↔+-` ({1,2}) whose coherent chords cross the
+field-zero hilltop; diagonal transitions relay in two hops through a mixed phase.
+Coherent tiling `1_{Ns}⊗(v_j−v_i)` kept; `drift_cap = max‖r_a‖` re-measured on
+the new set. Added `jitter_sigma=0.0` param + `JitteredShellJumpLaw`
+(`src/jumps.py`) — per-draw transverse jitter, RA-LSC only (no closed-form
+quadrature; `quadrature_shifts` raises), off by default. E4 notebook jump
+markdown updated (generator + live 04 notebook, non-destructive).
+
+**Gates (smoke, GPU 5).**
+- Certificate (24D importance, 8-atom law): **max R = 3.8e-13** ✓ (< 1e-6).
+- `p_star` unchanged (0.325, 0.211, 0.237, 0.227) — atoms don't affect the target.
+- π-start hold (RA, T=10, N=64): TV=0.125, within the ~0.1 N=64 noise floor —
+  informational only; production-scale confirmation deferred to the notebook.
+- Full suite: **29 passed**, no regression (E4 importance certificate test green).
+
+---
 <!-- subsequent phases appended below as completed -->

@@ -341,12 +341,13 @@ def build_e3_mb4well(device="cuda", basin_cache: str | None = None) -> Experimen
 
 
 # ===================================================================== E4
-def build_e4(device="cuda", basin_cache: str | None = None) -> Experiment:
+def build_e4(device="cuda", basin_cache: str | None = None,
+             jitter_sigma: float = 0.0) -> Experiment:
     pot = CoupledPhi4()
     cfg = RunConfig(name="coupled_phi4", d=24, n_particles=1000, T=100.0,
                     dt=0.002)
 
-    phases = ["--", "-+", "+-", "++"]
+    phases = ["--", "-+", "+-", "++"]                        # idx 0,1,2,3
     vs = []
     for ph in phases:
         v0 = torch.tensor(PHI4_MINIMA[ph][0], dtype=torch.float64, device=device)
@@ -356,17 +357,29 @@ def build_e4(device="cuda", basin_cache: str | None = None) -> Experiment:
     # sites = flat.reshape(Ns, 2), so tile v per site:
     means24 = V2.unsqueeze(1).expand(4, pot.Ns, 2).reshape(4, 24).contiguous()
 
-    # complete graph over the 4 minima: 12 directed homogeneous atoms
-    atom_list = []
+    # 8 EDGE atoms of the phase square: drop the two diagonal pairs
+    # (-- <-> ++) = {0,3} and (-+ <-> +-) = {1,2}, whose coherent chords cross
+    # the field-zero hilltop at the centre. Diagonal transitions relay through
+    # a mixed phase in two hops instead. Coherent tiling 1_{Ns} (x) (v_j - v_i).
+    _DIAGONALS = ({0, 3}, {1, 2})
+    atom_list, edge_pairs = [], []
     for i in range(4):
         for j in range(4):
-            if i != j:
+            if i != j and {i, j} not in _DIAGONALS:
                 dv = V2[j] - V2[i]
                 atom_list.append(dv.unsqueeze(0).expand(pot.Ns, 2).reshape(24))
-    atoms = torch.stack(atom_list)                           # (12, 24)
-    weights = torch.full((12,), 1.0 / 12.0, dtype=torch.float64, device=device)
+                edge_pairs.append((phases[i], phases[j]))
+    atoms = torch.stack(atom_list)                           # (8, 24)
+    A_e4 = atoms.shape[0]
+    weights = torch.full((A_e4,), 1.0 / A_e4, dtype=torch.float64, device=device)
     h = 0.1 * float(atoms.norm(dim=1).min().item())
-    law = ShellJumpLaw(atoms, weights, h=h)
+    # optional per-site transverse jitter (RA-LSC only; free because the RA
+    # score needs no closed-form quadrature over the jump law). Off by default.
+    if jitter_sigma > 0.0:
+        from .jumps import JitteredShellJumpLaw
+        law = JitteredShellJumpLaw(atoms, weights, h, jitter_sigma)
+    else:
+        law = ShellJumpLaw(atoms, weights, h=h)
     # drift cap = max ||r_a||: the coherent paths cross no foreign basin, so
     # the detailed-balance return flow is best integrated by steps that may
     # retrace a full jump (measured: pi-start TV 0.052 at cap=1 vs 0.023 at
@@ -444,7 +457,8 @@ def build_e4(device="cuda", basin_cache: str | None = None) -> Experiment:
         cp_drift_cap=drift_cap_e4,
         extras={"minima_2d": V2, "means24": means24, "hessians": H24,
                 "laplace": laplace, "basins": basins, "h": h,
-                "barrier_minus_minus": barrier, "phases": phases},
+                "barrier_minus_minus": barrier, "phases": phases,
+                "edge_pairs": edge_pairs, "jitter_sigma": jitter_sigma},
     )
 
 
