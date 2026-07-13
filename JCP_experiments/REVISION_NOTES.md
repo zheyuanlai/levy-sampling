@@ -93,4 +93,52 @@ curves visibly cross/overlap throughout, no systematic bias). Verdict: consisten
 at smoke scale; **full-scale confirmation recommended** (author, production N).
 
 ---
+
+## P2 — E3 depth-retuned 3-well Müller–Brown (β=24) — DONE ✓
+
+**Constant re-derivation gate (independent, tol 1e-3): ALL TARGETS MATCH.**
+Solved `(D1, D3)` for equal-depth wells via scipy (fsolve on depth-diffs, BFGS
+minima, Nelder–Mead saddles): `D = (-1.6607, -1.0, -1.0218, 0.15)`; minima
+A(-0.587,1.413) B(-0.065,0.475) C(0.574,0.039) all `V=-0.7957`; saddles
+`S_AB=-0.3323`, `S_BC=-0.6310`. At β=24: `β·b(A↔B)=11.1`, `β·b(B↔C)=4.0`, masses
+(0.32,0.42,0.26). Saddle *positions* shift slightly from the note's classic-MB
+values but the *energies* (the barriers) match to 1e-4. Torch `mb3` Newton-refines
+all five critical points to `|grad|~1e-15`.
+
+**What.**
+- `src/potentials.py`: `mb3_2d`, `mb3_2d_grad`, `MB3_CRITICAL`,
+  `TransformedMB3Well10D` (same frozen `B` embedding as mb4), `MB3Latent2D`.
+- `src/experiments.py`: new `build_e3(beta=24.0)` — β threaded locally through
+  `make_score`, references, `p_star`, `kramers` (config.BETA stays 8 for
+  E1/E2/E4). Relay atoms `{±r_BA, ±r_BC}` through hub B (no direct A–C), uniform
+  weights, `h=0.1min‖r_a‖`, `cp_drift_cap=2h`. Init in well C. Separate generous
+  certificate box in extras (`cert_lo/cert_hi`); sampling box stays tight. Old
+  4-well builder preserved as `build_e3_mb4well`.
+- Notebook: `notebooks/03_mb3well_10d.ipynb` generated from updated
+  `build_notebooks.py` (mb3 title/asserts/target-viz/jump/cert cells; PT-ladder
+  cell now uses `cfg.beta` not `C.BETA` — safe for all, needed for E3). Old
+  `03_mb4well_10d.ipynb` moved to `archive/` with outputs preserved and its
+  builder repointed to `build_e3_mb4well`. Target figure:
+  `figures/mb3well_10d/mb3well_10d_target.{png,pdf}` (classic 3-well MB, trimodal
+  at β=24).
+
+**Gates (smoke, GPU 5).**
+- Mixture certificate (generous box, β=24): **max R = 9.4e-15** ✓ (< 1e-6).
+- Atomwise certificate (max over 32 realised shifts): **4.3e-15** ✓ (certifies
+  the production RA-LSC path).
+- Constants asserts ✓; `p_star` (0.31,0.42,0.27) ✓; grid masses (0.310,0.420,
+  0.270) ✓.
+- Barrier structure (ULA, t=100): committed **C→A = 0/64** ✓, **C→B = 62/64** ✓
+  — two-timescale structure holds. Kramers τ(A↔B) = 4.2e5 ≫ T=200.
+- Full suite: **29 passed**, no regression.
+
+**Note (initial box miss).** The tight sampling box `[-2.0,-1.3]-[1.9,2.6]` reads
+R=6e-5 (order-one identity mass lives a full jump beyond support); the separate
+generous cert box `[-3.2,-2.4]-[3.0,3.7]` reads 9e-15. Documented in extras.
+
+**Deferred to the author's notebook run** (production scale, cannot run at smoke):
+the dt-refinement and quadrature-refinement studies (`cfg.dt=0.005` inherited;
+mb3 is gentler than mb4 so this is conservative), and the PT-ladder tuning.
+
+---
 <!-- subsequent phases appended below as completed -->

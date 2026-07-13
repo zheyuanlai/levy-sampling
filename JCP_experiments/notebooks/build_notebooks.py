@@ -59,7 +59,7 @@ CELL_LADDER = '''# PT: geometric ladder beta_k = beta * r^(k-1); K tuned so the 
 gen = torch.Generator(device=DEV); gen.manual_seed(0)
 x0_pilot = exp.init_fn(min(512, cfg.n_particles), gen)
 pt_betas, ladder_info = tune_ladder(exp.pot, x0_pilot, cfg.dt, exp.box,
-                                    C.BETA, exp.pt_beta_min, pilot_steps=20_000)
+                                    cfg.beta, exp.pt_beta_min, pilot_steps=20_000)
 print(f"PT ladder: K={ladder_info['K']}  r={ladder_info['r']:.4f}  "
       f"beta_K={pt_betas[-1].item():.4f}  swap acceptance={ladder_info['swap_acceptance']:.3f}"
       f"  band_attained={ladder_info['band_attained']}")'''
@@ -496,13 +496,197 @@ pi_start_hold = {"init": [round(float(v), 4) for v in p0],
 print("pi-start hold:", pi_start_hold)'''
 
 
+# ----------------------------------------------------------------------
+# E3 main: depth-retuned 3-well Mueller-Brown 10D (beta = 24)
+# ----------------------------------------------------------------------
+MD_E3_TITLE_MB3 = r"""# E3 — depth-retuned 3-well Müller–Brown (10D)
+
+**Target.** Standard Müller–Brown functional form with depth parameters retuned to equal-depth wells, embedded in 10D ($U(z)=V_3(z_1,z_2)+\|z_{3:10}\|^2/(2\cdot0.4^2)$, $x=zB^\top$), at $\beta=24$. The standard MB is multimodal OR metastable but never both (its depth gap $0.659$ exceeds every barrier except A's own exit $0.401$); retuning $(D_1,D_3)$ to equal depths ($V=-0.7957$) decouples depth from barrier and makes $\beta$ a free dial. At $\beta=24$ the target is genuinely **trimodal AND metastable with two timescales**: $A\leftrightarrow B$ slow ($\beta b=11.1$, local methods cannot cross in $T=200$), $B\leftrightarrow C$ moderate ($\beta b=4.0$). Masses $p^\star\approx(0.32,0.42,0.26)$. Runs start in well $C$; only nonlocal relay jumps populate the far well $A$. Metrics in latent 2D $z_{1:2}$ (full-10D sliced $W_2$ in the CSV)."""
+
+CELL_E3_ASSERTS_MB3 = '''from src.potentials import MB3_CRITICAL, mb3_2d, mb3_2d_grad, newton_refine
+for key, (z_tab, V_tab) in MB3_CRITICAL.items():
+    z = newton_refine(mb3_2d_grad, torch.tensor(z_tab, device=DEV))
+    Vv = mb3_2d(z.unsqueeze(0))[0].item()
+    assert abs(Vv - V_tab) < 5e-4, (key, Vv)
+    print(f"{key:5s}: ({z[0].item():+.4f}, {z[1].item():+.4f})  V = {Vv:.4f}")
+b_AB, b_BC = exp.extras["b_AB"], exp.extras["b_BC"]
+print(f"p_star (A,B,C): {np.round(exp.p_star.cpu().numpy(), 4)} | "
+      f"beta*b(A<->B) = {cfg.beta*b_AB:.1f} (slow) | "
+      f"beta*b(B<->C) = {cfg.beta*b_BC:.1f} (moderate)")
+
+# barrier structure: ULA from C reaches B (B<->C moderate) but NOT A (A<->B slow)
+g = torch.Generator(device=DEV); g.manual_seed(0)
+rep_A = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
+                          exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), cfg.eps, g)
+g2 = torch.Generator(device=DEV); g2.manual_seed(0)
+rep_B = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g2),
+                          exp.extras["exit_to_B"], cfg.dt, int(cfg.T/cfg.dt), cfg.eps, g2)
+print(f"ULA T={cfg.T}: committed C->A (far well) = {rep_A['n_exits']}/{rep_A['n_particles']} "
+      f"(expect 0) | C->B (reachable) = {rep_B['n_exits']}/{rep_B['n_particles']} (expect > 0)")
+assert rep_A['n_exits'] == 0, "local ULA must not reach the far well A within T"
+print(f"Kramers tau(A<->B) = {exp.kramers_tau:.2e} time units >> T={cfg.T}")'''
+
+MD_E3_TARGET_MB3 = r"""## Target density: explicit form and visualization
+
+The target is $\pi(x)\propto e^{-\beta U(x)}$ on $\mathbb R^{10}$ at $\beta=24$. In latent coordinates $z = xB^{-\top}$ ($x = zB^\top$, $B = Q\,\mathrm{diag}(0.75,\dots,1.45)$, $Q$ a frozen Haar rotation from `default_rng(12345)`):
+
+$$U(z) = V_3(z_1,z_2) + \frac{\|z_{3:10}\|^2}{2\sigma_{\mathrm{aux}}^2},\qquad \sigma_{\mathrm{aux}}=0.4,$$
+
+$$V_3(z_1,z_2) = \sum_{k=1}^{4} D_k\, \exp\!\big(a_k(z_1-\bar x_k)^2 + b_k(z_1-\bar x_k)(z_2-\bar y_k) + c_k(z_2-\bar y_k)^2\big),$$
+
+the **standard Müller–Brown functional form** with depths $(D_1,D_3)$ retuned so the three deep wells are equal-depth:
+
+| $k$ | $D_k$ | $a_k$ | $b_k$ | $c_k$ | $\bar x_k$ | $\bar y_k$ |
+|---|---|---|---|---|---|---|
+| 1 | $-1.6607$ | $-1$   | $0$  | $-10$  | $1$    | $0$    |
+| 2 | $-1.0$    | $-1$   | $0$  | $-10$  | $0$    | $0.5$  |
+| 3 | $-1.0218$ | $-6.5$ | $11$ | $-6.5$ | $-0.5$ | $1.5$  |
+| 4 | $+0.15$   | $0.7$  | $0.6$| $0.7$  | $-1$   | $1$    |
+
+**Why retuned.** The standard MB's depth gap $V_B-V_A=0.659$ exceeds every barrier but A's own exit ($0.401$): any $\beta$ equalising the masses ($\beta\lesssim4.6$) kills metastability, any $\beta$ creating metastability ($\beta\gtrsim25$) makes the mass ratio $e^{-16}$ (effectively unimodal). Retuning to equal-depth wells decouples the two exponentials, so $\beta$ becomes a free dial. Since $x=zB^\top$ is invertible linear, $\pi$ factorises exactly: $\pi(z)=\frac{e^{-\beta V_3}}{Z_2}\prod_{j=3}^{10}\mathcal N(z_j;0,\sigma_{\mathrm{aux}}^2)$ — all multimodal structure is in the 2D marginal below."""
+
+CELL_E3_TARGET_VIZ_MB3 = r'''# Target visualization (self-contained, CPU-safe; touches no run state).
+import os, sys, math
+sys.path.insert(0, os.path.abspath(".."))
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+from src.potentials import mb3_2d, MB3_CRITICAL
+
+beta_viz = float(cfg.beta)
+zg1 = torch.linspace(-1.3, 1.3, 701, dtype=torch.float64)
+zg2 = torch.linspace(-0.6, 1.9, 701, dtype=torch.float64)
+ZZ = torch.stack(torch.meshgrid(zg1, zg2, indexing="ij"), dim=-1)
+Vg = mb3_2d(ZZ)
+cell_area = float((zg1[1] - zg1[0]) * (zg2[1] - zg2[0]))
+logp2 = -beta_viz * Vg
+logp2 = logp2 - (torch.logsumexp(logp2.reshape(-1), 0) + math.log(cell_area))
+
+wells = ["A", "B", "C"]
+zw = torch.tensor([MB3_CRITICAL[k][0] for k in wells], dtype=torch.float64)
+lab_g = torch.cdist(ZZ.reshape(-1, 2), zw).argmin(1)
+p2_flat = torch.exp(logp2.reshape(-1))
+mass = torch.tensor([float(p2_flat[lab_g == i].sum()) for i in range(3)])
+mass = mass / mass.sum()
+print("latent-2D grid well masses (A,B,C):", np.round(mass.numpy(), 4),
+      " (cf. p_star printed above)")
+
+fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.6), constrained_layout=True)
+lv = np.linspace(-0.85, 0.2, 22)
+cf0 = axes[0].contourf(zg1, zg2, Vg.T, levels=lv, cmap="viridis")
+axes[0].contour(zg1, zg2, Vg.T, levels=lv, colors="k", linewidths=0.25, alpha=0.4)
+for k in wells:
+    (zx, zy), Vk = MB3_CRITICAL[k]
+    axes[0].plot(zx, zy, "o", ms=5, mfc="w", mec="k")
+    axes[0].annotate(f"{k}  V={Vk:.3f}", (zx, zy), textcoords="offset points",
+                     xytext=(7, 5), fontsize=8, color="w")
+for s in ("S_AB", "S_BC"):
+    (sx, sy), Vs = MB3_CRITICAL[s]
+    axes[0].plot(sx, sy, "x", ms=7, color="r")
+    axes[0].annotate(f"{s}  V={Vs:.3f}", (sx, sy), textcoords="offset points",
+                     xytext=(-7, -3), ha="right", fontsize=8, color="r")
+axes[0].set(title=r"latent potential $V_3(z_1, z_2)$ (depth-retuned)",
+            xlabel="$z_1$", ylabel="$z_2$")
+fig.colorbar(cf0, ax=axes[0], label="$V_3$")
+
+l10 = (logp2 / math.log(10.0)).numpy()
+lv1 = np.linspace(l10.max() - 8.0, l10.max(), 33)
+cf1 = axes[1].contourf(zg1, zg2, np.maximum(l10.T, lv1[0]), levels=lv1, cmap="magma")
+for k, m in zip(wells, mass):
+    (zx, zy), _ = MB3_CRITICAL[k]
+    axes[1].annotate(f"{k}: {float(m):.3f}", (zx, zy), textcoords="offset points",
+                     xytext=(7, 5), fontsize=8, color="w")
+axes[1].set(title=r"2D marginal $\log_{10}\pi_2$ at $\beta=24$ (labels: basin masses)",
+            xlabel="$z_1$", ylabel="$z_2$")
+fig.colorbar(cf1, ax=axes[1], label=r"$\log_{10}\pi_2$")
+os.makedirs(os.path.join("..", "figures", "mb3well_10d"), exist_ok=True)
+for ext in ("png", "pdf"):
+    fig.savefig(os.path.join("..", "figures", "mb3well_10d",
+                             "mb3well_10d_target." + ext), dpi=200, bbox_inches="tight")
+plt.show()'''
+
+MD_E3_JUMP_MB3 = r"""## Jump law and Lévy score
+
+**Relay design.** Four atoms $\{\pm r_{BA},\ \pm r_{BC}\}$ through the middle hub $B$ ($r_{BA}=z_A-z_B$, $r_{BC}=z_C-z_B$ in latent coords, then $r=(\Delta z,0_8)B^\top$), $w_a=\tfrac14$, shell $h=0.1\min\|r_a\|$, $\lambda=1$; the CP pair's drift step is capped at $2h$ (the $B$–$A$ chord overshoots $S_{AB}$, so the detailed-balance return flux is integrated with small in-tube steps). **No direct $A$–$C$ atom** — the two-hop relay through $B$ covers it. The atom set is FIXED and every atom fires from every state (never gated on the current basin — a state-dependent selection law would break the RA invariance argument). Score: generic shell with log-space accumulation; certificate on the exact latent-2D reduction (per-atom residuals cover the RA estimator)."""
+
+CELL_E3_CERT_MB3 = '''from src.potentials import MB3Latent2D
+from src.jumps import ShellJumpLaw
+from src.score import ShellScore
+potr = MB3Latent2D()
+dz = exp.extras["atoms_z"][:, :2]
+h_z = exp.extras["h"] * dz.norm(dim=1) / exp.law.atoms.norm(dim=1)
+law_r = ShellJumpLaw(dz, exp.law.weights.clone(), h_z)
+clo, chi = exp.extras["cert_lo"], exp.extras["cert_hi"]   # generous box (>= 1 jump)
+print("relay atoms (latent):", np.round(dz.cpu().numpy(), 3).tolist())
+print("h =", round(exp.extras["h"], 4), " drift cap (CP pair) =",
+      round(exp.cp_drift_cap, 4))
+DEFAULT_QUAD = dict(q_theta=C.Q_THETA, q_rho=C.Q_RHO)
+phis = make_phi_family(2, [0.0, 0.5], 0.8, DEV)
+
+def cert_e3(q_theta, q_rho):
+    score = ShellScore(potr, law_r, cfg.lam, cfg.beta, q_theta, q_rho)
+    shifts, logw = law_r.quadrature_shifts(64)
+    return certificate_grid(potr, score, shifts, logw, cfg.lam, cfg.beta, phis,
+                            list(clo), list(chi),
+                            n_panels=200, nodes_per_panel=10, chunk=8192)
+
+cert_report = cert_e3(**DEFAULT_QUAD)
+print(f"max R = {cert_report['max_residual']:.3e}")
+assert cert_report["max_residual"] < 1e-6'''
+
+CELL_E3_PISTART_MB3 = '''# pi-start hold test: initialise at the reference and measure any stationary
+# drift of the discretised LSC-CP chain
+K = exp.p_star.shape[0]
+g_h = torch.Generator(device=DEV); g_h.manual_seed(777)
+x_pi = exp.ref_sample(4000, g_h)
+from src.metrics import occupancy as _occ
+bf = make_batched_factory(exp, dt_final, pt_betas, (0,), n_particles=4000,
+                          score_kwargs=CHOSEN_QUAD)
+s_h = bf("LSC-CP")
+s_h.x = x_pi.clone()
+p0 = _occ(exp.labels_fn(s_h.positions()), K)
+for _i in range(int(round(100.0 / dt_final))):
+    s_h.step()
+p1 = _occ(exp.labels_fn(s_h.positions()), K)
+hold_tv = 0.5 * float((p1 - exp.p_star).abs().sum())
+pi_start_hold = {"init": [round(float(v), 4) for v in p0],
+                 "after_T100": [round(float(v), 4) for v in p1],
+                 "TV_vs_pstar": round(hold_tv, 4)}
+print("pi-start hold:", pi_start_hold)'''
+
+
 def build_e3_nb() -> nbf.NotebookNode:
     cells = [
-        md(r"""# E3 — 4-well modified Müller–Brown (10D)
+        md(MD_E3_TITLE_MB3),
+        code(cell_setup("mb3well_10d", "build_e3",
+                        'exp = build_e3(device=DEV, basin_cache=os.path.join(RESULTS, "basin_map.npz"))')),
+        code(CELL_E3_ASSERTS_MB3),
+        md(MD_E3_TARGET_MB3),
+        code(CELL_E3_TARGET_VIZ_MB3),
+        md(MD_E3_JUMP_MB3),
+        code(CELL_E3_CERT_MB3),
+        code(CELL_LADDER),
+        code(CELL_REFERENCE),
+        code(CELL_E3_QUAD),
+        code(cell_dt_production('["W2", "TV", "MMD", "EMC", "W2_10d"]')),
+        code(CELL_E3_PISTART_MB3),
+        code(CELL_FIGURES),
+        code(cell_csv("pi_start_hold=pi_start_hold,")),
+    ]
+    nb = nbf.v4.new_notebook()
+    nb.cells = cells
+    return nb
+
+
+def build_e3_mb4well_nb() -> nbf.NotebookNode:
+    cells = [
+        md(r"""# E3 (ARCHIVED appendix) — 4-well modified Müller–Brown (10D)
+
+*Archived stress test (plateau-walled islands). The main E3 is the depth-retuned 3-well Müller–Brown at $\beta=24$ (`03_mb3well_10d.ipynb`).*
 
 **Target.** The equal-amplitude 4-well Müller–Brown variant (all four Gaussian amplitudes $-200\times0.05$; the true MB's repulsive hump replaced by a fourth well at $(-0.8,-0.5)$ — `archive/mueller.py` precedent), embedded in 10D exactly as before: $U(z) = V_4(z_1,z_2) + \|z_{3:10}\|^2/(2\cdot0.4^2)$, $x = zB^\top$. Unlike the true MB — whose depth gap equals its barrier scale, so *no* temperature is simultaneously multimodal and metastable — this target at $\beta=8$ has masses $p^\star \approx (0.617,\ 0.338,\ 0.027,\ 0.018)$ with a $\beta b = 16.5$ saddle between the two major wells and **plateau-level walls ($\beta b \approx 80$) around the two minor island wells** — locals provably never move, PT needs a deep ladder, and only nonlocal jumps can populate the islands at the right mass. Runs start on island W3 (2.7% mass). Metrics in latent 2D $z_{1:2}$ (full-10D sliced $W_2$ in the CSV)."""),
-        code(cell_setup("mb4well_10d", "build_e3",
-                        'exp = build_e3(device=DEV, basin_cache=os.path.join(RESULTS, "basin_map.npz"))')),
+        code(cell_setup("mb4well_10d", "build_e3_mb4well",
+                        'exp = build_e3_mb4well(device=DEV, basin_cache=os.path.join(RESULTS, "basin_map.npz"))')),
         code(CELL_E3_ASSERTS),
         md(MD_E3_TARGET),
         code(CELL_E3_TARGET_VIZ),
@@ -707,7 +891,7 @@ if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     for name, builder in [("01_double_well", build_e1_nb),
                           ("02_mog40", build_e2_nb),
-                          ("03_mb4well_10d", build_e3_nb),
+                          ("03_mb3well_10d", build_e3_nb),          # main E3 (mb3)
                           ("04_coupled_phi4", build_e4_nb)]:
         nb = builder()
         nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3",

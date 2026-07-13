@@ -17,13 +17,14 @@ import torch
 from .config import (BETA, EPS, LAMBDA, M_PHI, Q_RHO, Q_THETA, RunConfig,
                      diffusion_seed, init_seed, jump_seed)
 from .jumps import AnnulusJumpLaw, ShellJumpLaw, gauss_legendre_01
-from .potentials import (CoupledPhi4, DoubleWell1D, MB4_CRITICAL,
-                         MB_CRITICAL, MB4Latent2D, MoG40,
+from .potentials import (CoupledPhi4, DoubleWell1D, MB3_CRITICAL, MB4_CRITICAL,
+                         MB_CRITICAL, MB3Latent2D, MB4Latent2D, MoG40,
                          MuellerBrownLatent2D, PHI4_MINIMA,
-                         TransformedMB4Well10D, TransformedMuellerBrown10D,
-                         mb4_2d, mb4_2d_grad, muller_brown_2d,
-                         muller_brown_2d_grad, newton_refine, phi4_W,
-                         phi4_W_grad)
+                         TransformedMB3Well10D, TransformedMB4Well10D,
+                         TransformedMuellerBrown10D,
+                         mb3_2d, mb3_2d_grad, mb4_2d, mb4_2d_grad,
+                         muller_brown_2d, muller_brown_2d_grad, newton_refine,
+                         phi4_W, phi4_W_grad)
 from .references import (GradientFlowBasinMap2D, Grid1DInverseCDF,
                          LaplaceMixture, Latent2DGaussianReference,
                          MB10DReference)
@@ -152,13 +153,115 @@ def build_e2(device="cuda") -> Experiment:
 
 
 # ===================================================================== E3
-def build_e3(device="cuda", basin_cache: str | None = None) -> Experiment:
+def build_e3(device="cuda", basin_cache: str | None = None,
+             beta: float = 24.0) -> Experiment:
+    """E3: depth-retuned 3-well Mueller-Brown, embedded in 10D (x = z B^T).
+
+    Standard MB geometry with depths retuned to equal (V = -0.7957), so the
+    temperature is a free dial (the standard MB is multimodal OR metastable, but
+    never both). At beta = 24 the target is trimodal AND metastable with TWO
+    timescales: A<->B slow (beta*b = 11.1, local methods cannot cross in T=200),
+    B<->C moderate (beta*b = 4.0). Basin masses ~ (0.32, 0.42, 0.26). Init in
+    well C; only nonlocal relay jumps through the middle hub B populate A.
+
+    Jump law = 4 relay atoms {+-r_BA, +-r_BC} (through the middle hub B; NO
+    direct A-C atom, whose chord overshoots the field-zero region), uniform
+    weights, shell h = 0.1 min||r_a||, CP-pair drift step capped at 2h (the B-A
+    chord overshoots S_AB, so integrate the return flux with small in-tube
+    steps). beta is threaded locally (config.BETA stays 8 for E1/E2/E4).
+    """
+    E3_BETA = float(beta)          # <-- E3 temperature (switch to 32.0 here)
+    pot = TransformedMB3Well10D(device=device)
+    cfg = RunConfig(name="mb3well_10d", d=10, n_particles=2000, T=200.0,
+                    dt=0.005, beta=E3_BETA)
+
+    mins = {}
+    for key in ("A", "B", "C"):
+        z0 = torch.tensor(MB3_CRITICAL[key][0], dtype=torch.float64, device=device)
+        mins[key] = newton_refine(mb3_2d_grad, z0)
+    zA, zB, zC = mins["A"], mins["B"], mins["C"]
+    Z3 = torch.stack([zA, zB, zC])
+
+    # relay atoms through the middle hub B: {+-r_BA, +-r_BC}. No direct A-C.
+    dz_list = [zA - zB, zB - zA, zC - zB, zB - zC]
+    atoms_z = torch.stack([torch.cat([dz, torch.zeros(8, dtype=torch.float64,
+                                                      device=device)])
+                           for dz in dz_list])
+    atoms_x = pot.from_latent(atoms_z)                       # (4, 10)
+    weights = torch.full((4,), 0.25, dtype=torch.float64, device=device)
+    h = 0.1 * float(atoms_x.norm(dim=1).min().item())
+    law = ShellJumpLaw(atoms_x, weights, h=h)
+    drift_cap = 2.0 * h
+
+    # latent box: >= one max jump length (~1.07) beyond the three minima
+    lo2d, hi2d = (-2.0, -1.3), (1.9, 2.6)
+    lo_lat = [lo2d[0], lo2d[1]] + [-2.0] * 8
+    hi_lat = [hi2d[0], hi2d[1]] + [2.0] * 8
+    box = LatentRectBox(lo_lat, hi_lat, pot)
+
+    ref = Latent2DGaussianReference(pot, lambda z: -E3_BETA * mb3_2d(z),
+                                    lo2d, hi2d, E3_BETA)
+
+    basins = GradientFlowBasinMap2D(mb3_2d_grad, Z3, lo2d, hi2d,
+                                    n_grid=600, device=device, cache=basin_cache)
+    p_star = basins.p_star(lambda z: -E3_BETA * mb3_2d(z))
+
+    def init_fn(n, gen):
+        z = torch.zeros(n, 10, dtype=torch.float64, device=device)
+        z[:, :2] = zC                                        # init in well C
+        z += 0.05 * torch.randn(n, 10, generator=gen, device=device,
+                                dtype=torch.float64)
+        return pot.from_latent(z)
+
+    def make_score(q_theta=Q_THETA, q_rho=Q_RHO):
+        return ShellScore(pot, law, LAMBDA, E3_BETA, q_theta, q_rho)
+
+    def labels_fn(x):
+        return basins.assign(pot.to_latent(x)[:, :2])
+
+    def metric_space(x):
+        return pot.to_latent(x)[:, :2]
+
+    # slow timescale: A<->B barrier (Kramers tau, astronomically beyond T)
+    bAB = MB3_CRITICAL["S_AB"][1] - MB3_CRITICAL["B"][1]     # 0.4634
+    kramers = 2.0 * math.pi * math.exp(min(E3_BETA * bAB, 700.0))
+
+    return Experiment(
+        name="mb3well_10d", cfg=cfg, pot=pot, law=law, box=box,
+        init_fn=init_fn, ref_sample=lambda n, g: ref.sample(n, g),
+        make_score=make_score, labels_fn=labels_fn, p_star=p_star,
+        metric_space=metric_space,
+        # hot replica must cross b(A<->B): beta_min * b(A<->B) ~ 2
+        pt_beta_min=2.0 / bAB,
+        # committed exit = arrival in the FAR well A's core (the slow crossing);
+        # B<->C is designed to be reachable, so gate specifically on A.
+        exit_committed=lambda x: (
+            torch.cdist(pot.to_latent(x)[:, :2], zA.unsqueeze(0)).squeeze(1) < 0.25),
+        kramers_tau=kramers,
+        cp_drift_cap=drift_cap,
+        extras={"minima_latent": mins, "atoms_z": atoms_z, "h": h,
+                "basins": basins, "ref": ref, "Z3": Z3, "beta": E3_BETA,
+                "lo2d": lo2d, "hi2d": hi2d, "b_AB": bAB,
+                "b_BC": MB3_CRITICAL["S_BC"][1] - MB3_CRITICAL["B"][1],
+                # generous certificate box (>= one jump beyond support; the
+                # tighter sampling box would read a large residual): the
+                # order-one identity mass lives where pi is tiny and S enormous.
+                "cert_lo": [-3.2, -2.4], "cert_hi": [3.0, 3.7],
+                # secondary barrier check: arrival in B core from C (reachable)
+                "exit_to_B": lambda x: (
+                    torch.cdist(pot.to_latent(x)[:, :2], zB.unsqueeze(0)).squeeze(1) < 0.25)},
+    )
+
+
+# ============================================= E3 (archived 4-well variant)
+def build_e3_mb4well(device="cuda", basin_cache: str | None = None) -> Experiment:
     """E3: 4-well modified Mueller-Brown (archive/mueller.py precedent),
     embedded in 10D exactly as before (x = z B^T). At beta = 8 the target is
     genuinely multimodal AND metastable: masses ~ (0.617, 0.338, 0.027,
     0.018); W1<->W2 share a beta*16.5 saddle; W3/W4 are islands behind
     plateau-level walls (beta*b ~ 80) that only nonlocal transport can
-    populate. Init on island W3."""
+    populate. Init on island W3. ARCHIVED appendix stress test (plateau-walled
+    islands); the mb3 build_e3 above is the main E3."""
     pot = TransformedMB4Well10D(device=device)
     cfg = RunConfig(name="mb4well_10d", d=10, n_particles=2000, T=200.0,
                     dt=0.005)

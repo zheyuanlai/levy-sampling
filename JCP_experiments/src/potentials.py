@@ -459,6 +459,118 @@ class MuellerBrownLatent2D(Potential):
         return muller_brown_2d_grad(z) / self.s
 
 
+# ================================ E3 (depth-retuned 3-well Mueller-Brown)
+# Standard Mueller-Brown functional form (paper image, /100-scaled amplitudes),
+# with the depth parameters (D1, D3) RETUNED so the three deep wells are
+# equal-depth (V = -0.7957). This decouples the two exponentials that make the
+# standard MB either multimodal OR metastable but never both: at equal depths
+# the temperature is a free dial. Independently re-derived and asserted (P2):
+#   D = (-1.6607, -1.0, -1.0218, 0.15); wells A(top-left) B(middle) C(right) all
+#   V = -0.7957; saddles S_AB = -0.3323, S_BC = -0.6310. At beta = 24:
+#   beta*b(A<->B) = 11.1 (slow), beta*b(B<->C) = 4.0 (moderate), basin masses
+#   ~ (0.32, 0.42, 0.26) -- genuinely trimodal AND metastable (two timescales).
+# Tuple layout per Gaussian: (D_k, A_k, Bp_k, Cp_k, x'_k, y'_k).
+_MB3 = (
+    (-1.6607, -1.0, 0.0, -10.0, 1.0, 0.0),
+    (-1.0, -1.0, 0.0, -10.0, 0.0, 0.5),
+    (-1.0218, -6.5, 11.0, -6.5, -0.5, 1.5),
+    (0.15, 0.7, 0.6, 0.7, -1.0, 1.0),
+)
+
+# verified critical points (positions are Newton-refinement seeds; the notebook
+# and tests refine and assert V to 4 decimals). A = top-left (relay endpoint),
+# B = middle (relay hub), C = right (init well).
+MB3_CRITICAL = {
+    "A": ((-0.5870, 1.4130), -0.7957),
+    "B": ((-0.0650, 0.4750), -0.7957),
+    "C": ((0.5740, 0.0390), -0.7957),
+    "S_AB": ((-0.9160, 0.6660), -0.3323),   # A <-> B saddle (beta*b = 11.1 @ 24)
+    "S_BC": ((0.2660, 0.2470), -0.6310),    # B <-> C saddle (beta*b = 4.0 @ 24)
+}
+
+
+def mb3_2d(z: torch.Tensor) -> torch.Tensor:
+    z1, z2 = z[..., 0], z[..., 1]
+    out = torch.zeros_like(z1)
+    for D, a, b, c, x0, y0 in _MB3:
+        dx, dy = z1 - x0, z2 - y0
+        out = out + D * torch.exp(a * dx * dx + b * dx * dy + c * dy * dy)
+    return out
+
+
+def mb3_2d_grad(z: torch.Tensor) -> torch.Tensor:
+    z1, z2 = z[..., 0], z[..., 1]
+    g1 = torch.zeros_like(z1)
+    g2 = torch.zeros_like(z1)
+    for D, a, b, c, x0, y0 in _MB3:
+        dx, dy = z1 - x0, z2 - y0
+        e = D * torch.exp(a * dx * dx + b * dx * dy + c * dy * dy)
+        g1 = g1 + e * (2.0 * a * dx + b * dy)
+        g2 = g2 + e * (b * dx + 2.0 * c * dy)
+    return torch.stack([g1, g2], dim=-1)
+
+
+class TransformedMB3Well10D(Potential):
+    """U(z) = V3(z1,z2) + ||z_{3:10}||^2/(2 sigma_aux^2), sampled in mixed
+    coordinates x = z B^T with the SAME embedding B as E3's 4-well variant
+    (Q from QR of default_rng(12345), singular values 0.75..1.45). Only the 2D
+    latent potential changes (depth-retuned 3-well MB, O(1) depths, no /s)."""
+
+    d = 10
+    name = "mb3well_10d"
+    sigma_aux = 0.4
+
+    def __init__(self, device: str | torch.device = "cuda") -> None:
+        super().__init__()
+        rng = np.random.default_rng(12345)
+        Q, _ = np.linalg.qr(rng.standard_normal((10, 10)))
+        B = Q @ np.diag(np.linspace(0.75, 1.45, 10))
+        self.B = torch.as_tensor(B, dtype=torch.float64, device=device)
+        self.Binv = torch.as_tensor(np.linalg.inv(B), dtype=torch.float64, device=device)
+
+    def to_latent(self, x: torch.Tensor) -> torch.Tensor:
+        return x @ self.Binv.T
+
+    def from_latent(self, z: torch.Tensor) -> torch.Tensor:
+        return z @ self.B.T
+
+    def _V_raw(self, x: torch.Tensor) -> torch.Tensor:
+        z = self.to_latent(x)
+        aux = z[..., 2:]
+        return mb3_2d(z[..., :2]) + 0.5 * (aux * aux).sum(-1) / self.sigma_aux**2
+
+    def V(self, x: torch.Tensor) -> torch.Tensor:
+        self.n_V += int(np.prod(x.shape[:-1]))
+        return self._V_raw(x)
+
+    def grad(self, x: torch.Tensor) -> torch.Tensor:
+        self.n_grad += int(np.prod(x.shape[:-1]))
+        z = self.to_latent(x)
+        gz = torch.zeros_like(z)
+        gz[..., :2] = mb3_2d_grad(z[..., :2])
+        gz[..., 2:] = z[..., 2:] / self.sigma_aux**2
+        return gz @ self.Binv
+
+
+class MB3Latent2D(Potential):
+    """Reduced latent-2D potential for the E3 certificate (jumps act on z_{1:2}
+    only, dot products are affine-invariant, the aux Gaussian factorises)."""
+
+    d = 2
+    name = "mb3_latent2d"
+
+    def _V_raw(self, z: torch.Tensor) -> torch.Tensor:
+        return mb3_2d(z)
+
+    def V(self, z: torch.Tensor) -> torch.Tensor:
+        self.n_V += int(np.prod(z.shape[:-1]))
+        return self._V_raw(z)
+
+    def grad(self, z: torch.Tensor) -> torch.Tensor:
+        self.n_grad += int(np.prod(z.shape[:-1]))
+        return mb3_2d_grad(z)
+
+
 # ================================================================ utilities
 def newton_refine(grad_fn, z0: torch.Tensor, n_iter: int = 60) -> torch.Tensor:
     """Newton on grad_fn = 0 with finite-difference Jacobian (fp64, small dim)."""
