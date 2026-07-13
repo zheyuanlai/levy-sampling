@@ -43,9 +43,13 @@ fi
 
 # method matrices. Raw-CP uses NO Levy score, so there is a single raw-CP
 # baseline (full-law CP) everywhere -- no "CP-RA": the exact-vs-RA distinction
-# only applies to the SCORED method (LSC-CP vs LSC-CP-RA).
-DUAL="ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA"          # E1/E2: exact + RA score
-RA="ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-RA"                   # E3/E4: RA score
+# only applies to the SCORED method. E1/E2 (A=2 / annulus, beta=8) run the exact
+# score plus the cheap single-atom estimator LSC-CP-RA (they agree there). E3/E4
+# use the multi-atom estimator LSC-CP-MA: single-atom RA's variance grows with
+# atom count A and beta and breaks on E3 (beta=24) and E4 (A=8); multi-atom sums
+# over all A atoms and matches the exact score at their production cap.
+DUAL="ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA"          # E1/E2: exact + single-atom RA
+MA="ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA"                   # E3/E4: multi-atom RA score
 
 # experiment order: name  notebook  methods
 run_one () {
@@ -65,8 +69,8 @@ run_one () {
 
 run_one double_well  01_double_well.ipynb  "$DUAL"
 run_one mog40        02_mog40.ipynb        "$DUAL"
-run_one mb3well_10d  03_mb3well_10d.ipynb  "$RA"
-run_one coupled_phi4 04_coupled_phi4.ipynb "$RA"
+run_one mb3well_10d  03_mb3well_10d.ipynb  "$MA"
+run_one coupled_phi4 04_coupled_phi4.ipynb "$MA"
 
 echo ""
 echo "== production launcher done =="
