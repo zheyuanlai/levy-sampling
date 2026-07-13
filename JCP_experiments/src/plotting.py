@@ -196,6 +196,7 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
     fig.savefig(out_base + ".pdf", bbox_inches="tight")
     if show:
         _display_inline(fig)
+    plt.close(fig)
     return fig
 
 
@@ -250,6 +251,7 @@ def cdf_comparison(samples: dict, true_x, true_cdf, out_base: str,
     fig.savefig(out_base + ".pdf", bbox_inches="tight")
     if show:
         _display_inline(fig)
+    plt.close(fig)
     return fig
 
 
@@ -301,4 +303,5 @@ def metric_grid(rows: list[dict], out_base: str,
     fig.savefig(out_base + ".pdf", bbox_inches="tight")
     if show:
         _display_inline(fig)
+    plt.close(fig)
     return fig
