@@ -90,12 +90,28 @@ def blend_toward_white(color: str, keep: float = 0.30) -> tuple:
     return tuple(keep * c + (1.0 - keep) * 1.0 for c in rgb)
 
 
+def _running_mean(y: np.ndarray, w: int) -> np.ndarray:
+    """Centered running mean, window w, edge-normalized (partial windows at the
+    ends). A stationary observable's plateau noise is estimation variance; a
+    trailing/centered average is unbiased at stationarity and reveals the level
+    without the checkpoint-to-checkpoint Monte-Carlo jitter."""
+    if w is None or w <= 1 or len(y) < 2:
+        return y
+    w = min(int(w), len(y))
+    k = np.ones(w)
+    num = np.convolve(y, k, mode="same")
+    den = np.convolve(np.ones_like(y), k, mode="same")
+    return num / den
+
+
 def _series(rows, method, ykey):
     by_step: dict[int, dict[str, list[float]]] = {}
     for r in rows:
         if r["method"] != method or ykey not in r or r[ykey] == "":
             continue
-        e = by_step.setdefault(r["step"], {"x": [], "y": []})
+        # coerce step to int: rows may come from CSV (strings) -- a lexicographic
+        # sort of string steps would connect points out of order
+        e = by_step.setdefault(int(float(r["step"])), {"x": [], "y": []})
         e["x"].append(float(r["t"]))
         e["y"].append(float(r[ykey]))
     steps = sorted(by_step)
@@ -115,7 +131,7 @@ def _series_x(rows, method, ykey, xkey):
             continue
         if r.get(xkey, "") == "":
             continue
-        e = by_step.setdefault(r["step"], {"x": [], "y": []})
+        e = by_step.setdefault(int(float(r["step"])), {"x": [], "y": []})
         e["x"].append(float(r[xkey]))
         e["y"].append(float(r[ykey]))
     steps = sorted(by_step)
@@ -129,10 +145,16 @@ def _series_x(rows, method, ykey, xkey):
 def metric_single(rows: list[dict], metric: str, out_base: str,
                   xaxis: str = "t", logy: bool = True, floors: dict | None = None,
                   emc_target: float = 1.0, methods=METHODS,
-                  figsize=(4.4, 3.2), show: bool = True):
+                  figsize=(4.4, 3.2), show: bool = True, smooth: int = 5):
     """One metric, one figure (saved individually as png+pdf). Global log-y
     (except EMC, which is in [0,1]); linear x so the shared t=0 / NFE=0 start
-    point is representable. `xaxis` in {'t','nfe','wallclock'}."""
+    point is representable. `xaxis` in {'t','nfe','wallclock'}.
+
+    `smooth` (default 5) applies a centered stationary running-average to each
+    method's seed-mean curve and its band, suppressing the checkpoint-to-
+    checkpoint Monte-Carlo jitter of the noisier estimators (W2/MMD/KSD) without
+    biasing the plateau level. The raw per-frame values remain in the CSV; set
+    smooth=1 to plot them unsmoothed."""
     apply_style()
     floors = floors or {}
     xkey, xlabel = X_AXIS[xaxis]
@@ -143,6 +165,8 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
         if len(x) == 0:
             continue
         plotted = True
+        y = _running_mean(y, smooth)
+        sd = _running_mean(sd, smooth)
         st = METHOD_STYLE.get(method, dict(color="#444444", ls="-", marker="."))
         ax.fill_between(x, y - sd, y + sd,
                         color=blend_toward_white(st["color"]), lw=0, zorder=1)
@@ -232,9 +256,10 @@ def cdf_comparison(samples: dict, true_x, true_cdf, out_base: str,
 def metric_grid(rows: list[dict], out_base: str,
                 metrics=("W2", "MMD", "EMC"), floors: dict | None = None,
                 emc_target: float = 1.0, methods=METHODS,
-                figsize_per_panel=(3.4, 2.6), show: bool = True):
+                figsize_per_panel=(3.4, 2.6), show: bool = True, smooth: int = 5):
     """One row of panels (metric vs t), shared legend above the grid.
-    Saves out_base + .png/.pdf and returns the figure (also shown inline)."""
+    Saves out_base + .png/.pdf and returns the figure (also shown inline).
+    `smooth` applies the same stationary running-average as `metric_single`."""
     apply_style()
     floors = floors or {}
     n = len(metrics)
@@ -247,6 +272,8 @@ def metric_grid(rows: list[dict], out_base: str,
             x, y, sd = _series(rows, method, metric)
             if len(x) == 0:
                 continue
+            y = _running_mean(y, smooth)
+            sd = _running_mean(sd, smooth)
             st = METHOD_STYLE[method]
             ax.fill_between(x, y - sd, y + sd,
                             color=blend_toward_white(st["color"]), lw=0, zorder=1)
