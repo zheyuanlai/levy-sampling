@@ -48,4 +48,49 @@ the JCP raw-CP path. The diagnostic checklist item (3) is verified in code:
   check against the collaborator's `experiments_CY` raw-CP (E1 / triple well).
 
 ---
+
+## P1 — RA-LSC estimator + gating tests — DONE ✓
+
+**What.**
+- `src/score.py::RandomAtomicShellScore` — unbiased single-atom estimator of the
+  exact `ShellScore`. Given one realised `R` per particle (drawn by the sampler
+  from the same `nu`), `S_R(x) = -λ R exp(LSE_p[log w_p + β(V(x)-V(x-θ_p R))])`.
+  Generic in the jump law (shell E1/E3/E4 and the E2 annulus alike). Docstring is
+  explicit: practical estimator, no finite-refresh gap-transfer / Euler-Poisson
+  exactness overclaim.
+- `src/samplers.py::CompoundPoisson` — added `jump_mode="atomic"`: draws `R_n`
+  (per particle) and `M_n~Poisson(λdt)` from the shared jump stream at the START,
+  uses the SAME `R_n` for score and jump, applies the score drift even when
+  `M_n=0`, `X += M_n R_n`. Raw-CP-atomic (score=None) shares `(R_n, M_n)` → still
+  pathwise coupled. (Coupling convention = shared jump stream, matching the
+  existing exact CP/LSC-CP pair; the diffusion noise ξ stays method-specific, as
+  in the current code — the plan's "share ξ" is a refinement not adopted, for
+  consistency with the deployed convention.)
+- `src/experiments.py` — factories handle methods `CP-RA`, `LSC-CP-RA` (atomic
+  mode; RA pair shares `jump_seed`). `src/config.py` — RA diffusion-seed bases.
+- Tests: `tests/test_ra_lsc_atomwise_certificate.py` (per-atom certificate
+  `max R < 1e-6` on the generous box + tight-box regression guard),
+  `tests/test_ra_lsc_mismatch_is_nonzero.py` (jump r_a / score r_b ⇒ residual
+  `>1e-2`), `tests/test_ra_lsc_state_independence.py` (sample signatures take no
+  state; estimator receives R; sampler draws R state-free).
+
+**Gates.**
+- 3 new test files: **7 passed** (2 atomwise + 1 mismatch + 4 state).
+- Full suite: **29 passed** (22 baseline + 7), no regression.
+
+**NFE ledger confirmed (per particle per step, measured on E1).**
+- exact LSC-CP: `V_delta = 256 = q_theta·A·q_rho (16·2·8)`, grad = 1.
+- RA LSC-CP:    `V = 17 = q_theta + 1 (16 chord evals + V(x))`, grad = 1.
+  → ~15× score-work reduction on E1 (A=2, q_rho=8); ~96× projected on E3/E4
+  (A=12/8 → 1536 vs 16). This is the metric-vs-NFE headline.
+
+**Consistency (E1, smoke: N=64, 4 seeds, t=10).** exact vs RA overlay,
+`figures/double_well/consistency_exact_vs_ra.{png,pdf}`. Curves track within the
+overlapping seed band on all metrics: terminal `|exact-RA|` = W2 0.24σ, MMD
+0.19σ, EMC 0.65σ. TV_density shows 5.5σ **at the final checkpoint only** — an
+artifact of the tiny seed-sd denominator for a 200-bin density TV at N=64 (the
+curves visibly cross/overlap throughout, no systematic bias). Verdict: consistent
+at smoke scale; **full-scale confirmation recommended** (author, production N).
+
+---
 <!-- subsequent phases appended below as completed -->

@@ -97,6 +97,79 @@ class ShellScore:
         return _finalize(M, v, self.m_max)
 
 
+# ================================================== random-atomic estimator
+class RandomAtomicShellScore:
+    """Unbiased single-atom estimator of the exact Levy score `ShellScore`.
+
+    Given ONE realised displacement R per particle -- drawn by the sampler from
+    the SAME measure nu the jump uses (rho = nu/lambda, so the Radon-Nikodym
+    weight w(R) = lambda is constant) -- the per-particle score is
+
+        S_R(x) = -lambda R exp( LSE_p[ log w_p + beta (V(x) - V(x - theta_p R)) ] ),
+
+    with theta_p, w_p Gauss-Legendre nodes/probability-weights on [0,1]. This is
+    the fixed-R integrand of the exact score, whose nu-average is S_{nu,beta}:
+
+      * unbiased:      E_{R~rho}[hat A_{eps,R}] = A_{eps,nu}     (Fubini);
+      * atomwise mu-invariant: for EVERY fixed R, int A_{eps,R} phi dmu = 0
+        (chord fundamental-theorem-of-calculus identity).
+
+    It is a PRACTICAL ESTIMATOR of `ShellScore`, not a separate method. We do NOT
+    claim finite-refresh spectral-gap transfer or exact target-preservation of
+    the Euler-Poisson discretisation. Cost is q_theta V-evaluations per particle
+    per step (vs q_theta * A * q_rho for the exact quadrature), and the jump law
+    need only be *sampleable* -- no closed-form rho/atom quadrature is required.
+
+    Interface: the sampler draws R and calls `score_for_shift(x, R)`; the score
+    never draws R itself (so the same R is used for score and jump, and R stays
+    independent of the current state x -- both required by the invariance proof).
+    Generic in the jump law: works for any `law.sample(n, gen) -> (n, d)` and any
+    potential exposing `.V` (shell laws E1/E3/E4 and the E2 annulus law alike).
+    """
+
+    def __init__(self, potential, law, lam: float, beta: float,
+                 q_theta: int = None, m_max: float = M_MAX) -> None:
+        from .config import Q_THETA
+        self.potential = potential
+        self.law = law
+        self.lam = float(lam)
+        self.beta = float(beta)
+        self.m_max = float(m_max)
+        self.q_theta = int(q_theta if q_theta is not None else Q_THETA)
+        if hasattr(law, "atoms"):
+            dev = law.atoms.device
+        else:
+            dev = getattr(law, "device", torch.device("cpu"))
+        theta, w_theta = gauss_legendre_01(self.q_theta, dev)   # (Qt,), sum(w)=1
+        self.theta = theta
+        self.log_w_theta = torch.log(w_theta)                   # (Qt,)
+        self.log_lam = math.log(self.lam)
+
+    def score_for_shift(self, x: torch.Tensor,
+                        R: torch.Tensor) -> tuple[torch.Tensor, dict]:
+        """S_R(x) for one realised displacement R (N, d) per particle.
+
+        Direction is exactly -R; only the scalar magnitude exp(M) is tamed
+        (M_MAX cap), mirroring `_finalize` but per particle with a single atom.
+        """
+        n, d = x.shape
+        # chord points y = x - theta_p R  -> (N, Qt, d); count these V-evals so
+        # NFE accounting sees the estimator's cost (q_theta V per particle).
+        y = x.unsqueeze(1) - self.theta.view(1, -1, 1) * R.unsqueeze(1)
+        v0 = self.potential.V(x)                                 # (N,)  counted
+        vy = self.potential.V(y.reshape(n * self.q_theta, d)).reshape(n, self.q_theta)
+        dV = vy - v0.unsqueeze(1)                                # (N, Qt)
+        # log I = LSE_p[ log w_p + beta (V(x) - V(x - theta_p R)) ]
+        log_I = torch.logsumexp(self.log_w_theta.view(1, -1) - self.beta * dV, dim=1)
+        M = self.log_lam + log_I                                 # (N,)
+        S = -torch.exp(torch.clamp(M, max=self.m_max)).unsqueeze(1) * R
+        diag = {
+            "m_clip_fraction": (M > self.m_max).to(torch.float64).mean(),
+            "max_log_magnitude": M.max(),
+        }
+        return S, diag
+
+
 # ============================================================== 4.3 MoG40
 def _g_hat(z: torch.Tensor) -> torch.Tensor:
     """g_hat(z) = sqrt(2/pi) - z erfcx(z/sqrt(2)) for z >= 0 (so that

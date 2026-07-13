@@ -378,7 +378,7 @@ class CompoundPoisson(SamplerBase):
 
     def __init__(self, pot, x0, dt, eps, lam, law, gen_diff, gen_jump, box,
                  score=None, name: str | None = None,
-                 drift_cap: float = 1.0) -> None:
+                 drift_cap: float = 1.0, jump_mode: str = "full") -> None:
         super().__init__()
         self.pot, self.x, self.dt, self.eps, self.lam = pot, x0.clone(), dt, eps, lam
         self.law, self.gen_diff, self.gen_jump, self.box = law, gen_diff, gen_jump, box
@@ -386,8 +386,20 @@ class CompoundPoisson(SamplerBase):
         self.name = name or ("LSC-CP" if score is not None else "CP")
         self.drift_cap = float(drift_cap)      # same cap for CP and LSC-CP
         self._noise = math.sqrt(2.0 * eps * dt)
+        # "full": full-law jumps (redraw r per jump) + exact-quadrature score,
+        #         the deployed exact LSC-CP / raw-CP pair.
+        # "atomic": single displacement R_n per step drives BOTH the score
+        #         (RandomAtomicShellScore) and the jump -- the RA estimator.
+        assert jump_mode in ("full", "atomic")
+        self.jump_mode = jump_mode
 
     def step(self) -> None:
+        if self.jump_mode == "atomic":
+            self._step_atomic()
+        else:
+            self._step_full()
+
+    def _step_full(self) -> None:
         g = self.pot.grad(self.x)
         b = -g
         if self.score is not None:
@@ -402,3 +414,35 @@ class CompoundPoisson(SamplerBase):
                                          self.gen_jump, K_MAX_JUMPS)
         self.x = self.box.clip(x1)
         self._acc("jump_count_mean", counts.mean())
+
+    def _step_atomic(self) -> None:
+        """RA step: one displacement R_n per particle drives score AND jump.
+
+        Conditions enforced (RA invariance, formulation note 17.2-17.4):
+        (i)  R_n is drawn at the START of the step, from the SHARED jump stream
+             (raw-CP score=None and RA-LSC score-set are pathwise coupled on
+             (R_n, M_n)); law.sample takes no state, so R_n is independent of x;
+        (ii) the SAME R_n is passed to the score and used for the jump;
+        (iii) the score drift acts even when M_n == 0 (it is continuous drift,
+             not part of the jump).
+        """
+        n = self.x.shape[0]
+        R_n = self.law.sample(n, self.gen_jump)                  # (N, d)
+        M_n = torch.poisson(torch.full((n,), self.lam * self.dt,
+                                       device=self.x.device, dtype=self.x.dtype),
+                            generator=self.gen_jump)             # (N,)
+        g = self.pot.grad(self.x)
+        b = -g
+        if self.score is not None:
+            S, sdiag = self.score.score_for_shift(self.x, R_n)   # SAME R_n
+            b = b + S
+            self._acc("m_clip_fraction", sdiag["m_clip_fraction"])
+            self._acc_max("max_log_magnitude", sdiag["max_log_magnitude"])
+        xi = torch.randn(self.x.shape, generator=self.gen_diff,
+                         device=self.x.device, dtype=self.x.dtype)
+        x1 = self.x + self.dt * tame(b, self.dt, self.drift_cap) + self._noise * xi
+        # M_n >= 2 jumps in one step share the single R_n (coincides with
+        # full-law CP only as h -> 0; negligible at lam*dt ~ 5e-3).
+        x1 = x1 + M_n.unsqueeze(1) * R_n
+        self.x = self.box.clip(x1)
+        self._acc("jump_count_mean", M_n.mean())

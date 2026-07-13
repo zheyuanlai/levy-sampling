@@ -67,6 +67,9 @@ class RunConfig:
 # is a dedicated generator seeded identically for raw CP and LSC-CP so the two
 # are pathwise coupled (same jump times and increments).
 METHOD_SEED_BASE: dict[str, int] = {m: 10_000 * (i + 1) for i, m in enumerate(METHODS)}
+# random-atomic (RA) estimator variants: distinct diffusion streams, but the RA
+# pair (CP-RA, LSC-CP-RA) shares the jump stream just like the exact pair.
+METHOD_SEED_BASE.update({"CP-RA": 80_000, "LSC-CP-RA": 90_000})
 JUMP_STREAM_BASE: int = 900_000
 INIT_STREAM_BASE: int = 800_000
 REF_STREAM_BASE: int = 700_000
