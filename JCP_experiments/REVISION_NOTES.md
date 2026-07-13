@@ -366,3 +366,14 @@ JCP_GPU=5 ./run_production.sh              # gated full matrix, ~hours
 
 ---
 <!-- subsequent phases appended below as completed -->
+
+**Follow-up — dropped redundant "Raw-CP (RA)".** Raw CP uses no Levy score, so
+there is no meaningful RA variant of it (RA is a score estimator); `CP-RA`
+(atomic-jump raw CP) and `CP` (full-law) are the same uncorrected sampler,
+differing only in negligible ≥2-jumps-per-step events (~(λΔt)²≈1e-5). Method
+matrices now use a single raw-CP = full-law `CP` everywhere (run_production.sh
+DUAL/RA); figures report one "Raw-CP" line (metric_single/metric_grid gain
+`label_overrides`; replot_figures.py picks `CP` if present else relabels the lone
+`CP-RA` → "Raw-CP"). The in-flight run's E1/E2 keep `CP` (drop `CP-RA`); its
+E3/E4 raw baseline is `CP-RA` relabelled "Raw-CP" (≡ full-law CP; a fresh run
+would use `CP`).

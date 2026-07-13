@@ -20,7 +20,6 @@ torch.set_default_dtype(torch.float64)
 
 from src.experiments import (build_e1, build_e2, build_e3, build_e4, make_metrics)
 from src.plotting import metric_single, metric_grid
-from src.config import METHODS
 
 _BUILD = {"double_well": build_e1, "mog40": build_e2,
           "mb3well_10d": build_e3, "coupled_phi4": build_e4}
@@ -47,17 +46,24 @@ def main() -> int:
     emc = exp.emc_target
 
     figdir = os.path.join(_JCP, "figures", name)
-    methods = list(METHODS) + ["CP-RA", "LSC-CP-RA"]
     present = set().union(*[set(r) for r in rows])
+    in_data = {r["method"] for r in rows}
+    # single raw-CP baseline: full-law CP if present, else the atomic CP-RA
+    # relabelled "Raw-CP" (raw CP uses no Levy score, so there is no "RA" raw-CP;
+    # CP and CP-RA differ only in negligible >=2-jumps-per-step events).
+    raw = "CP" if "CP" in in_data else "CP-RA"
+    label_overrides = {} if raw == "CP" else {"CP-RA": "Raw-CP"}
+    order = ["ULA", "MALA", "FLA", "BAOAB", "PT", raw, "LSC-CP", "LSC-CP-RA"]
+    methods = [m for m in order if m in in_data]
     single = [m for m in _SINGLE if m in present]
     for m in single:
         for axis in ("t", "nfe", "wallclock"):
             metric_single(rows, m, os.path.join(figdir, f"{name}_{m}_{axis}"),
                           xaxis=axis, floors=floors, methods=methods,
-                          emc_target=emc, show=False)
+                          emc_target=emc, show=False, label_overrides=label_overrides)
     metric_grid(rows, os.path.join(figdir, f"{name}_metrics"),
                 metrics=("W2", "MMD", "EMC"), floors=floors, emc_target=emc,
-                methods=methods, show=False)
+                methods=methods, show=False, label_overrides=label_overrides)
     print(f"replotted {name}: {len(single)} metrics x 3 axes + grid  "
           f"(smoothed, floors from rebuilt make_metrics)")
     return 0

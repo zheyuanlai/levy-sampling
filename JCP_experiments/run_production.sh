@@ -41,9 +41,11 @@ if [ "$JCP_REGEN" = "1" ]; then
     python notebooks/build_notebooks.py
 fi
 
-# method matrices
-DUAL="ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,CP-RA,LSC-CP-RA"    # E1/E2: exact + RA
-RA="ULA,MALA,FLA,BAOAB,PT,CP-RA,LSC-CP-RA"                # E3/E4: RA
+# method matrices. Raw-CP uses NO Levy score, so there is a single raw-CP
+# baseline (full-law CP) everywhere -- no "CP-RA": the exact-vs-RA distinction
+# only applies to the SCORED method (LSC-CP vs LSC-CP-RA).
+DUAL="ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA"          # E1/E2: exact + RA score
+RA="ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-RA"                   # E3/E4: RA score
 
 # experiment order: name  notebook  methods
 run_one () {

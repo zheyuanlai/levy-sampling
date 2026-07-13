@@ -145,7 +145,8 @@ def _series_x(rows, method, ykey, xkey):
 def metric_single(rows: list[dict], metric: str, out_base: str,
                   xaxis: str = "t", logy: bool = True, floors: dict | None = None,
                   emc_target: float = 1.0, methods=METHODS,
-                  figsize=(4.4, 3.2), show: bool = True, smooth: int = 5):
+                  figsize=(4.4, 3.2), show: bool = True, smooth: int = 5,
+                  label_overrides: dict | None = None):
     """One metric, one figure (saved individually as png+pdf). Global log-y
     (except EMC, which is in [0,1]); linear x so the shared t=0 / NFE=0 start
     point is representable. `xaxis` in {'t','nfe','wallclock'}.
@@ -157,6 +158,7 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
     smooth=1 to plot them unsmoothed."""
     apply_style()
     floors = floors or {}
+    lov = label_overrides or {}
     xkey, xlabel = X_AXIS[xaxis]
     fig, ax = plt.subplots(figsize=figsize)
     plotted = False
@@ -173,7 +175,7 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
         ax.plot(x, y, color=st["color"], ls=st["ls"], marker=st["marker"],
                 markevery=max(1, len(x) // 8), markerfacecolor="white",
                 markeredgecolor=st["color"], markeredgewidth=0.6,
-                label=SIMPLE_LABELS.get(method, method), zorder=3)
+                label=lov.get(method, SIMPLE_LABELS.get(method, method)), zorder=3)
     if metric == "EMC":
         ax.axhline(emc_target, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
         ax.set_ylim(-0.02, 1.05)
@@ -258,12 +260,14 @@ def cdf_comparison(samples: dict, true_x, true_cdf, out_base: str,
 def metric_grid(rows: list[dict], out_base: str,
                 metrics=("W2", "MMD", "EMC"), floors: dict | None = None,
                 emc_target: float = 1.0, methods=METHODS,
-                figsize_per_panel=(3.4, 2.6), show: bool = True, smooth: int = 5):
+                figsize_per_panel=(3.4, 2.6), show: bool = True, smooth: int = 5,
+                label_overrides: dict | None = None):
     """One row of panels (metric vs t), shared legend above the grid.
     Saves out_base + .png/.pdf and returns the figure (also shown inline).
     `smooth` applies the same stationary running-average as `metric_single`."""
     apply_style()
     floors = floors or {}
+    lov = label_overrides or {}
     n = len(metrics)
     fig, axes = plt.subplots(1, n, figsize=(figsize_per_panel[0] * n,
                                             figsize_per_panel[1]))
@@ -276,13 +280,13 @@ def metric_grid(rows: list[dict], out_base: str,
                 continue
             y = _running_mean(y, smooth)
             sd = _running_mean(sd, smooth)
-            st = METHOD_STYLE[method]
+            st = METHOD_STYLE.get(method, dict(color="#444444", ls="-", marker="."))
             ax.fill_between(x, y - sd, y + sd,
                             color=blend_toward_white(st["color"]), lw=0, zorder=1)
             ax.plot(x, y, color=st["color"], ls=st["ls"], marker=st["marker"],
                     markevery=max(1, len(x) // 8), markerfacecolor="white",
                     markeredgecolor=st["color"], markeredgewidth=0.6,
-                    label=SIMPLE_LABELS[method], zorder=3)
+                    label=lov.get(method, SIMPLE_LABELS.get(method, method)), zorder=3)
         if metric == "EMC":
             ax.axhline(emc_target, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
             ax.set_ylim(-0.02, 1.05)
