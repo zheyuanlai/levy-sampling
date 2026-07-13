@@ -49,8 +49,12 @@ FIGURES = os.path.abspath(os.path.join("..", "figures", EXPERIMENT))
 os.makedirs(RESULTS, exist_ok=True); os.makedirs(FIGURES, exist_ok=True)
 {extra}
 cfg = exp.cfg
+# method matrix: default = the 7 exact methods; override with JCP_METHODS (comma-
+# separated) e.g. run_production.sh sets E1/E2 = exact + RA dual-run, E3/E4 = RA.
+RUN_METHODS = os.environ.get("JCP_METHODS", ",".join(C.METHODS)).split(",")
 print(f"experiment={{cfg.name}}  d={{cfg.d}}  N={{cfg.n_particles}}  T={{cfg.T}}  dt0={{cfg.dt}}")
 print(f"beta={{cfg.beta}}  eps={{cfg.eps}}  lambda={{cfg.lam}}  seeds={{cfg.seeds}}")
+print("RUN_METHODS:", RUN_METHODS)
 print(hardware_manifest())'''
 
 
@@ -89,14 +93,14 @@ def run_terminal_all(dt_):
     n_ = int(round(cfg.T / dt_))
     factory = make_sampler_factory(exp, dt_, pt_betas, score_kwargs=CHOSEN_QUAD)
     out = {{}}
-    for m in C.METHODS:
+    for m in RUN_METHODS:
         rows_, _ = run_one(m, 0, factory, n_, n_, dt_, metrics_fn, exp.pot, quiet=True)
         out[m] = {{k: rows_[-1][k] for k in MAIN_METRICS}}
     print(f"  refine_dt: finished pass at dt={{dt_}}", flush=True)
     return out
 
 dt_final, dt_table = refine_dt(run_terminal_all, cfg.dt, floors,
-                               exclude=("FLA", "CP"))
+                               exclude=("FLA", "CP", "CP-RA"))
 print("chosen dt:", dt_final)
 for row in dt_table:
     print(row)
@@ -111,7 +115,7 @@ ck_steps = checkpoint_schedule(n_steps)
 bfactory = make_batched_factory(exp, dt_final, pt_betas, cfg.seeds,
                                 score_kwargs=CHOSEN_QUAD)
 t0 = time.time()
-rows, method_info = run_experiment_batched(C.METHODS, cfg.seeds, bfactory,
+rows, method_info = run_experiment_batched(RUN_METHODS, cfg.seeds, bfactory,
                                            n_steps, steps_per_ck, dt_final,
                                            metrics_fn, exp.pot,
                                            cfg.n_particles,
@@ -130,7 +134,7 @@ print("saved:", os.path.join(FIGURES, EXPERIMENT + "_metrics") + ".{png,pdf}")
 
 # per-metric log-y single figures on t / NFE / wall-clock axes (all curves start
 # at the shared n=0 point; linear x so t=0 / NFE=0 is representable)
-_methods_all = list(C.METHODS) + ["CP-RA", "LSC-CP-RA"]   # RA variants if present
+_methods_all = RUN_METHODS   # exactly the methods that were run (incl. any RA)
 _present = set().union(*[set(r) for r in rows])
 _single = [m for m in ("W2", "TV", "MMD", "e_F", "basin_rel_max", "KSD",
                        "TV_density", "W2_10d") if m in _present]
@@ -152,7 +156,7 @@ def cell_csv(extra_manifest: str = "") -> str:
     return f'''ts_path = os.path.join(RESULTS, "metrics_timeseries.csv")
 write_timeseries_csv(rows, ts_path)
 summary_metrics = MAIN_METRICS + ["nonfinite_frac"]
-summary = write_summary_csv(rows, C.METHODS, cfg.seeds, summary_metrics,
+summary = write_summary_csv(rows, RUN_METHODS, cfg.seeds, summary_metrics,
                             method_info, floors, os.path.join(RESULTS, "summary.csv"))
 
 manifest = dict(
@@ -241,7 +245,7 @@ display(pd.DataFrame(quad_table).round(6))'''),
 from src.plotting import cdf_comparison
 ref = exp.extras["ref"]
 samples = {m: method_info[m]["final_positions_all"].reshape(-1).cpu().numpy()
-           for m in C.METHODS}
+           for m in RUN_METHODS}
 cdf_fig = cdf_comparison(samples, ref.x.cpu().numpy(), ref.cdf.cpu().numpy(),
                          os.path.join(FIGURES, EXPERIMENT + "_cdf"))
 print("saved:", os.path.join(FIGURES, EXPERIMENT + "_cdf") + ".{png,pdf}")'''),
@@ -343,7 +347,7 @@ gen_h = torch.Generator(device=DEV); gen_h.manual_seed(202)
 ref_sub = exp.ref_sample(2500, gen_h)
 from src.metrics import hungarian_w2
 hungarian = {m: hungarian_w2(method_info[m]["final_positions_seed0"], ref_sub, m=500)
-             for m in C.METHODS}
+             for m in RUN_METHODS}
 print("Hungarian W2:", {k: round(v, 3) for k, v in hungarian.items()})
 ''' + cell_csv("hungarian_w2_terminal=hungarian,")),
     ]

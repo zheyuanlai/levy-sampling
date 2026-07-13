@@ -202,4 +202,31 @@ wired via `convergence_report`). Wall-clock axis is meaningful only via the
 sequential `run_experiment` path (batched gives informational wall-clock).
 
 ---
+
+## P5 — Production launch script (NOT executed) — DONE ✓
+
+**What.** `run_production.sh` (executable, repo `JCP_experiments/` root) +
+`scripts/certificate_gate.py`. The launcher: (1) refuses unless `JCP_GPU∈{4..7}`;
+(2) regenerates notebooks from `build_notebooks.py` (`JCP_REGEN=1` default; picks
+up all P0–P4 changes); (3) per experiment runs the generous-box certificate
+pre-flight gate and **REFUSES** (skips) if max R ≥ 1e-6; (4) on pass, executes the
+notebook with the per-experiment method matrix. Method matrix wired via
+env-overridable `RUN_METHODS` (`JCP_METHODS`): **E1/E2 = exact + RA dual-run**
+(9 methods), **E3/E4 = RA** (locals + PT + CP-RA/LSC-CP-RA). dt-refinement now
+excludes `CP-RA` too (invariant law ≠ π).
+
+**Gates.** `bash -n` OK; GPU guard refuses `JCP_GPU=1`; pass-path gate returns
+PASS (double_well R=5.5e-8). **Refusal-path dry-run** (`JCP_CERT_TOL=0`): all four
+gates FAIL → all four REFUSED, **no notebook executed**. Real-tol residuals from
+that run: E1 5.5e-8, E2 7.9e-13, E3 9.4e-15, E4 3.8e-13 (all < 1e-6). Not run.
+
+**How to launch (author).**
+```
+conda activate jcp-exp
+cd JCP_experiments
+JCP_GPU=5 ./run_production.sh              # gated full matrix, ~hours
+# JCP_REGEN=0 to skip notebook regen; JCP_METHODS=... to override a matrix
+```
+
+---
 <!-- subsequent phases appended below as completed -->
