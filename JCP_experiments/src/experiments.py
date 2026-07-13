@@ -30,7 +30,8 @@ from .references import (GradientFlowBasinMap2D, Grid1DInverseCDF,
                          MB10DReference)
 from .samplers import (BAOAB, FLA, MALA, ULA, CompoundPoisson, LatentRectBox,
                        ParallelTempering, RectBox)
-from .score import MoG40Score, RandomAtomicShellScore, ShellScore
+from .score import (MoG40Score, MultiAtomShellScore, RandomAtomicShellScore,
+                    ShellScore)
 from . import metrics as M
 
 
@@ -521,6 +522,16 @@ def make_sampler_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
                                    gen, g_jump, exp.box, score=score,
                                    name=method, drift_cap=exp.cp_drift_cap,
                                    jump_mode="atomic")
+        if method == "LSC-CP-MA":                             # multi-atom RA
+            g_jump = torch.Generator(device=dev)
+            g_jump.manual_seed(jump_seed(seed))
+            q_theta = score_kwargs.get("q_theta", Q_THETA)
+            sgen = torch.Generator(device=dev)
+            sgen.manual_seed(diffusion_seed(method, seed) + 500_000)
+            score = MultiAtomShellScore(exp.pot, exp.law, lam, beta, q_theta, gen=sgen)
+            return CompoundPoisson(exp.pot, x0, dt, eps, lam, exp.law,
+                                   gen, g_jump, exp.box, score=score,
+                                   name=method, drift_cap=exp.cp_drift_cap)
         raise ValueError(method)
 
     return factory
@@ -575,6 +586,16 @@ def make_batched_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
                                    gen, g_jump, exp.box, score=score,
                                    name=method, drift_cap=exp.cp_drift_cap,
                                    jump_mode="atomic")
+        if method == "LSC-CP-MA":                             # multi-atom RA
+            g_jump = torch.Generator(device=dev)
+            g_jump.manual_seed(jump_seed(0))
+            q_theta = score_kwargs.get("q_theta", Q_THETA)
+            sgen = torch.Generator(device=dev)
+            sgen.manual_seed(diffusion_seed(method, 0) + 500_000)
+            score = MultiAtomShellScore(exp.pot, exp.law, lam, beta, q_theta, gen=sgen)
+            return CompoundPoisson(exp.pot, x0, dt, eps, lam, exp.law,
+                                   gen, g_jump, exp.box, score=score,
+                                   name=method, drift_cap=exp.cp_drift_cap)
         raise ValueError(method)
 
     return factory

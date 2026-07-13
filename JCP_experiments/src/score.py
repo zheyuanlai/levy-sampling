@@ -170,6 +170,58 @@ class RandomAtomicShellScore:
         return S, diag
 
 
+class MultiAtomShellScore:
+    """Lower-variance Levy-score estimator: sum over ALL atoms (removing the
+    atom-selection variance that dominates single-atom RA at high beta) with one
+    sampled rho per atom per step.
+
+        S(x) = -lambda sum_a w_a R_a exp(LSE_p[log w_p + beta(V(x)-V(x-theta_p R_a))]),
+        R_a = r_a + rho_a u_a,  rho_a ~ U(-h_a, h_a).
+
+    Unbiased for S_nu (E_rho over each atom = the rho-integral; the atom sum is
+    exact). Cost A*q_theta V-evals/step (vs q_theta for single-atom RA, and
+    A*q_rho*q_theta for the exact quadrature). Used with full-law jumps."""
+
+    def __init__(self, potential, law, lam: float, beta: float,
+                 q_theta: int = None, m_max: float = M_MAX,
+                 gen: torch.Generator = None) -> None:
+        from .config import Q_THETA
+        self.potential = potential
+        self.law = law
+        self.lam = float(lam)
+        self.beta = float(beta)
+        self.m_max = float(m_max)
+        self.q_theta = int(q_theta if q_theta is not None else Q_THETA)
+        dev = law.atoms.device
+        theta, w_theta = gauss_legendre_01(self.q_theta, dev)
+        self.theta = theta
+        self.log_w_theta = torch.log(w_theta)
+        self.log_lam = math.log(self.lam)
+        self.gen = gen if gen is not None else torch.Generator(device=dev)
+
+    def __call__(self, x: torch.Tensor) -> tuple[torch.Tensor, dict]:
+        n, d = x.shape
+        A, Qt = self.law.A, self.q_theta
+        # one sampled rho per atom per particle: R_a = r_a + rho_a u_a  -> (N,A,d)
+        rho = (torch.rand(n, A, generator=self.gen, device=x.device,
+                          dtype=x.dtype) * 2.0 - 1.0) * self.law.h.view(1, A)
+        R = self.law.atoms.view(1, A, d) + rho.unsqueeze(-1) * self.law.units.view(1, A, d)
+        # chord points y = x - theta_p R_a  -> (N, A, Qt, d)
+        y = x.view(n, 1, 1, d) - self.theta.view(1, 1, Qt, 1) * R.view(n, A, 1, d)
+        v0 = self.potential.V(x)                                  # (N,)  counted
+        vy = self.potential.V(y.reshape(n * A * Qt, d)).reshape(n, A, Qt)
+        dV = vy - v0.view(n, 1, 1)                               # (N, A, Qt)
+        log_I = torch.logsumexp(self.log_w_theta.view(1, 1, Qt) - self.beta * dV, dim=2)
+        M = self.log_lam + log_I                                 # (N, A)
+        S_a = -torch.exp(torch.clamp(M, max=self.m_max)).unsqueeze(-1) * R  # (N,A,d)
+        S = (self.law.weights.view(1, A, 1) * S_a).sum(1)        # (N, d)
+        diag = {
+            "m_clip_fraction": (M > self.m_max).to(torch.float64).mean(),
+            "max_log_magnitude": M.max(),
+        }
+        return S, diag
+
+
 # ============================================================== 4.3 MoG40
 def _g_hat(z: torch.Tensor) -> torch.Tensor:
     """g_hat(z) = sqrt(2/pi) - z erfcx(z/sqrt(2)) for z >= 0 (so that

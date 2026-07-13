@@ -53,7 +53,8 @@ def main() -> int:
     # CP and CP-RA differ only in negligible >=2-jumps-per-step events).
     raw = "CP" if "CP" in in_data else "CP-RA"
     label_overrides = {} if raw == "CP" else {"CP-RA": "Raw-CP"}
-    order = ["ULA", "MALA", "FLA", "BAOAB", "PT", raw, "LSC-CP", "LSC-CP-RA"]
+    order = ["ULA", "MALA", "FLA", "BAOAB", "PT", raw,
+             "LSC-CP", "LSC-CP-RA", "LSC-CP-MA"]
     methods = [m for m in order if m in in_data]
     single = [m for m in _SINGLE if m in present]
     for m in single:

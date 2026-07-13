@@ -29,12 +29,13 @@ METHOD_STYLE: dict[str, dict] = {
     # random-atomic estimator variants
     "CP-RA":     dict(color="#D55E00", ls=(0, (1, 1)), marker="P"),
     "LSC-CP-RA": dict(color="#7030A0", ls="-",  marker="*"),
+    "LSC-CP-MA": dict(color="#000000", ls="-",  marker="*"),  # multi-atom = the practical LSC-CP
 }
 
 SIMPLE_LABELS: dict[str, str] = {
     "ULA": "ULA", "MALA": "MALA", "FLA": "FLA", "BAOAB": "BAOAB",
     "PT": "PT", "CP": "Raw-CP", "LSC-CP": "LSC-CP",
-    "CP-RA": "Raw-CP (RA)", "LSC-CP-RA": "LSC-CP (RA)",
+    "CP-RA": "Raw-CP (RA)", "LSC-CP-RA": "LSC-CP (RA)", "LSC-CP-MA": "LSC-CP",
 }
 
 METRIC_LABEL = {

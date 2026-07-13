@@ -489,10 +489,12 @@ cert_report = cert_e3(**DEFAULT_QUAD)
 print(f"max R = {cert_report['max_residual']:.3e}")
 assert cert_report["max_residual"] < 1e-6'''
 
-CELL_E3_QUAD = '''def run_terminal_lsc(**quad):
+CELL_E3_QUAD = '''# the run's LSC estimator (exact LSC-CP, or a practical RA/MA variant)
+_LSC = next((m for m in RUN_METHODS if m.startswith("LSC-CP")), "LSC-CP")
+def run_terminal_lsc(**quad):
     f = make_sampler_factory(exp, cfg.dt, pt_betas, score_kwargs=quad)
     n_ = int(round(cfg.T / cfg.dt))
-    r_, _ = run_one("LSC-CP", 0, f, n_, n_, cfg.dt, metrics_fn, exp.pot, quiet=True)
+    r_, _ = run_one(_LSC, 0, f, n_, n_, cfg.dt, metrics_fn, exp.pot, quiet=True)
     return {k: r_[-1][k] for k in ("W2", "TV", "MMD", "EMC", "W2_10d")}
 
 settings = [dict(q_theta=qt, q_rho=qr) for qt in (8, 16, 32) for qr in (4, 8, 16)]
@@ -678,7 +680,7 @@ x_pi = exp.ref_sample(4000, g_h)
 from src.metrics import occupancy as _occ
 bf = make_batched_factory(exp, dt_final, pt_betas, (0,), n_particles=4000,
                           score_kwargs=CHOSEN_QUAD)
-s_h = bf("LSC-CP")
+s_h = bf(_LSC)                       # the run's LSC estimator (exact / RA / MA)
 s_h.x = x_pi.clone()
 p0 = _occ(exp.labels_fn(s_h.positions()), K)
 for _i in range(int(round(100.0 / dt_final))):
