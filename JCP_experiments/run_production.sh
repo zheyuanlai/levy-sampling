@@ -19,12 +19,14 @@
 set -euo pipefail
 
 JCP_GPU="${JCP_GPU:-4}"
-case "$JCP_GPU" in
-    4|5|6|7) ;;
-    *) echo "ERROR: JCP_GPU must be one of 4,5,6,7 (got '$JCP_GPU'). GPUs 0-3 are off-limits." >&2
+# default allowed 4-7; a specific GPU can be opted-in via JCP_EXTRA_GPUS (only
+# when verified free and belonging to your group -- GPUs 0-3 default off-limits)
+case ",4,5,6,7,${JCP_EXTRA_GPUS:-}," in
+    *",$JCP_GPU,"*) ;;
+    *) echo "ERROR: JCP_GPU='$JCP_GPU' not allowed (default 4-7; opt-in via JCP_EXTRA_GPUS). GPUs 0-3 default off-limits." >&2
        exit 2 ;;
 esac
-export JCP_GPU
+export JCP_GPU JCP_EXTRA_GPUS
 JCP_REGEN="${JCP_REGEN:-1}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
