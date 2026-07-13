@@ -162,4 +162,44 @@ markdown updated (generator + live 04 notebook, non-destructive).
 - Full suite: **29 passed**, no regression (E4 importance certificate test green).
 
 ---
+
+## P4 — Metrics + plotting + NFE counter — DONE ✓
+
+**What.**
+- `src/potentials.py`: `Potential.nfe()` (combined V+grad+V_delta point count) and
+  `no_count()` context (freeze/restore counters — excludes metric/reference evals),
+  non-invasive (no subclass edits).
+- `src/metrics.py`: per-frame chemistry metrics — `free_energy_profile[_error]`
+  (kT units, π-floor mask), `basin_rel_mass_error`, `observable_error`
+  (⟨V⟩/Var(V)), `energy_hist_overlap`, `ksd_imq` (IMQ Stein kernel, blind-spot
+  documented); post-hoc convergence — `iat_1d`/`ess_from_series` (Sokal),
+  `split_rhat` (rank-normalized, Vehtari 2021, own `_norm_ppf`), `round_trips`,
+  `committed_mfpt`. All unit-checked on synthetic data (missing-mode e_F=5.2 kT,
+  KSD separates, IAT≈8.3 for AR(1) φ=0.8, split-R̂ 1.00 iid / 2.68 separated).
+- `src/experiments.py::make_metrics`: reference precompute + new per-frame keys
+  (`e_F, basin_rel_max, basin_L1, occ0, V_mean_err, V_var_err, E_overlap_deficit,
+  KSD`); β taken from `cfg.beta` (E3-safe).
+- `src/runner.py`: `nfe` column per row; **n=0 frame** on the shared initial
+  ensemble; `metrics_fn` wrapped in `no_count`; `convergence_report` (cross-seed
+  split-R̂ on occ0). `nfe` + new metrics added to `CSV_BASE_COLUMNS`.
+- `src/plotting.py`: `metric_single` (one metric/figure, png+pdf, **log-y**,
+  x∈{t,nfe,wallclock}, linear x so t=0/NFE=0 shows); RA method styles/labels;
+  new-metric labels. Notebooks emit per-metric figures on 3 axes + convergence.
+
+**Gates (E1 smoke, GPU 5).**
+- Extended CSV columns present ✓.
+- **n=0 frame bit-identical across methods** (W2, e_F, KSD, MMD, basin_rel_max) ✓.
+- NFE ledger (per particle/step) exact: ULA=1, MALA=2, exact-LSC=257 (1+256),
+  **RA-LSC=18 (1+17)** → RA ~14× cheaper on E1 (→~96× on E3/E4). `no_count`
+  verified to exclude metric evals. Ledger test `test_nfe_ledger.py` (2 tests).
+- 9 log-y figures (3 metrics × 3 axes); W2-vs-NFE shows LSC-CP-RA reaching exact
+  LSC-CP's W2 at ~14× fewer evals, locals plateaued.
+- Full suite: **31 passed** (29 + 2 NFE-ledger), no regression.
+
+**Deferred (documented).** Dense per-step basin-indicator recording for accurate
+IAT/ESS/round-trips (the functions are provided; checkpoint-cadence split-R̂ is
+wired via `convergence_report`). Wall-clock axis is meaningful only via the
+sequential `run_experiment` path (batched gives informational wall-clock).
+
+---
 <!-- subsequent phases appended below as completed -->

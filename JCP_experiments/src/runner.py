@@ -25,8 +25,10 @@ import numpy as np
 import torch
 
 CSV_BASE_COLUMNS = [
-    "method", "seed", "step", "t", "wallclock_s",
+    "method", "seed", "step", "t", "wallclock_s", "nfe",
     "W2", "TV", "TV_density", "MMD", "EMC", "EJS",
+    "e_F", "basin_rel_max", "basin_L1", "V_mean_err", "V_var_err",
+    "E_overlap_deficit", "KSD",
     "nonfinite_frac", "m_clip_fraction", "max_log_magnitude",
     "mala_accept", "pt_swap_accept", "jump_count_mean",
 ]
@@ -83,6 +85,7 @@ def run_one(method: str, seed: int, sampler_factory, n_steps: int,
     sampler = sampler_factory(method, seed)
     torch.cuda.synchronize()
     nV0, ng0, nq0 = potential.n_V, potential.n_grad, potential.n_Vdelta
+    nfe0 = potential.nfe()
 
     rows: list[dict] = []
     wall = 0.0
@@ -97,8 +100,9 @@ def run_one(method: str, seed: int, sampler_factory, n_steps: int,
         wall += time.perf_counter() - t0
         step += steps_per_ck
         row = {"method": method, "seed": seed, "step": step,
-               "t": step * dt, "wallclock_s": wall}
-        row.update(metrics_fn(sampler.positions()))
+               "t": step * dt, "wallclock_s": wall, "nfe": potential.nfe() - nfe0}
+        with potential.no_count():
+            row.update(metrics_fn(sampler.positions()))
         row.update(sampler.pop_diagnostics())
         rows.append(row)
     info = {
@@ -154,9 +158,21 @@ def run_experiment_batched(methods, seeds, batched_factory, n_steps: int,
         sampler = batched_factory(method)
         torch.cuda.synchronize()
         nV0, ng0, nq0 = potential.n_V, potential.n_grad, potential.n_Vdelta
+        nfe0 = potential.nfe()
         wall = 0.0
         step = 0
         t_m = time.perf_counter()
+        # n=0 frame on the shared initial ensemble: all methods use the same
+        # per-seed x0, so every method's metric values here are bit-identical
+        # (all curves start at literally the same point). NFE / metric evals
+        # are excluded from the counter.
+        pos0 = sampler.positions()
+        for si, seed in enumerate(seeds):
+            row = {"method": method, "seed": seed, "step": 0, "t": 0.0,
+                   "wallclock_s": 0.0, "nfe": 0}
+            with potential.no_count():
+                row.update(metrics_fn(pos0[si * n_per_seed:(si + 1) * n_per_seed]))
+            all_rows.append(row)
         for ck_step in checkpoint_steps:
             torch.cuda.synchronize()
             t0 = time.perf_counter()
@@ -167,10 +183,12 @@ def run_experiment_batched(methods, seeds, batched_factory, n_steps: int,
             step = ck_step
             pos = sampler.positions()
             diag = sampler.pop_diagnostics()
+            nfe = potential.nfe() - nfe0
             for si, seed in enumerate(seeds):
                 row = {"method": method, "seed": seed, "step": step,
-                       "t": step * dt, "wallclock_s": wall}
-                row.update(metrics_fn(pos[si * n_per_seed:(si + 1) * n_per_seed]))
+                       "t": step * dt, "wallclock_s": wall, "nfe": nfe}
+                with potential.no_count():
+                    row.update(metrics_fn(pos[si * n_per_seed:(si + 1) * n_per_seed]))
                 row.update(diag)
                 all_rows.append(row)
         method_info[method] = {
@@ -264,6 +282,45 @@ def time_to_threshold(rows, method, seeds, floor: float, key: str = "TV",
                 if row["method"] == method and row["step"] == first:
                     return row["t"]
     return math.inf
+
+
+def convergence_report(rows, methods, seeds, key: str = "occ0",
+                       tail_frac: float = 0.5) -> dict:
+    """Per-method cross-seed rank-normalized split-R-hat (Vehtari 2021) on a slow
+    observable `key` (default occ0 = basin-0 fraction), over the last tail_frac
+    of checkpoints (drops the transient). Chains = seeds. On a metastable target
+    each seed trapped in a different basin drives R-hat >> 1 -- a standard
+    diagnostic every community accepts. Also reports final NFE (for ESS/NFE).
+
+    ESS and round-trips need denser per-step recording than the checkpoint
+    cadence; use metrics.ess_from_series / round_trips / committed_mfpt on a
+    per-step basin-indicator buffer for those (provided as functions)."""
+    from .metrics import split_rhat
+    out = {}
+    for method in methods:
+        steps = sorted({r["step"] for r in rows
+                        if r["method"] == method and r["step"] > 0})
+        if not steps:
+            continue
+        tail = steps[int((1.0 - tail_frac) * len(steps)):]
+        mat = []
+        for seed in seeds:
+            series = []
+            for st in tail:
+                vals = [r[key] for r in rows if r["method"] == method
+                        and r["seed"] == seed and r["step"] == st and key in r]
+                if vals:
+                    series.append(float(vals[0]))
+            if len(series) == len(tail):
+                mat.append(series)
+        mat = np.asarray(mat, dtype=float)
+        rh = (float(split_rhat(mat)) if mat.ndim == 2 and mat.shape[0] >= 2
+              and mat.shape[1] >= 4 else float("nan"))
+        final_nfe = max((r["nfe"] for r in rows if r["method"] == method
+                         and "nfe" in r and r["nfe"] != ""), default=0)
+        out[method] = {"split_rhat": rh, "n_chains": int(mat.shape[0]) if mat.ndim == 2 else 0,
+                       "final_nfe": int(final_nfe)}
+    return out
 
 
 def write_summary_csv(rows, methods, seeds, metric_keys, method_info,

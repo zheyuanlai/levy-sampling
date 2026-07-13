@@ -131,6 +131,199 @@ def nonfinite_frac(x: torch.Tensor) -> float:
 
 
 # ------------------------------------------------------------ bias floors
+# ==================================================== chemistry-native metrics
+def free_energy_profile(cv: torch.Tensor, edges: torch.Tensor, beta: float,
+                        smooth: float = 0.5) -> tuple[torch.Tensor, torch.Tensor]:
+    """Free-energy profile F(xi) = -beta^{-1} log p(xi) along a collective
+    variable, on the given (uniform) bin edges, Laplace-smoothed (so empty bins
+    read a large but finite F). F is shifted so min F = 0 (free energy is defined
+    up to a constant). Returns (F on bin centres, normalised bin probability p).
+    """
+    idx = torch.bucketize(cv.reshape(-1), edges[1:-1])
+    counts = torch.bincount(idx, minlength=edges.shape[0] - 1).to(torch.float64)
+    p = (counts + smooth)
+    p = p / p.sum()
+    F = -(1.0 / beta) * torch.log(p)
+    return F - F.min(), p
+
+
+def free_energy_profile_error(cv: torch.Tensor, edges: torch.Tensor, beta: float,
+                              ref_F: torch.Tensor, ref_p: torch.Tensor,
+                              pi_min: float) -> float:
+    """sup_xi |F_hat(xi) - F*(xi)| in units of k_B T = 1/beta, restricted to
+    bins where the reference probability ref_p >= pi_min (else the sup is
+    dominated by empty-bin noise). Local methods missing a well plateau at that
+    well's free-energy deficit -- devastating on log-y."""
+    F, _ = free_energy_profile(cv, edges, beta)
+    mask = ref_p >= pi_min
+    if not bool(mask.any()):
+        return 0.0
+    return float((F[mask] - ref_F[mask]).abs().max().item())
+
+
+def basin_rel_mass_error(p_hat: torch.Tensor, p_star: torch.Tensor,
+                         eps: float = 1e-12) -> tuple[float, float]:
+    """Per-basin relative mass error: (max_k |p_hat_k - p*_k| / p*_k, L1 sum)."""
+    rel = (p_hat - p_star).abs() / (p_star + eps)
+    return float(rel.max().item()), float((p_hat - p_star).abs().sum().item())
+
+
+def observable_error(v_hat: torch.Tensor, ref_mean: float,
+                     ref_var: float) -> tuple[float, float]:
+    """(|<V> - <V>_pi|, |Var(V) - Var_pi(V)|) for an energy sample v_hat=(N,)."""
+    return (abs(float(v_hat.mean().item()) - ref_mean),
+            abs(float(v_hat.var(unbiased=True).item()) - ref_var))
+
+
+def energy_hist_overlap(E: torch.Tensor, edges: torch.Tensor,
+                        ref_hist: torch.Tensor) -> float:
+    """Overlap int min(rho_hat_E, rho*_E) dE in [0,1] (1 = identical). ref_hist
+    is the frozen reference energy histogram (normalised, same edges)."""
+    idx = torch.bucketize(E.reshape(-1), edges[1:-1])
+    h = torch.bincount(idx, minlength=edges.shape[0] - 1).to(torch.float64)
+    h = h / h.sum()
+    return float(torch.minimum(h, ref_hist).sum().item())
+
+
+def ksd_imq(x: torch.Tensor, score: torch.Tensor, c: float = 1.0,
+            beta_k: float = -0.5, max_points: int = 512, seed: int = 17) -> float:
+    """Kernel Stein discrepancy (IMQ kernel k=(c^2+||x-y||^2)^beta_k), V-statistic
+    on an m-subsample. score = grad log pi = -beta grad V, evaluated at x.
+
+    NB (documented blind spot): KSD is INSENSITIVE to mode-imbalance -- a chain
+    fully trapped in one well can have small KSD. Secondary metric only; use the
+    basin-aware metrics for the failure mode we actually care about."""
+    n = x.shape[0]
+    if n > max_points:
+        g = torch.Generator(device=x.device); g.manual_seed(seed)
+        idx = torch.randperm(n, generator=g, device=x.device)[:max_points]
+        x, score = x[idx], score[idx]
+    r = x.unsqueeze(1) - x.unsqueeze(0)                      # (m, m, d)
+    s = (r * r).sum(-1)                                      # (m, m) = ||x-y||^2
+    base = c * c + s
+    d = x.shape[1]
+    sx_sy = score @ score.T                                  # (m, m)
+    sxmsy_r = ((score.unsqueeze(1) - score.unsqueeze(0)) * r).sum(-1)  # (sx - sy).r
+    k0 = (base ** beta_k) * sx_sy \
+        - 2.0 * beta_k * base ** (beta_k - 1.0) * sxmsy_r \
+        - 2.0 * beta_k * d * base ** (beta_k - 1.0) \
+        - 4.0 * beta_k * (beta_k - 1.0) * base ** (beta_k - 2.0) * s
+    val = k0.mean()
+    return float(torch.sqrt(torch.clamp(val, min=0.0)).item())
+
+
+# ==================================================== MCMC convergence (post-hoc)
+def _acf_1d(x: np.ndarray) -> np.ndarray:
+    x = x - x.mean()
+    n = x.size
+    if np.allclose(x, 0.0):
+        return np.ones(1)
+    f = np.fft.rfft(x, n=2 * n)
+    acf = np.fft.irfft(f * np.conjugate(f))[:n].real
+    return acf / acf[0]
+
+
+def iat_1d(x: np.ndarray, c: float = 5.0) -> float:
+    """Integrated autocorrelation time, Sokal automatic windowing:
+    tau(M) = 1 + 2 sum_{k=1}^M rho_k, window at smallest M with M >= c*tau(M)."""
+    rho = _acf_1d(np.asarray(x, dtype=float))
+    tau = 1.0 + 2.0 * np.cumsum(rho[1:])
+    m = np.arange(1, tau.size + 1)
+    win = np.where(m >= c * tau)[0]
+    idx = win[0] if win.size else tau.size - 1
+    return float(max(tau[idx], 1.0))
+
+
+def ess_from_series(series: np.ndarray) -> float:
+    """ESS = (total samples) / mean IAT over chains. series: (n_chains, n_draws)."""
+    series = np.atleast_2d(series)
+    taus = [iat_1d(series[i]) for i in range(series.shape[0])]
+    return float(series.size / np.mean(taus))
+
+
+def split_rhat(chains: np.ndarray) -> float:
+    """Rank-normalized split-R-hat (Vehtari et al. 2021). chains: (M, N)."""
+    chains = np.atleast_2d(np.asarray(chains, dtype=float))
+    M, N = chains.shape
+    h = N // 2
+    if h < 2:
+        return float("nan")
+    split = np.concatenate([chains[:, :h], chains[:, h:2 * h]], axis=0)  # (2M, h)
+    flat = split.reshape(-1)
+    order = flat.argsort(kind="stable")
+    ranks = np.empty_like(order, dtype=float)
+    ranks[order] = np.arange(1, flat.size + 1)
+    z = _norm_ppf((ranks - 3.0 / 8.0) / (flat.size - 0.25)).reshape(split.shape)
+    m = z.mean(axis=1)
+    B = h * m.var(ddof=1)
+    W = z.var(axis=1, ddof=1).mean()
+    if W <= 0:
+        return float("nan")
+    var_plus = (h - 1.0) / h * W + B / h
+    return float(np.sqrt(var_plus / W))
+
+
+def _norm_ppf(p: np.ndarray) -> np.ndarray:
+    """Inverse standard-normal CDF (Acklam's rational approximation, ~1e-9)."""
+    p = np.clip(np.asarray(p, dtype=float), 1e-12, 1 - 1e-12)
+    a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+         1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00]
+    b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+         6.680131188771972e+01, -1.328068155288572e+01]
+    cc = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+          -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00]
+    dd = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+          3.754408661907416e+00]
+    plow, phigh = 0.02425, 1 - 0.02425
+    out = np.empty_like(p)
+    lo = p < plow; hi = p > phigh; mid = ~(lo | hi)
+    q = np.sqrt(-2 * np.log(p[lo]))
+    out[lo] = (((((cc[0]*q+cc[1])*q+cc[2])*q+cc[3])*q+cc[4])*q+cc[5]) / \
+              ((((dd[0]*q+dd[1])*q+dd[2])*q+dd[3])*q+1)
+    q = p[mid] - 0.5; r = q * q
+    out[mid] = (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / \
+               (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1)
+    q = np.sqrt(-2 * np.log(1 - p[hi]))
+    out[hi] = -(((((cc[0]*q+cc[1])*q+cc[2])*q+cc[3])*q+cc[4])*q+cc[5]) / \
+               ((((dd[0]*q+dd[1])*q+dd[2])*q+dd[3])*q+1)
+    return out
+
+
+def round_trips(labels_t: np.ndarray, home: int, far: int) -> float:
+    """Mean number of home->far->home round trips per chain. labels_t: (T, chains)
+    of basin indices."""
+    labels_t = np.atleast_2d(labels_t.T).T if labels_t.ndim == 1 else labels_t
+    total = 0
+    C = labels_t.shape[1]
+    for c in range(C):
+        seq = labels_t[:, c]
+        state = "home"; trips = 0
+        for lab in seq:
+            if state == "home" and lab == far:
+                state = "far"
+            elif state == "far" and lab == home:
+                state = "home"; trips += 1
+        total += trips
+    return total / max(C, 1)
+
+
+def committed_mfpt(labels_t: np.ndarray, home: int, far: int, dt: float,
+                   steps_per_frame: int) -> float:
+    """Mean first-passage time home->far (frames -> physical time), censored at
+    the end. labels_t: (T, chains)."""
+    labels_t = labels_t if labels_t.ndim == 2 else labels_t[:, None]
+    T, C = labels_t.shape
+    times, n_exit = 0.0, 0
+    horizon = T * steps_per_frame * dt
+    for c in range(C):
+        hit = np.where(labels_t[:, c] == far)[0]
+        if hit.size:
+            times += (hit[0] + 1) * steps_per_frame * dt; n_exit += 1
+        else:
+            times += horizon
+    return times / n_exit if n_exit else float("inf")
+
+
 def bias_floors(sample_ref, two_sample_fns: dict, one_sample_fns: dict, n: int,
                 replicates: int = 20, seed0: int = 5000,
                 device: str | torch.device = "cuda") -> dict:

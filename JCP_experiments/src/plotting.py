@@ -26,16 +26,31 @@ METHOD_STYLE: dict[str, dict] = {
     "PT":     dict(color="#CC79A7", ls=(0, (3, 1, 1, 1, 1, 1)), marker="D"),
     "CP":     dict(color="#D55E00", ls=(0, (5, 2)), marker="X"),
     "LSC-CP": dict(color="#000000", ls="-",  marker="*"),
+    # random-atomic estimator variants
+    "CP-RA":     dict(color="#D55E00", ls=(0, (1, 1)), marker="P"),
+    "LSC-CP-RA": dict(color="#7030A0", ls="-",  marker="*"),
 }
 
 SIMPLE_LABELS: dict[str, str] = {
     "ULA": "ULA", "MALA": "MALA", "FLA": "FLA", "BAOAB": "BAOAB",
     "PT": "PT", "CP": "Raw-CP", "LSC-CP": "LSC-CP",
+    "CP-RA": "Raw-CP (RA)", "LSC-CP-RA": "LSC-CP (RA)",
 }
 
 METRIC_LABEL = {
     "W2": r"$W_2$", "MMD": "MMD", "EMC": "EMC", "TV": "TV",
     "TV_density": "density TV", "W2_10d": r"sliced $W_2$ (10D)",
+    "EJS": "EJS", "e_F": r"$e_F$  [$k_BT$]",
+    "basin_rel_max": "max basin rel. mass err", "basin_L1": r"basin $L_1$",
+    "V_mean_err": r"$|\langle V\rangle-\langle V\rangle_\pi|$",
+    "V_var_err": r"$|\mathrm{Var}(V)-\mathrm{Var}_\pi(V)|$",
+    "E_overlap_deficit": "energy overlap deficit", "KSD": "KSD",
+}
+
+X_AXIS = {
+    "t": ("t", r"$t=n\,\Delta t$"),
+    "nfe": ("nfe", "NFE"),
+    "wallclock": ("wallclock_s", "wall-clock (s)"),
 }
 
 
@@ -84,6 +99,75 @@ def _series(rows, method, ykey):
     sd = np.array([np.std(by_step[s]["y"], ddof=1) if len(by_step[s]["y"]) > 1 else 0.0
                    for s in steps])
     return x, y, sd
+
+
+def _series_x(rows, method, ykey, xkey):
+    """Per-checkpoint (mean, sd) of ykey vs a chosen x column (t / nfe /
+    wallclock_s), aggregated over seeds. Includes the n=0 (step 0) frame."""
+    by_step: dict[int, dict[str, list[float]]] = {}
+    for r in rows:
+        if r["method"] != method or ykey not in r or r[ykey] == "":
+            continue
+        if r.get(xkey, "") == "":
+            continue
+        e = by_step.setdefault(r["step"], {"x": [], "y": []})
+        e["x"].append(float(r[xkey]))
+        e["y"].append(float(r[ykey]))
+    steps = sorted(by_step)
+    x = np.array([np.mean(by_step[s]["x"]) for s in steps])
+    y = np.array([np.mean(by_step[s]["y"]) for s in steps])
+    sd = np.array([np.std(by_step[s]["y"], ddof=1) if len(by_step[s]["y"]) > 1 else 0.0
+                   for s in steps])
+    return x, y, sd
+
+
+def metric_single(rows: list[dict], metric: str, out_base: str,
+                  xaxis: str = "t", logy: bool = True, floors: dict | None = None,
+                  emc_target: float = 1.0, methods=METHODS,
+                  figsize=(4.4, 3.2), show: bool = True):
+    """One metric, one figure (saved individually as png+pdf). Global log-y
+    (except EMC, which is in [0,1]); linear x so the shared t=0 / NFE=0 start
+    point is representable. `xaxis` in {'t','nfe','wallclock'}."""
+    apply_style()
+    floors = floors or {}
+    xkey, xlabel = X_AXIS[xaxis]
+    fig, ax = plt.subplots(figsize=figsize)
+    plotted = False
+    for method in methods:
+        x, y, sd = _series_x(rows, method, metric, xkey)
+        if len(x) == 0:
+            continue
+        plotted = True
+        st = METHOD_STYLE.get(method, dict(color="#444444", ls="-", marker="."))
+        ax.fill_between(x, y - sd, y + sd,
+                        color=blend_toward_white(st["color"]), lw=0, zorder=1)
+        ax.plot(x, y, color=st["color"], ls=st["ls"], marker=st["marker"],
+                markevery=max(1, len(x) // 8), markerfacecolor="white",
+                markeredgecolor=st["color"], markeredgewidth=0.6,
+                label=SIMPLE_LABELS.get(method, method), zorder=3)
+    if metric == "EMC":
+        ax.axhline(emc_target, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
+        ax.set_ylim(-0.02, 1.05)
+    else:
+        if logy:
+            ax.set_yscale("log")
+        fl = floors.get(metric, {}).get("mean")
+        if fl:
+            ax.axhline(fl, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(METRIC_LABEL.get(metric, metric))
+    if plotted:
+        handles, labels = ax.get_legend_handles_labels()
+        fig.legend(handles, labels, ncol=min(4, len(labels)), loc="lower center",
+                   bbox_to_anchor=(0.5, 1.005), frameon=False,
+                   handlelength=1.9, columnspacing=1.0)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(out_base), exist_ok=True)
+    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
+    fig.savefig(out_base + ".pdf", bbox_inches="tight")
+    if show:
+        _display_inline(fig)
+    return fig
 
 
 def _display_inline(fig) -> None:

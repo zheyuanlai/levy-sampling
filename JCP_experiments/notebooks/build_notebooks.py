@@ -121,10 +121,31 @@ assert max(r["nonfinite_frac"] for r in rows) == 0.0
 print("nonfinite fraction: identically zero")'''
 
 
-CELL_FIGURES = '''fig = metric_grid(rows, os.path.join(FIGURES, EXPERIMENT + "_metrics"),
+CELL_FIGURES = '''from src.plotting import metric_single
+from src.runner import convergence_report
+fig = metric_grid(rows, os.path.join(FIGURES, EXPERIMENT + "_metrics"),
                   metrics=("W2", "MMD", "EMC"), floors=floors,
                   emc_target=emc_target)
-print("saved:", os.path.join(FIGURES, EXPERIMENT + "_metrics") + ".{png,pdf}")'''
+print("saved:", os.path.join(FIGURES, EXPERIMENT + "_metrics") + ".{png,pdf}")
+
+# per-metric log-y single figures on t / NFE / wall-clock axes (all curves start
+# at the shared n=0 point; linear x so t=0 / NFE=0 is representable)
+_methods_all = list(C.METHODS) + ["CP-RA", "LSC-CP-RA"]   # RA variants if present
+_present = set().union(*[set(r) for r in rows])
+_single = [m for m in ("W2", "TV", "MMD", "e_F", "basin_rel_max", "KSD",
+                       "TV_density", "W2_10d") if m in _present]
+for _m in _single:
+    for _axis in ("t", "nfe", "wallclock"):
+        metric_single(rows, _m, os.path.join(FIGURES, f"{EXPERIMENT}_{_m}_{_axis}"),
+                      xaxis=_axis, floors=floors, methods=_methods_all, show=False)
+print("saved per-metric log-y figures:", _single, "x {t, nfe, wallclock}")
+
+# cross-seed convergence: rank-normalized split-Rhat on the slow basin-0
+# occupancy (each seed a chain); metastable targets that trap seeds -> Rhat >> 1
+conv = convergence_report(rows, _methods_all, cfg.seeds)
+print("split-Rhat(occ0) | final NFE:")
+for _mth, _d in conv.items():
+    print(f"  {_mth:11s}: Rhat={_d['split_rhat']:.3f}  NFE={_d['final_nfe']:.3g}")'''
 
 
 def cell_csv(extra_manifest: str = "") -> str:

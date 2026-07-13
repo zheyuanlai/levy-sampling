@@ -18,6 +18,22 @@ import numpy as np
 import torch
 
 
+class _CounterFreeze:
+    """Save the evaluation counters on enter, restore them on exit -- so any
+    V/grad/V_delta calls inside the block do not change the net counts."""
+
+    def __init__(self, pot) -> None:
+        self.pot = pot
+
+    def __enter__(self):
+        self._saved = (self.pot.n_V, self.pot.n_grad, self.pot.n_Vdelta)
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        self.pot.n_V, self.pot.n_grad, self.pot.n_Vdelta = self._saved
+        return False
+
+
 class Potential:
     d: int = 1
     name: str = "potential"
@@ -29,6 +45,17 @@ class Potential:
         self.n_V = 0
         self.n_grad = 0
         self.n_Vdelta = 0
+
+    def nfe(self) -> int:
+        """Combined number of function evaluations (points): one V, grad V, or
+        V_delta point each count 1. The honest NFE axis for metric-vs-NFE."""
+        return self.n_V + self.n_grad + self.n_Vdelta
+
+    def no_count(self) -> "_CounterFreeze":
+        """Context manager that EXCLUDES the enclosed V / grad / V_delta calls
+        from the evaluation counters (restores them on exit). Wrap all metric
+        and reference evaluations in it so NFE reflects sampler work only."""
+        return _CounterFreeze(self)
 
     # -- interface ---------------------------------------------------------
     def V(self, x: torch.Tensor) -> torch.Tensor:

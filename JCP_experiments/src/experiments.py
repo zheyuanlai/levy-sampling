@@ -590,6 +590,28 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
     proj = M.make_projections(d_m, 200, seed=777, device=device) if d_m > 1 else None
     bw = M.median_heuristic(ref_m)
 
+    # ---- reference quantities for the chemistry-native + KSD metrics --------
+    beta_m = exp.cfg.beta
+    with exp.pot.no_count():
+        ref_V = exp.pot.V(ref_x)                              # (n,)
+    ref_mean_V = float(ref_V.mean().item())
+    ref_var_V = float(ref_V.var(unbiased=True).item())
+    # free-energy CV = first metric-space coordinate (z1 for E3, x for E1, ...)
+    ref_cv = ref_m[:, 0]
+    cv_lo, cv_hi = float(ref_cv.min().item()), float(ref_cv.max().item())
+    cv_pad = 0.05 * (cv_hi - cv_lo + 1e-9)
+    cv_edges = torch.linspace(cv_lo - cv_pad, cv_hi + cv_pad, 41,
+                              dtype=torch.float64, device=device)
+    ref_F, ref_p = M.free_energy_profile(ref_cv, cv_edges, beta_m)
+    pi_min = 5.0 / n                                          # >= ~5 ref counts/bin
+    e_lo, e_hi = float(ref_V.min().item()), float(ref_V.max().item())
+    e_pad = 0.05 * (e_hi - e_lo + 1e-9)
+    e_edges = torch.linspace(e_lo - e_pad, e_hi + e_pad, 41,
+                             dtype=torch.float64, device=device)
+    _ei = torch.bucketize(ref_V.reshape(-1), e_edges[1:-1])
+    ref_ehist = torch.bincount(_ei, minlength=e_edges.shape[0] - 1).to(torch.float64)
+    ref_ehist = ref_ehist / ref_ehist.sum()
+
     is_e1 = exp.name == "double_well"
     if is_e1:
         lo, hi = exp.extras["density_tv_box"]
@@ -629,6 +651,22 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
             out["TV_density"] = M.density_tv_1d(x, edges, target_mass)
         if proj10 is not None:
             out["W2_10d"] = M.sliced_w2(x, ref_x, proj10)
+        # ---- chemistry-native + KSD (potential evals excluded from NFE) ----
+        cv = xm[:, 0]
+        out["e_F"] = M.free_energy_profile_error(cv, cv_edges, beta_m,
+                                                 ref_F, ref_p, pi_min)
+        brel, bL1 = M.basin_rel_mass_error(p_hat, exp.p_star)
+        out["basin_rel_max"] = brel
+        out["basin_L1"] = bL1
+        out["occ0"] = float(p_hat[0].item())     # slow-mode scalar (basin 0)
+        with exp.pot.no_count():
+            V = exp.pot.V(x)
+            gV = exp.pot.grad(x)
+        eV, eVar = M.observable_error(V, ref_mean_V, ref_var_V)
+        out["V_mean_err"] = eV
+        out["V_var_err"] = eVar
+        out["E_overlap_deficit"] = 1.0 - M.energy_hist_overlap(V, e_edges, ref_ehist)
+        out["KSD"] = M.ksd_imq(x, -beta_m * gV)
         return out
 
     two = {"W2": w2_fn, "MMD": lambda a, b: M.mmd_biased(a, b, bw)}
