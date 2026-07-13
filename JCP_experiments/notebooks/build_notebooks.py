@@ -224,6 +224,37 @@ samples = {m: method_info[m]["final_positions_all"].reshape(-1).cpu().numpy()
 cdf_fig = cdf_comparison(samples, ref.x.cpu().numpy(), ref.cdf.cpu().numpy(),
                          os.path.join(FIGURES, EXPERIMENT + "_cdf"))
 print("saved:", os.path.join(FIGURES, EXPERIMENT + "_cdf") + ".{png,pdf}")'''),
+        md(r"""## Raw-CP forensic — does raw CP converge to the *predicted* biased law?
+
+Raw CP does not target $\pi$ (no score correction); the paper premise is that it converges to a *biased* stationary law $\rho_\infty^{\rm raw}$ solving the linear stationary equation $0=\varepsilon\rho''+\partial_x[V'\rho]+\lambda\sum_{a,q}w_{a,q}[\rho(x-r_{a,q})-\rho]$. We solve $\rho_\infty^{\rm raw}$ exactly on a fine grid (`src/stationary.py`; Chang–Cooper conservative flux, $\lambda\to0$ recovers $e^{-\beta V}$ to machine precision) and overlay its CDF on the empirical raw-CP CDF. If $W_1(\text{empirical},\rho_\infty^{\rm raw})\ll W_1(\text{empirical},\pi)$ the raw-CP code is correct and its bias matches theory — and the LSC-CP score removes *exactly* this bias."""),
+        code('''# solve the predicted raw-CP stationary law and compare CDFs
+from src.stationary import doublewell_rawcp_forensic, w1_from_samples
+import matplotlib.pyplot as _plt
+fen = doublewell_rawcp_forensic(exp.law, cfg.beta, cfg.lam, lo=-5.2, hi=5.2)
+xg, cdf_pred, cdf_gibbs = fen["x"], fen["cdf_pred"], fen["cdf_gibbs"]
+# empirical raw-CP terminal ensemble (all seeds pooled). NB: production runs
+# clip to the [-3,3] box; rho_inf^raw carries ~0 mass beyond |x|=3 here, so the
+# boundary difference is negligible for this mild-bias regime.
+emp_cp = method_info["CP"]["final_positions_all"].reshape(-1).cpu().numpy()
+w1_ep = w1_from_samples(emp_cp, xg, cdf_pred)
+w1_et = w1_from_samples(emp_cp, xg, cdf_gibbs)
+print(f"W1(empirical raw-CP, predicted rho_inf^raw) = {w1_ep:.4f}")
+print(f"W1(empirical raw-CP, true Gibbs pi)         = {w1_et:.4f}")
+print(f"ratio pred/true = {w1_ep/w1_et:.3f}  "
+      f"(<1 => raw CP tracks the predicted biased law, not pi)")
+_ts = np.sort(emp_cp); _F = np.arange(1, _ts.size + 1) / _ts.size
+_fig, _ax = _plt.subplots(figsize=(4.8, 3.4))
+_ax.plot(xg, cdf_gibbs, color="#888888", lw=2.4, label=r"true $\\pi\\propto e^{-\\beta V}$")
+_ax.plot(xg, cdf_pred, color="#D55E00", lw=1.8, ls="--",
+         label=r"predicted raw-CP $\\rho_\\infty^{\\rm raw}$")
+_ax.step(_ts, _F, where="post", color="#000000", lw=1.1, label="empirical raw-CP")
+_ax.set_xlim(-3, 3); _ax.set_xlabel(r"$x$"); _ax.set_ylabel("CDF")
+_ax.legend(fontsize=8, loc="lower right", frameon=False)
+_fig.tight_layout()
+_base = os.path.join(FIGURES, "rawcp_stationary_forensic")
+_fig.savefig(_base + ".png", dpi=600, bbox_inches="tight")
+_fig.savefig(_base + ".pdf", bbox_inches="tight")
+print("saved:", _base + ".{png,pdf}")'''),
         code(cell_csv()),
     ]
     nb = nbf.v4.new_notebook()
