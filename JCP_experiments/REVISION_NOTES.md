@@ -421,3 +421,49 @@ width, same rule as E3). At cap=2h, **LSC-CP beats raw-CP on all metrics**: W2
 0.11 vs 0.27, MMD 0.02 vs 0.09, basin 0.08 vs 0.22, and MA tracks exact
 (0.099/0.015/0.058). Both estimators agree → deterministic taming-saturation, not
 variance. Production E4 re-run at cap=2h in progress.
+
+---
+
+## Presentation revision + second full production run (2026-07-14)
+
+Five author requests, all applied, full notebook re-run executed (~3.3 h, all
+four certificate gates PASS, nonfinite = 0):
+
+1. **E1 fluctuation** -- forensic first: NOT a bug (reference sample,
+   projections, MMD bandwidth all frozen; streams independent). Floor-level MC
+   noise at N=4000 x 5 seeds (tail band CV 0.6-0.7 for TV, ~0.5 KSD). Fix:
+   E1 N=16000; seeds E1/E2 5->24, E3/E4 5->16. Plotted-line jitter dropped
+   3-4x (W2 0.09->0.025, TV 0.34->0.13, KSD 0.28->0.12).
+2. **One LSC-CP line per figure** -- plots draw the practical estimator only
+   (single-atom RA on E1/E2, multi-atom on E3/E4), always black, labeled
+   "LSC-CP" (style follows the canonical name on relabel). The exact-score
+   E1/E2 runs stay in the CSVs as the estimator-agreement record;
+   `consistency_exact_vs_ra` figure regenerated from production data
+   (24 seeds; exact == RA within band on E1/E2).
+3. **Denser curves** -- checkpoint_schedule 40+48 -> 60+160 (221 points);
+   plotting smooth 5 -> 9.
+4. **Cost-axis truncation** -- metric_single(xmax_mode="baselines"): NFE /
+   wall-clock axes end at the largest non-LSC terminal x (= PT), so the
+   10-30x-per-step LSC-CP curve cannot squeeze the baselines. Both xlims set
+   explicitly (right-only left a huge negative auto left-margin).
+5. **CSV self-sufficiency** -- manifest.json now also records emc_target,
+   p_star, and the plot policy; scripts/replot_figures.py regenerates every
+   figure from results/<exp>/ alone (verified with CUDA hidden). .gitignore
+   tracks results/**/manifest.json alongside the CSVs.
+
+**Stale-figure bug (author caught it):** the notebook figures cell only drew 8
+metrics while replot_figures drew 12 -- after the re-run, W1_cdf / CDF_sup /
+pdf_L1 / KDE_chi2 figures on disk were left from the OLD run (old data, no
+truncation). Fixed: the notebook `_single` list now matches replot's _SINGLE
+(all 12), and all four experiments were replotted from the new CSVs; only
+`rawcp_crosscheck_CY` (collaborator grid cross-check, unaffected) predates the
+run.
+
+**Also answered:** no Metropolis-adjusted LSC-CP exists anywhere in the code;
+MH appears only in the MALA baseline and PT (per-temperature MALA + swap
+criterion). CompoundPoisson (CP / LSC-CP-*) is tamed Euler-Maruyama + Poisson
+jumps, no accept/reject.
+
+Headline (last-30% means, new run): E1 RA 0.130 vs raw 0.177 (PT 0.060);
+E2 RA W2 2.90 vs raw 10.09, PT 7.52; E3 MA 0.053 == PT 0.053 >> raw 0.349;
+E4 MA 0.099 vs raw 0.284, PT 0.391.

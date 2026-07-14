@@ -120,12 +120,14 @@ def run_one(method: str, seed: int, sampler_factory, n_steps: int,
 
 
 def checkpoint_schedule(n_steps: int, dense_frac: float = 0.05,
-                        n_dense: int = 40, n_sparse: int = 48) -> list[int]:
+                        n_dense: int = 60, n_sparse: int = 160) -> list[int]:
     """Fixed non-uniform checkpoint schedule, identical across methods:
     n_dense points uniformly over the first dense_frac of the run (the
     nonlocal methods equilibrate within ~lambda^-1 time units, an order of
     magnitude faster than a uniform T/50 cadence can resolve), then
-    n_sparse points to the end."""
+    n_sparse points to the end. (60+160 -- the earlier 40+48 left the
+    post-equilibration 95% of the run with only ~one point per 2% of T,
+    too sparse for the plotted curves and their running average.)"""
     dense_end = max(n_dense, int(round(n_steps * dense_frac)))
     dense = np.linspace(dense_end / n_dense, dense_end, n_dense)
     sparse = np.linspace(dense_end + (n_steps - dense_end) / n_sparse,

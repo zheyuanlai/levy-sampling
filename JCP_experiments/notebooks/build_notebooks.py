@@ -86,7 +86,7 @@ def cell_dt_production(main_metrics: str) -> str:
     return f'''# dt rule: largest dyadic dt at which every PI-TARGETING method's terminal
 # metrics agree with dt/2 (5% / floor-band / 4-sigma noise guards); FLA and
 # raw CP have invariant laws != pi and are recorded but do not gate.
-# Production: all 5 seeds batched into one (5N)-particle ensemble per method.
+# Production: all seeds batched into one (S*N)-particle ensemble per method.
 MAIN_METRICS = {main_metrics}
 
 def run_terminal_all(dt_):
@@ -108,7 +108,7 @@ for row in dt_table:
 n_steps = int(round(cfg.T / dt_final))
 steps_per_ck = max(1, n_steps // C.N_CHECKPOINTS)
 # dense-early checkpoint schedule: the nonlocal transient lives in the
-# first ~5% of the run; 40 dense + 48 sparse points, identical across
+# first ~5% of the run; 60 dense + 160 sparse points, identical across
 # methods (measurement cadence only -- no protocol change)
 from src.runner import checkpoint_schedule
 ck_steps = checkpoint_schedule(n_steps)
@@ -127,26 +127,50 @@ print("nonfinite fraction: identically zero")'''
 
 CELL_FIGURES = '''from src.plotting import metric_single
 from src.runner import convergence_report
+# plotted-method policy: figures show ONE LSC-CP line -- the practical
+# estimator advocated for this experiment (multi-atom if run, else single-atom
+# RA, else exact), labeled "LSC-CP". When the exact-score run is also in the
+# matrix (E1/E2 dual-run) it stays in the CSV as the estimator-agreement
+# record but is not drawn: the estimators agree within the seed band, and a
+# second black line only clutters / stretches the cost axes.
+PLOT_LSC = next((m for m in ("LSC-CP-MA", "LSC-CP-RA", "LSC-CP")
+                 if m in RUN_METHODS), "LSC-CP")
+PLOT_RAW = "CP" if "CP" in RUN_METHODS else "CP-RA"
+PLOT_METHODS = [m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
+                if m in RUN_METHODS] + [PLOT_RAW, PLOT_LSC]
+PLOT_LABELS = {PLOT_RAW: "Raw-CP", PLOT_LSC: "LSC-CP"}
+print("plotted methods:", PLOT_METHODS, " labels:", PLOT_LABELS)
+
 fig = metric_grid(rows, os.path.join(FIGURES, EXPERIMENT + "_metrics"),
                   metrics=("W2", "MMD", "EMC"), floors=floors,
-                  emc_target=emc_target)
+                  emc_target=emc_target, methods=PLOT_METHODS,
+                  label_overrides=PLOT_LABELS)
 print("saved:", os.path.join(FIGURES, EXPERIMENT + "_metrics") + ".{png,pdf}")
 
 # per-metric log-y single figures on t / NFE / wall-clock axes (all curves start
-# at the shared n=0 point; linear x so t=0 / NFE=0 is representable)
-_methods_all = RUN_METHODS   # exactly the methods that were run (incl. any RA)
+# at the shared n=0 point; linear x so t=0 / NFE=0 is representable; the cost
+# axes are truncated at the largest non-LSC terminal x -- metric_single's
+# xmax_mode="baselines" -- so the 10-30x-per-step LSC-CP curve cannot squeeze
+# every baseline against the y-axis)
 _present = set().union(*[set(r) for r in rows])
-_single = [m for m in ("W2", "TV", "MMD", "e_F", "basin_rel_max", "KSD",
-                       "TV_density", "W2_10d") if m in _present]
+# FULL metric list -- must stay in sync with scripts/replot_figures.py _SINGLE:
+# every per-metric figure on disk is regenerated here, so none can go stale
+# with old data/axes when the notebook re-runs
+_single = [m for m in ("W2", "TV", "TV_density", "MMD", "e_F",
+                       "basin_rel_max", "KSD", "W1_cdf", "CDF_sup",
+                       "pdf_L1", "KDE_chi2", "W2_10d") if m in _present]
 for _m in _single:
     for _axis in ("t", "nfe", "wallclock"):
         metric_single(rows, _m, os.path.join(FIGURES, f"{EXPERIMENT}_{_m}_{_axis}"),
-                      xaxis=_axis, floors=floors, methods=_methods_all, show=False)
+                      xaxis=_axis, floors=floors, methods=PLOT_METHODS,
+                      emc_target=emc_target, label_overrides=PLOT_LABELS,
+                      show=False)
 print("saved per-metric log-y figures:", _single, "x {t, nfe, wallclock}")
 
 # cross-seed convergence: rank-normalized split-Rhat on the slow basin-0
 # occupancy (each seed a chain); metastable targets that trap seeds -> Rhat >> 1
-conv = convergence_report(rows, _methods_all, cfg.seeds)
+# (reported for ALL run methods, including any undrawn exact-score run)
+conv = convergence_report(rows, RUN_METHODS, cfg.seeds)
 print("split-Rhat(occ0) | final NFE:")
 for _mth, _d in conv.items():
     print(f"  {_mth:11s}: Rhat={_d['split_rhat']:.3f}  NFE={_d['final_nfe']:.3g}")'''
@@ -159,12 +183,25 @@ summary_metrics = MAIN_METRICS + ["nonfinite_frac"]
 summary = write_summary_csv(rows, RUN_METHODS, cfg.seeds, summary_metrics,
                             method_info, floors, os.path.join(RESULTS, "summary.csv"))
 
+# plot policy recomputed here (not inherited from the figures cell) so the
+# manifest is self-contained even if cells are run out of order; it makes
+# results/<exp>/ sufficient to regenerate every figure with no GPU
+# (scripts/replot_figures.py reads it).
+_plot_lsc = next((m for m in ("LSC-CP-MA", "LSC-CP-RA", "LSC-CP")
+                  if m in RUN_METHODS), "LSC-CP")
+_plot_raw = "CP" if "CP" in RUN_METHODS else "CP-RA"
 manifest = dict(
     experiment=EXPERIMENT,
     config=dict(d=cfg.d, N=cfg.n_particles, T=cfg.T, dt0=cfg.dt, dt=dt_final,
                 beta=cfg.beta, eps=cfg.eps, lam=cfg.lam, seeds=list(cfg.seeds),
                 n_checkpoints=C.N_CHECKPOINTS, warmup_steps=C.N_WARMUP_STEPS,
                 batched_seeds=True),
+    emc_target=float(emc_target),
+    p_star=[float(v) for v in exp.p_star.cpu()],
+    plot=dict(
+        methods=[m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
+                 if m in RUN_METHODS] + [_plot_raw, _plot_lsc],
+        label_overrides={{_plot_raw: "Raw-CP", _plot_lsc: "LSC-CP"}}),
     quadrature=dict(chosen=CHOSEN_QUAD, table=quad_table),
     dt_refinement=[{{k: (str(v) if isinstance(v, tuple) else v) for k, v in row.items()}}
                    for row in dt_table],

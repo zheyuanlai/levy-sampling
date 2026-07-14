@@ -1,7 +1,9 @@
-# results: track the CSVs, ignore everything else (manifests, caches)
+# results: track the CSVs + manifest.json (figures are reproducible from these
+# two alone via scripts/replot_figures.py); ignore caches/checkpoints
 results/**
 !results/**/
 !results/**/*.csv
+!results/**/manifest.json
 __pycache__/
 *.pyc
 .ipynb_checkpoints/

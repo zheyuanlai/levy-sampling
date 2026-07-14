@@ -1,0 +1,300 @@
+{
+  "experiment": "mog40",
+  "config": {
+    "d": 2,
+    "N": 2500,
+    "T": 100.0,
+    "dt0": 0.01,
+    "dt": 0.01,
+    "beta": 8.0,
+    "eps": 0.125,
+    "lam": 1.0,
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23
+    ],
+    "n_checkpoints": 50,
+    "warmup_steps": 20,
+    "batched_seeds": true
+  },
+  "emc_target": 1.0,
+  "p_star": [
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025,
+    0.025
+  ],
+  "plot": {
+    "methods": [
+      "ULA",
+      "MALA",
+      "FLA",
+      "BAOAB",
+      "PT",
+      "CP",
+      "LSC-CP-RA"
+    ],
+    "label_overrides": {
+      "CP": "Raw-CP",
+      "LSC-CP-RA": "LSC-CP"
+    }
+  },
+  "quadrature": {
+    "chosen": {
+      "m_phi": 16
+    },
+    "table": [
+      {
+        "m_phi": 16,
+        "R": 3.0268365680461725e-08,
+        "W2": 3.118384079979071,
+        "TV": 0.0638,
+        "MMD": 0.05295357718489407,
+        "EMC": 0.9873232835499515,
+        "pass": true
+      },
+      {
+        "m_phi": 32,
+        "R": 7.817160112112892e-13,
+        "W2": 2.9859600563174427,
+        "TV": 0.06420000000000001,
+        "MMD": 0.05221314558301113,
+        "EMC": 0.987227255989426,
+        "pass": true
+      },
+      {
+        "m_phi": 64,
+        "R": 7.640424318273818e-13,
+        "W2": 3.0312958854538934,
+        "TV": 0.065,
+        "MMD": 0.05300919466076425,
+        "EMC": 0.9868879985281609,
+        "pass": true
+      }
+    ]
+  },
+  "dt_refinement": [
+    {
+      "dt": 0.01,
+      "pass": true,
+      "failures": [],
+      "excluded_deviations": []
+    }
+  ],
+  "pt_ladder": {
+    "K": 3,
+    "r": 0.05590169943749474,
+    "beta_min": 0.025,
+    "beta_max": 8.0,
+    "swap_acceptance": 0.262494140625,
+    "history": {
+      "8": 0.721935709635417,
+      "6": 0.6220504557291667,
+      "4": 0.4250478515625,
+      "3": 0.262494140625
+    },
+    "band_attained": true
+  },
+  "certificate": {
+    "phi_0": {
+      "residual": 7.246782771576669e-13,
+      "jump_term": 1.0552567166235463,
+      "drift_term": -1.0552567166227815
+    },
+    "phi_1": {
+      "residual": 6.152403568632623e-13,
+      "jump_term": 0.6413318933814267,
+      "drift_term": -0.6413318933810321
+    },
+    "phi_2": {
+      "residual": 3.92348711126649e-13,
+      "jump_term": 0.17119590579753474,
+      "drift_term": -0.1711959057976019
+    },
+    "phi_3": {
+      "residual": 2.816588800621496e-13,
+      "jump_term": -0.9046268454069377,
+      "drift_term": 0.9046268454066829
+    },
+    "phi_4": {
+      "residual": 7.817160112112892e-13,
+      "jump_term": -0.40831851337564484,
+      "drift_term": 0.40831851337596403
+    },
+    "phi_5": {
+      "residual": 4.429538152360069e-13,
+      "jump_term": -1.3539616485365755,
+      "drift_term": 1.3539616485359758
+    },
+    "max_residual": 7.817160112112892e-13,
+    "m_clip_fraction_grid": 0.0,
+    "clip_tamed_step_defect": 0.0
+  },
+  "bias_floors": {
+    "W2": {
+      "mean": 1.30832598527304,
+      "std": 0.2778559582732247
+    },
+    "MMD": {
+      "mean": 0.015577912824602077,
+      "std": 0.005375715246772992
+    },
+    "TV": {
+      "mean": 0.05091,
+      "std": 0.00605291578280123
+    },
+    "EMC": {
+      "mean": 0.992208439690639,
+      "std": 0.0018310446615103079
+    }
+  },
+  "barrier_verification": {
+    "n_particles": 2500,
+    "T": 100.0,
+    "n_exits": 146,
+    "exit_fraction": 0.0584,
+    "mfpt_estimate": 1663.7553424657535,
+    "kramers_tau_mode0": 551.9750007500811
+  },
+  "method_info": {
+    "ULA": {
+      "wallclock_mean_s": 2.254182429984212,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 60000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "MALA": {
+      "wallclock_mean_s": 5.618675081990659,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 60000.0,
+      "grad_evals_per_step": 60000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "FLA": {
+      "wallclock_mean_s": 2.867887493222952,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 60000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "BAOAB": {
+      "wallclock_mean_s": 2.4476875010877848,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 60000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "PT": {
+      "wallclock_mean_s": 11.607841333374381,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 180000.0,
+      "grad_evals_per_step": 180000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "CP": {
+      "wallclock_mean_s": 3.6249080132693052,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 60000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "LSC-CP": {
+      "wallclock_mean_s": 2771.7560297762975,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 60000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "LSC-CP-RA": {
+      "wallclock_mean_s": 27.572329270653427,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 1020000.0,
+      "grad_evals_per_step": 60000.0,
+      "score_quad_evals_per_step": 0.0
+    }
+  },
+  "hardware": {
+    "cpu": "AMD EPYC 9554 64-Core Processor",
+    "gpu": "NVIDIA H200 NVL",
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.13",
+    "git_sha": "81a24d30aefb51ee5d73f3bec51fa05a6cc45b65",
+    "cuda_visible_devices": "0",
+    "gpu_compute_apps_at_start": [
+      "GPU-514c2f3b-34cc-98a9-dfa1-7671c8c08767, 467174, 5980 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 4103055, 814 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 4154265, 7588 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 119782, 67232 MiB"
+    ]
+  },
+  "hungarian_w2_terminal": {
+    "ULA": 36.953532134266815,
+    "MALA": 36.91732439652181,
+    "FLA": 22.596837729020766,
+    "BAOAB": 37.13141218637821,
+    "PT": 10.386500616997571,
+    "CP": 15.339004569616193,
+    "LSC-CP": 5.987522997787898,
+    "LSC-CP-RA": 7.302942706897789
+  }
+}

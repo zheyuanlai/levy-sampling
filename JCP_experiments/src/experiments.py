@@ -74,7 +74,14 @@ class Experiment:
 # ===================================================================== E1
 def build_e1(device="cuda") -> Experiment:
     pot = DoubleWell1D()
-    cfg = RunConfig(name="double_well", d=1, n_particles=4000, T=100.0, dt=0.005)
+    # N=16000 / 24 seeds: the production metrics plateau at their MC-noise
+    # floor, and at N=4000 x 5 seeds the tail band CV reached 0.6-0.7 for the
+    # histogram TV (350 bins ~ 11 particles/bin) and ~0.5 for KSD -- visually
+    # dominant on a log axis. 1D is cheap; 4x particles + ~5x seeds cut the
+    # plateau noise ~4-5x. (Verified not a bug: reference sample, projections
+    # and MMD bandwidth are all frozen in make_metrics.)
+    cfg = RunConfig(name="double_well", d=1, n_particles=16000, T=100.0,
+                    dt=0.005, seeds=tuple(range(24)))
     atoms = torch.tensor([[2.0], [-2.0]], dtype=torch.float64, device=device)
     weights = torch.tensor([0.5, 0.5], dtype=torch.float64, device=device)
     law = ShellJumpLaw(atoms, weights, h=0.2)     # +-2 maps minimum to minimum
@@ -111,7 +118,10 @@ def build_e1(device="cuda") -> Experiment:
 # ===================================================================== E2
 def build_e2(device="cuda") -> Experiment:
     pot = MoG40(beta=BETA, device=device)
-    cfg = RunConfig(name="mog40", d=2, n_particles=2500, T=100.0, dt=0.01)
+    # 24 seeds (N kept at 2500: the exact ShellScore's per-step quadrature cost
+    # scales with the batched ensemble, and E2 runs the exact+RA dual matrix)
+    cfg = RunConfig(name="mog40", d=2, n_particles=2500, T=100.0, dt=0.01,
+                    seeds=tuple(range(24)))
     # deliberately generic law: [4, 15] set from the NN-distance histogram
     # alone; neither PT nor LSC-CP receives mode locations.
     law = AnnulusJumpLaw(4.0, 15.0, device)
@@ -179,7 +189,7 @@ def build_e3(device="cuda", basin_cache: str | None = None,
     E3_BETA = float(beta)          # <-- E3 temperature (switch to 32.0 here)
     pot = TransformedMB3Well10D(device=device)
     cfg = RunConfig(name="mb3well_10d", d=10, n_particles=2000, T=200.0,
-                    dt=0.005, beta=E3_BETA)
+                    dt=0.005, beta=E3_BETA, seeds=tuple(range(16)))
 
     mins = {}
     for key in ("A", "B", "C"):
@@ -351,7 +361,7 @@ def build_e4(device="cuda", basin_cache: str | None = None,
              jitter_sigma: float = 0.0) -> Experiment:
     pot = CoupledPhi4()
     cfg = RunConfig(name="coupled_phi4", d=24, n_particles=1000, T=100.0,
-                    dt=0.002)
+                    dt=0.002, seeds=tuple(range(16)))
 
     phases = ["--", "-+", "+-", "++"]                        # idx 0,1,2,3
     vs = []

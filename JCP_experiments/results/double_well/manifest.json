@@ -1,0 +1,337 @@
+{
+  "experiment": "double_well",
+  "config": {
+    "d": 1,
+    "N": 16000,
+    "T": 100.0,
+    "dt0": 0.005,
+    "dt": 0.005,
+    "beta": 8.0,
+    "eps": 0.125,
+    "lam": 1.0,
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23
+    ],
+    "n_checkpoints": 50,
+    "warmup_steps": 20,
+    "batched_seeds": true
+  },
+  "emc_target": 1.0,
+  "p_star": [
+    0.5,
+    0.5
+  ],
+  "plot": {
+    "methods": [
+      "ULA",
+      "MALA",
+      "FLA",
+      "BAOAB",
+      "PT",
+      "CP",
+      "LSC-CP-RA"
+    ],
+    "label_overrides": {
+      "CP": "Raw-CP",
+      "LSC-CP-RA": "LSC-CP"
+    }
+  },
+  "quadrature": {
+    "chosen": {
+      "q_theta": 16,
+      "q_rho": 4
+    },
+    "table": [
+      {
+        "q_theta": 8,
+        "q_rho": 4,
+        "R": 0.006608186835780243,
+        "W2": 0.1112325481790142,
+        "TV": 0.00024999999999997247,
+        "TV_density": 0.05526810984367051,
+        "MMD": 0.01988524794483382,
+        "EMC": 0.9999998750000026,
+        "pass": false
+      },
+      {
+        "q_theta": 8,
+        "q_rho": 8,
+        "R": 0.006607984126065746,
+        "W2": 0.11123223594027797,
+        "TV": 0.00024999999999997247,
+        "TV_density": 0.05526810984367051,
+        "MMD": 0.01988544742596496,
+        "EMC": 0.9999998750000026,
+        "pass": false
+      },
+      {
+        "q_theta": 8,
+        "q_rho": 16,
+        "R": 0.006607984126063331,
+        "W2": 0.11123223593925663,
+        "TV": 0.00024999999999997247,
+        "TV_density": 0.05526810984367051,
+        "MMD": 0.01988544742586167,
+        "EMC": 0.9999998750000026,
+        "pass": false
+      },
+      {
+        "q_theta": 16,
+        "q_rho": 4,
+        "R": 1.4834261464646867e-07,
+        "W2": 0.11203113091647057,
+        "TV": 0.0001875000000000071,
+        "TV_density": 0.05147936516287907,
+        "MMD": 0.016687083424332783,
+        "EMC": 0.9999999296875008,
+        "pass": true
+      },
+      {
+        "q_theta": 16,
+        "q_rho": 8,
+        "R": 5.473729617810248e-08,
+        "W2": 0.112030873885254,
+        "TV": 0.0001875000000000071,
+        "TV_density": 0.05143927898909491,
+        "MMD": 0.016686871506306367,
+        "EMC": 0.9999999296875008,
+        "pass": true
+      },
+      {
+        "q_theta": 16,
+        "q_rho": 16,
+        "R": 5.473729527222097e-08,
+        "W2": 0.11203087389095798,
+        "TV": 0.0001875000000000071,
+        "TV_density": 0.05143927898909491,
+        "MMD": 0.01668687150599699,
+        "EMC": 0.9999999296875008,
+        "pass": true
+      },
+      {
+        "q_theta": 32,
+        "q_rho": 4,
+        "R": 9.368842660436567e-08,
+        "W2": 0.11232079941113197,
+        "TV": 0.000125000000000014,
+        "TV_density": 0.05137099140415183,
+        "MMD": 0.01669537479389862,
+        "EMC": 0.9999999687500001,
+        "pass": true
+      },
+      {
+        "q_theta": 32,
+        "q_rho": 8,
+        "R": 7.850973049616144e-15,
+        "W2": 0.11232081973811775,
+        "TV": 0.000125000000000014,
+        "TV_density": 0.05137099140415183,
+        "MMD": 0.016695377274351646,
+        "EMC": 0.9999999687500001,
+        "pass": true
+      },
+      {
+        "q_theta": 32,
+        "q_rho": 16,
+        "R": 6.7941112929370475e-15,
+        "W2": 0.11232081973856162,
+        "TV": 0.000125000000000014,
+        "TV_density": 0.05137099140415183,
+        "MMD": 0.01669537727444807,
+        "EMC": 0.9999999687500001,
+        "pass": true
+      }
+    ]
+  },
+  "dt_refinement": [
+    {
+      "dt": 0.005,
+      "pass": true,
+      "failures": [],
+      "excluded_deviations": [
+        [
+          "FLA",
+          "TV_density",
+          0.121433,
+          0.145328
+        ]
+      ]
+    }
+  ],
+  "pt_ladder": {
+    "K": 2,
+    "r": 0.125,
+    "beta_min": 1.0,
+    "beta_max": 8.0,
+    "swap_acceptance": 0.4072109375,
+    "history": {
+      "8": 0.9022389322916669,
+      "6": 0.8638470052083328,
+      "4": 0.7732890625000001,
+      "3": 0.6736093750000001,
+      "2": 0.4072109375
+    },
+    "band_attained": false
+  },
+  "certificate": {
+    "phi_0": {
+      "residual": 1.7776155948761209e-13,
+      "jump_term": 0.019536937057235873,
+      "drift_term": -0.0195369370572324
+    },
+    "phi_1": {
+      "residual": 1.2911081125607063e-10,
+      "jump_term": 0.08865605276334593,
+      "drift_term": -0.08865605277479238
+    },
+    "phi_2": {
+      "residual": 1.5429406269600142e-12,
+      "jump_term": -0.01282935275570026,
+      "drift_term": 0.012829352755680465
+    },
+    "phi_3": {
+      "residual": 3.0148708595268525e-12,
+      "jump_term": 0.1013375075829891,
+      "drift_term": -0.10133750758329461
+    },
+    "phi_4": {
+      "residual": 5.473729617810248e-08,
+      "jump_term": -0.0028724344161136935,
+      "drift_term": 0.0028724342588844
+    },
+    "phi_5": {
+      "residual": 3.7189858826615294e-09,
+      "jump_term": 0.05286225423042479,
+      "drift_term": -0.05286225403383081
+    },
+    "max_residual": 5.473729617810248e-08,
+    "m_clip_fraction_grid": 0.40208333333333335,
+    "clip_tamed_step_defect": 1.2090905385142901e-261
+  },
+  "bias_floors": {
+    "W2": {
+      "mean": 0.061359071766047914,
+      "std": 0.03296023738236081
+    },
+    "MMD": {
+      "mean": 0.006010058203909898,
+      "std": 0.003886952952365941
+    },
+    "TV": {
+      "mean": 0.0032093750000000048,
+      "std": 0.0016521361521168857
+    },
+    "EMC": {
+      "mean": 0.9999742138724725,
+      "std": 2.3812436750618413e-05
+    },
+    "TV_density": {
+      "mean": 0.020030621232570392,
+      "std": 0.0029021563718543172
+    }
+  },
+  "barrier_verification": {
+    "n_particles": 16000,
+    "T": 100.0,
+    "n_exits": 436,
+    "exit_fraction": 0.02725,
+    "mfpt_estimate": 3619.4163646788993,
+    "kramers_tau": 3311.0118449986508
+  },
+  "method_info": {
+    "ULA": {
+      "wallclock_mean_s": 3.321012595668435,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 384000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "MALA": {
+      "wallclock_mean_s": 10.551576184108853,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 384000.0,
+      "grad_evals_per_step": 384000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "FLA": {
+      "wallclock_mean_s": 5.472234638407826,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 384000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "BAOAB": {
+      "wallclock_mean_s": 4.347846635617316,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 384000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "PT": {
+      "wallclock_mean_s": 10.606802973896265,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 768000.0,
+      "grad_evals_per_step": 768000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "CP": {
+      "wallclock_mean_s": 13.106754875741899,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 384000.0,
+      "score_quad_evals_per_step": 0.0
+    },
+    "LSC-CP": {
+      "wallclock_mean_s": 65.31495861243457,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 384000.0,
+      "score_quad_evals_per_step": 49152000.0
+    },
+    "LSC-CP-RA": {
+      "wallclock_mean_s": 15.049474316649139,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 6528000.0,
+      "grad_evals_per_step": 384000.0,
+      "score_quad_evals_per_step": 0.0
+    }
+  },
+  "hardware": {
+    "cpu": "AMD EPYC 9554 64-Core Processor",
+    "gpu": "NVIDIA H200 NVL",
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "python": "3.12.13",
+    "git_sha": "81a24d30aefb51ee5d73f3bec51fa05a6cc45b65",
+    "cuda_visible_devices": "0",
+    "gpu_compute_apps_at_start": [
+      "GPU-514c2f3b-34cc-98a9-dfa1-7671c8c08767, 441715, 5004 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 4103055, 814 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 4154265, 7588 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 119782, 67232 MiB"
+    ]
+  }
+}

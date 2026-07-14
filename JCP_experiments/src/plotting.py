@@ -146,37 +146,61 @@ def _series_x(rows, method, ykey, xkey):
 def metric_single(rows: list[dict], metric: str, out_base: str,
                   xaxis: str = "t", logy: bool = True, floors: dict | None = None,
                   emc_target: float = 1.0, methods=METHODS,
-                  figsize=(4.4, 3.2), show: bool = True, smooth: int = 5,
-                  label_overrides: dict | None = None):
+                  figsize=(4.4, 3.2), show: bool = True, smooth: int = 9,
+                  label_overrides: dict | None = None,
+                  xmax_mode: str | None = "baselines"):
     """One metric, one figure (saved individually as png+pdf). Global log-y
     (except EMC, which is in [0,1]); linear x so the shared t=0 / NFE=0 start
     point is representable. `xaxis` in {'t','nfe','wallclock'}.
 
-    `smooth` (default 5) applies a centered stationary running-average to each
+    `smooth` (default 9) applies a centered stationary running-average to each
     method's seed-mean curve and its band, suppressing the checkpoint-to-
     checkpoint Monte-Carlo jitter of the noisier estimators (W2/MMD/KSD) without
     biasing the plateau level. The raw per-frame values remain in the CSV; set
-    smooth=1 to plot them unsmoothed."""
+    smooth=1 to plot them unsmoothed.
+
+    `xmax_mode="baselines"` (default; None disables): on the cost axes
+    (nfe / wallclock) the scored LSC-CP method spends ~10-30x more per step
+    than any baseline, so its curve would stretch the x-range and squeeze
+    every other method against the y-axis. Truncate the x-axis at the largest
+    terminal x among the plotted NON-LSC methods (usually PT) -- the LSC-CP
+    curve is clipped there, past its equilibration plateau. The t-axis is
+    never truncated (shared physical time)."""
     apply_style()
     floors = floors or {}
     lov = label_overrides or {}
     xkey, xlabel = X_AXIS[xaxis]
     fig, ax = plt.subplots(figsize=figsize)
     plotted = False
+    xmax_by_method: dict[str, float] = {}
     for method in methods:
         x, y, sd = _series_x(rows, method, metric, xkey)
         if len(x) == 0:
             continue
         plotted = True
+        xmax_by_method[method] = float(x.max())
         y = _running_mean(y, smooth)
         sd = _running_mean(sd, smooth)
-        st = METHOD_STYLE.get(method, dict(color="#444444", ls="-", marker="."))
+        # a method relabeled to a canonical name (e.g. LSC-CP-RA -> "LSC-CP")
+        # adopts that name's style, so "LSC-CP" is black in every figure
+        # regardless of which estimator produced the curve
+        style_key = lov.get(method) if lov.get(method) in METHOD_STYLE else method
+        st = METHOD_STYLE.get(style_key, dict(color="#444444", ls="-", marker="."))
         ax.fill_between(x, y - sd, y + sd,
                         color=blend_toward_white(st["color"]), lw=0, zorder=1)
         ax.plot(x, y, color=st["color"], ls=st["ls"], marker=st["marker"],
                 markevery=max(1, len(x) // 8), markerfacecolor="white",
                 markeredgecolor=st["color"], markeredgewidth=0.6,
                 label=lov.get(method, SIMPLE_LABELS.get(method, method)), zorder=3)
+    if (xmax_mode == "baselines" and xaxis in ("nfe", "wallclock")
+            and len(xmax_by_method) > 1):
+        base_max = max((v for m, v in xmax_by_method.items()
+                        if not m.startswith("LSC-CP")), default=0.0)
+        if base_max > 0.0 and max(xmax_by_method.values()) > base_max:
+            # set BOTH limits: with only `right`, matplotlib keeps the auto
+            # left margin computed for the untruncated LSC range (negative
+            # and huge). All curves share the n=0 start at x=0.
+            ax.set_xlim(-0.02 * base_max, 1.02 * base_max)
     if metric == "EMC":
         ax.axhline(emc_target, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
         ax.set_ylim(-0.02, 1.05)
@@ -261,7 +285,7 @@ def cdf_comparison(samples: dict, true_x, true_cdf, out_base: str,
 def metric_grid(rows: list[dict], out_base: str,
                 metrics=("W2", "MMD", "EMC"), floors: dict | None = None,
                 emc_target: float = 1.0, methods=METHODS,
-                figsize_per_panel=(3.4, 2.6), show: bool = True, smooth: int = 5,
+                figsize_per_panel=(3.4, 2.6), show: bool = True, smooth: int = 9,
                 label_overrides: dict | None = None):
     """One row of panels (metric vs t), shared legend above the grid.
     Saves out_base + .png/.pdf and returns the figure (also shown inline).
@@ -281,7 +305,9 @@ def metric_grid(rows: list[dict], out_base: str,
                 continue
             y = _running_mean(y, smooth)
             sd = _running_mean(sd, smooth)
-            st = METHOD_STYLE.get(method, dict(color="#444444", ls="-", marker="."))
+            style_key = (lov.get(method)
+                         if lov.get(method) in METHOD_STYLE else method)
+            st = METHOD_STYLE.get(style_key, dict(color="#444444", ls="-", marker="."))
             ax.fill_between(x, y - sd, y + sd,
                             color=blend_toward_white(st["color"]), lw=0, zorder=1)
             ax.plot(x, y, color=st["color"], ls=st["ls"], marker=st["marker"],
