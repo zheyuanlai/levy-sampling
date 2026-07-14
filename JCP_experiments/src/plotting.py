@@ -92,17 +92,29 @@ def blend_toward_white(color: str, keep: float = 0.30) -> tuple:
 
 
 def _running_mean(y: np.ndarray, w: int) -> np.ndarray:
-    """Centered running mean, window w, edge-normalized (partial windows at the
-    ends). A stationary observable's plateau noise is estimation variance; a
-    trailing/centered average is unbiased at stationarity and reveals the level
-    without the checkpoint-to-checkpoint Monte-Carlo jitter."""
+    """Centered running mean, window w.
+
+    LEFT edge uses symmetric-TRUNCATED windows (radius i at index i), so the
+    first point is returned EXACTLY: all methods share the identical n=0
+    ensemble, and an asymmetric partial window there would average in each
+    method's own early transient -- fast converters get dragged down, slow
+    ones don't, and the shared start visibly splits apart in the figures.
+    The same asymmetry bias applies throughout the steep (non-stationary)
+    early descent, which the growing symmetric window avoids.
+
+    RIGHT edge keeps edge-normalized partial windows: the tail is stationary,
+    where a partial-window mean is unbiased -- and it is exactly where the
+    checkpoint-to-checkpoint Monte-Carlo jitter needs suppressing."""
     if w is None or w <= 1 or len(y) < 2:
         return y
     w = min(int(w), len(y))
     k = np.ones(w)
     num = np.convolve(y, k, mode="same")
     den = np.convolve(np.ones_like(y), k, mode="same")
-    return num / den
+    out = num / den
+    for i in range(min(w // 2, len(y))):
+        out[i] = y[: 2 * i + 1].mean()
+    return out
 
 
 def _series(rows, method, ykey):
