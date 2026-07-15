@@ -281,49 +281,49 @@
   },
   "method_info": {
     "ULA": {
-      "wallclock_mean_s": 28.233908253721893,
+      "wallclock_mean_s": 28.40325678884983,
       "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 16000.0,
       "score_quad_evals_per_step": 0.0
     },
     "MALA": {
-      "wallclock_mean_s": 71.98989768046886,
+      "wallclock_mean_s": 72.8066320689395,
       "wallclock_std_s": 0.0,
       "V_evals_per_step": 16000.0,
       "grad_evals_per_step": 16000.0,
       "score_quad_evals_per_step": 0.0
     },
     "FLA": {
-      "wallclock_mean_s": 37.69532092940062,
+      "wallclock_mean_s": 38.06603822205216,
       "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 16000.0,
       "score_quad_evals_per_step": 0.0
     },
     "BAOAB": {
-      "wallclock_mean_s": 32.08962976373732,
+      "wallclock_mean_s": 32.522416392341256,
       "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 16000.0,
       "score_quad_evals_per_step": 0.0
     },
     "PT": {
-      "wallclock_mean_s": 94.5899084256962,
+      "wallclock_mean_s": 94.9429846033454,
       "wallclock_std_s": 0.0,
       "V_evals_per_step": 96000.0,
       "grad_evals_per_step": 96000.0,
       "score_quad_evals_per_step": 0.0
     },
     "CP": {
-      "wallclock_mean_s": 57.89844708889723,
+      "wallclock_mean_s": 60.29545380733907,
       "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 16000.0,
       "score_quad_evals_per_step": 0.0
     },
     "LSC-CP-MA": {
-      "wallclock_mean_s": 775.1307466030121,
+      "wallclock_mean_s": 777.8141425717622,
       "wallclock_std_s": 0.0,
       "V_evals_per_step": 4112000.0,
       "grad_evals_per_step": 16000.0,
@@ -336,11 +336,31 @@
     "torch": "2.13.0+cu130",
     "cuda": "13.0",
     "python": "3.12.13",
-    "git_sha": "81a24d30aefb51ee5d73f3bec51fa05a6cc45b65",
+    "git_sha": "bc8fa898a27067cacb0612a47d68e4f6929113a1",
     "cuda_visible_devices": "0",
     "gpu_compute_apps_at_start": [
-      "GPU-514c2f3b-34cc-98a9-dfa1-7671c8c08767, 499821, 16786 MiB",
-      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 4103055, 814 MiB"
+      "GPU-514c2f3b-34cc-98a9-dfa1-7671c8c08767, 1528174, 16786 MiB",
+      "GPU-514c2f3b-34cc-98a9-dfa1-7671c8c08767, 1618701, 1456 MiB",
+      "GPU-514c2f3b-34cc-98a9-dfa1-7671c8c08767, 1625924, 832 MiB",
+      "GPU-514c2f3b-34cc-98a9-dfa1-7671c8c08767, 1634516, 35616 MiB",
+      "GPU-7a3fde0b-37cf-0cd6-97e7-2385d6ebfaf2, 1168205, 1788 MiB",
+      "GPU-7a3fde0b-37cf-0cd6-97e7-2385d6ebfaf2, 1618706, 1456 MiB",
+      "GPU-7a3fde0b-37cf-0cd6-97e7-2385d6ebfaf2, 1625625, 832 MiB",
+      "GPU-7a3fde0b-37cf-0cd6-97e7-2385d6ebfaf2, 1635148, 35616 MiB",
+      "GPU-7eefb508-cc10-0308-89bc-5e8ec2d31a7b, 1618708, 1456 MiB",
+      "GPU-7eefb508-cc10-0308-89bc-5e8ec2d31a7b, 1625288, 832 MiB",
+      "GPU-7eefb508-cc10-0308-89bc-5e8ec2d31a7b, 1635153, 35616 MiB",
+      "GPU-28eb6e92-d5de-622d-a750-0bba6085a874, 1618711, 1456 MiB",
+      "GPU-28eb6e92-d5de-622d-a750-0bba6085a874, 1625896, 832 MiB",
+      "GPU-28eb6e92-d5de-622d-a750-0bba6085a874, 1635143, 35616 MiB",
+      "GPU-c8768979-ae7d-8ca1-a33d-2874c9d21fae, 791626, 31878 MiB",
+      "GPU-e003b5e1-3cce-0c27-5a6b-9f594c1b7682, 791627, 32008 MiB",
+      "GPU-e003b5e1-3cce-0c27-5a6b-9f594c1b7682, 1627602, 108278 MiB",
+      "GPU-0693e45d-5be4-82d1-e0fa-e72261e24e3b, 791628, 32010 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 4103055, 814 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 791629, 31896 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 1382558, 7582 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 1421419, 67220 MiB"
     ]
   },
   "pt_phase_mass_crosscheck": [

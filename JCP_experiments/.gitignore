@@ -8,3 +8,6 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 *.npz
+# internal working notes, kept local only
+REVISION_NOTES.md
+REVISION_NOTES_manuscript.md
