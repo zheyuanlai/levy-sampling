@@ -41,7 +41,14 @@ SIMPLE_LABELS: dict[str, str] = {
 METRIC_LABEL = {
     "W2": r"$W_2$", "MMD": "MMD", "EMC": "EMC", "TV": "TV",
     "TV_density": "density TV", "W2_10d": r"sliced $W_2$ (10D)",
-    "EJS": "EJS", "e_F": r"$e_F$  [$k_BT$]",
+    "EJS": "EJS",
+    "FES_RMSE_kBT": r"FES RMSE  [$k_BT$]",
+    "FES_outside_mass": "FES outside-grid mass",
+    "basin_KL_target": (
+        r"$D_{\mathrm{KL}}(p^\star_{\mathrm{basin}}"
+        r"\Vert\,\hat p_{\mathrm{basin}})$"
+    ),
+    "e_F": r"FES RMSE  [$k_BT$]",  # legacy alias
     "basin_rel_max": "max basin rel. mass err", "basin_L1": r"basin $L_1$",
     "V_mean_err": r"$|\langle V\rangle-\langle V\rangle_\pi|$",
     "V_var_err": r"$|\mathrm{Var}(V)-\mathrm{Var}_\pi(V)|$",
@@ -216,6 +223,10 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
     if metric == "EMC":
         ax.axhline(emc_target, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
         ax.set_ylim(-0.02, 1.05)
+    elif metric == "FES_outside_mass":
+        # A probability diagnostic belongs on a bounded linear scale; zeros
+        # are scientifically meaningful and disappear on a log axis.
+        ax.set_ylim(-0.02, 1.02)
     else:
         if logy:
             ax.set_yscale("log")

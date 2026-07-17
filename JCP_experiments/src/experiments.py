@@ -14,7 +14,7 @@ from typing import Callable
 import numpy as np
 import torch
 
-from .config import (BETA, EPS, LAMBDA, M_PHI, Q_RHO, Q_THETA, RunConfig,
+from .config import (M_PHI, Q_RHO, Q_THETA, RunConfig,
                      diffusion_seed, init_seed, jump_seed)
 from .jumps import AnnulusJumpLaw, ShellJumpLaw, gauss_legendre_01
 from .potentials import (CoupledPhi4, DoubleWell1D, MB3_CRITICAL, MB4_CRITICAL,
@@ -90,15 +90,18 @@ def build_e1(device="cuda") -> Experiment:
     # ~+-3.5 -- a tight [-3,3] clip would pile that mass at the edge and confound
     # the raw-CP CDF. Widening removes the clip artifact (LSC-CP unaffected).
     box = RectBox([-5.2], [5.2], device)
-    ref = Grid1DInverseCDF(lambda x: -BETA * (x * x - 1.0) ** 2, -5.2, 5.2,
-                           device=device)
+    reference_bounds = (-5.2, 5.2)
+    reference_n_grid = 200_001
+    ref = Grid1DInverseCDF(
+        lambda x: -cfg.beta * (x * x - 1.0) ** 2,
+        *reference_bounds, n_grid=reference_n_grid, device=device)
 
     def init_fn(n, gen):
         return -1.0 + 0.05 * torch.randn(n, 1, generator=gen, device=device,
                                          dtype=torch.float64)
 
     def make_score(q_theta=Q_THETA, q_rho=Q_RHO):
-        return ShellScore(pot, law, LAMBDA, BETA, q_theta, q_rho)
+        return ShellScore(pot, law, cfg.lam, cfg.beta, q_theta, q_rho)
 
     p_star = torch.tensor([0.5, 0.5], dtype=torch.float64, device=device)
     return Experiment(
@@ -109,19 +112,25 @@ def build_e1(device="cuda") -> Experiment:
         p_star=p_star, metric_space=lambda x: x,
         pt_beta_min=1.0,
         exit_committed=lambda x: x[:, 0] > 0.7,     # right-well core arrival
-        kramers_tau=DoubleWell1D.kramers_time(BETA),
+        kramers_tau=DoubleWell1D.kramers_time(cfg.beta),
         # density-TV bins span the widened box; bump count to keep ~0.03 width
-        extras={"ref": ref, "density_tv_box": (-5.2, 5.2), "density_tv_bins": 350},
+        extras={"ref": ref, "density_tv_box": (-5.2, 5.2),
+                "density_tv_bins": 350,
+                "reference_sample_method": "numerical_inverse_cdf",
+                "builder_reference_parameters": {
+                    "inverse_cdf_bounds": list(reference_bounds),
+                    "inverse_cdf_n_grid": reference_n_grid,
+                }},
     )
 
 
 # ===================================================================== E2
 def build_e2(device="cuda") -> Experiment:
-    pot = MoG40(beta=BETA, device=device)
     # 24 seeds (N kept at 2500: the exact ShellScore's per-step quadrature cost
     # scales with the batched ensemble, and E2 runs the exact+RA dual matrix)
     cfg = RunConfig(name="mog40", d=2, n_particles=2500, T=100.0, dt=0.01,
                     seeds=tuple(range(24)))
+    pot = MoG40(beta=cfg.beta, device=device)
     # deliberately generic law: [4, 15] set from the NN-distance histogram
     # alone; neither PT nor LSC-CP receives mode locations.
     law = AnnulusJumpLaw(4.0, 15.0, device)
@@ -133,7 +142,7 @@ def build_e2(device="cuda") -> Experiment:
 
     def make_score(q_theta=None, q_rho=None, m_phi=M_PHI):
         # closed form: theta and rho integrals are analytic; only m_phi matters
-        return MoG40Score(pot.mu, 4.0, 15.0, LAMBDA, m_phi=m_phi)
+        return MoG40Score(pot.mu, 4.0, 15.0, cfg.lam, m_phi=m_phi)
 
     def labels_fn(x):
         d2 = ((x.unsqueeze(1) - pot.mu.unsqueeze(0)) ** 2).sum(-1)
@@ -164,13 +173,23 @@ def build_e2(device="cuda") -> Experiment:
         pt_beta_min=0.025,
         exit_committed=_mog40_committed_exit(pot),
         kramers_tau=kramers,
-        extras={"nn_dist_mode0": d0, "beta_dV_mode0": beta_dV},
+        extras={"nn_dist_mode0": d0, "beta_dV_mode0": beta_dV,
+                "reference_sample_method": "exact_gaussian_mixture",
+                "builder_reference_parameters": {
+                    "exact_mixture_components": int(pot.mu.shape[0]),
+                    "component_covariance": "identity",
+                }},
     )
 
 
 # ===================================================================== E3
 def build_e3(device="cuda", basin_cache: str | None = None,
-             beta: float = 24.0) -> Experiment:
+             beta: float = 24.0, *,
+             basin_n_grid: int = 600,
+             basin_flow_steps: int = 40_000,
+             basin_flow_dt: float = 1.5e-4,
+             basin_mass_n_quad: int = 1200,
+             reference_grid_shape: tuple[int, int] = (2400, 2400)) -> Experiment:
     """E3: depth-retuned 3-well Mueller-Brown, embedded in 10D (x = z B^T).
 
     Standard MB geometry with depths retuned to equal (V = -0.7957), so the
@@ -215,12 +234,16 @@ def build_e3(device="cuda", basin_cache: str | None = None,
     hi_lat = [hi2d[0], hi2d[1]] + [2.0] * 8
     box = LatentRectBox(lo_lat, hi_lat, pot)
 
-    ref = Latent2DGaussianReference(pot, lambda z: -E3_BETA * mb3_2d(z),
-                                    lo2d, hi2d, E3_BETA)
+    ref = Latent2DGaussianReference(
+        pot, lambda z: -E3_BETA * mb3_2d(z), lo2d, hi2d, E3_BETA,
+        shape=reference_grid_shape)
 
-    basins = GradientFlowBasinMap2D(mb3_2d_grad, Z3, lo2d, hi2d,
-                                    n_grid=600, device=device, cache=basin_cache)
-    p_star = basins.p_star(lambda z: -E3_BETA * mb3_2d(z))
+    basins = GradientFlowBasinMap2D(
+        mb3_2d_grad, Z3, lo2d, hi2d, n_grid=basin_n_grid,
+        device=device, cache=basin_cache, dt_flow=basin_flow_dt,
+        n_flow=basin_flow_steps)
+    p_star = basins.p_star(
+        lambda z: -E3_BETA * mb3_2d(z), n_quad=basin_mass_n_quad)
 
     def init_fn(n, gen):
         z = torch.zeros(n, 10, dtype=torch.float64, device=device)
@@ -230,7 +253,7 @@ def build_e3(device="cuda", basin_cache: str | None = None,
         return pot.from_latent(z)
 
     def make_score(q_theta=Q_THETA, q_rho=Q_RHO):
-        return ShellScore(pot, law, LAMBDA, E3_BETA, q_theta, q_rho)
+        return ShellScore(pot, law, cfg.lam, cfg.beta, q_theta, q_rho)
 
     def labels_fn(x):
         return basins.assign(pot.to_latent(x)[:, :2])
@@ -257,8 +280,18 @@ def build_e3(device="cuda", basin_cache: str | None = None,
         cp_drift_cap=drift_cap,
         extras={"minima_latent": mins, "atoms_z": atoms_z, "h": h,
                 "basins": basins, "ref": ref, "Z3": Z3, "beta": E3_BETA,
+                "basin_cache_provenance": basins.cache_provenance(),
                 "lo2d": lo2d, "hi2d": hi2d, "b_AB": bAB,
                 "b_BC": MB3_CRITICAL["S_BC"][1] - MB3_CRITICAL["B"][1],
+                "reference_sample_method": "numerical_grid_times_gaussian",
+                "builder_reference_parameters": {
+                    "latent_reference_bounds": [list(lo2d), list(hi2d)],
+                    "latent_reference_grid_shape": list(reference_grid_shape),
+                    "basin_n_grid": int(basin_n_grid),
+                    "basin_flow_steps": int(basin_flow_steps),
+                    "basin_flow_dt": float(basin_flow_dt),
+                    "basin_mass_n_quad": int(basin_mass_n_quad),
+                },
                 # generous certificate box (>= one jump beyond support; the
                 # tighter sampling box would read a large residual): the
                 # order-one identity mass lives where pi is tiny and S enormous.
@@ -306,12 +339,12 @@ def build_e3_mb4well(device="cuda", basin_cache: str | None = None) -> Experimen
     hi_lat = [2.2, 2.7] + [2.0] * 8
     box = LatentRectBox(lo_lat, hi_lat, pot)
 
-    ref = Latent2DGaussianReference(pot, lambda z: -BETA * mb4_2d(z),
-                                    (-2.0, -1.7), (2.2, 2.7), BETA)
+    ref = Latent2DGaussianReference(pot, lambda z: -cfg.beta * mb4_2d(z),
+                                    (-2.0, -1.7), (2.2, 2.7), cfg.beta)
 
     basins = GradientFlowBasinMap2D(mb4_2d_grad, Z4, (-2.0, -1.7), (2.2, 2.7),
                                     n_grid=600, device=device, cache=basin_cache)
-    p_star = basins.p_star(lambda z: -BETA * mb4_2d(z))
+    p_star = basins.p_star(lambda z: -cfg.beta * mb4_2d(z))
 
     def init_fn(n, gen):
         z = torch.zeros(n, 10, dtype=torch.float64, device=device)
@@ -321,7 +354,7 @@ def build_e3_mb4well(device="cuda", basin_cache: str | None = None) -> Experimen
         return pot.from_latent(z)
 
     def make_score(q_theta=Q_THETA, q_rho=Q_RHO):
-        return ShellScore(pot, law, LAMBDA, BETA, q_theta, q_rho)
+        return ShellScore(pot, law, cfg.lam, cfg.beta, q_theta, q_rho)
 
     def labels_fn(x):
         return basins.assign(pot.to_latent(x)[:, :2])
@@ -333,7 +366,7 @@ def build_e3_mb4well(device="cuda", basin_cache: str | None = None) -> Experimen
     # plateau, so tau ~ 2 pi e^{beta * (0 - V(W3))} -- astronomically beyond
     # any simulation; committed local exits should be ZERO.
     barrier_W3 = float(-mb4_2d(mins["W3"].unsqueeze(0)).item())
-    kramers = 2.0 * math.pi * math.exp(min(BETA * barrier_W3, 700.0))
+    kramers = 2.0 * math.pi * math.exp(min(cfg.beta * barrier_W3, 700.0))
 
     zW1, zW2, zW4 = mins["W1"], mins["W2"], mins["W4"]
     return Experiment(
@@ -356,9 +389,101 @@ def build_e3_mb4well(device="cuda", basin_cache: str | None = None) -> Experimen
     )
 
 
+def _phi4_sampling_box_design(means: torch.Tensor, atoms: torch.Tensor,
+                               h: float, hessians: torch.Tensor, *,
+                               beta: float, pt_beta_min: float,
+                               tail_probability: float = 1e-8,
+                               jitter_sigma: float = 0.0) -> dict:
+    """Return a conservative high-probability numerical box for E4.
+
+    The target is unbounded, so no finite box is an exact support bound.  Use a
+    simultaneous Laplace-mixture component envelope with declared union-bound
+    tail budget, pad the target-temperature envelope by one maximum
+    *componentwise* displacement from the shell law, also cover the hottest PT
+    envelope, and round the half-width upward.  The default gives +/-5.
+    """
+    if (means.ndim != 2 or atoms.ndim != 2 or hessians.ndim != 3
+            or means.shape[1] != atoms.shape[1]
+            or hessians.shape[1:] != (means.shape[1], means.shape[1])):
+        raise ValueError("incompatible phi4 means/atoms/Hessians")
+    if not (0.0 < tail_probability < 1.0):
+        raise ValueError("tail_probability must lie strictly between zero and one")
+    if beta <= 0.0 or pt_beta_min <= 0.0:
+        raise ValueError("beta and pt_beta_min must be positive")
+    atom_norms = atoms.norm(dim=1, keepdim=True)
+    if bool((atom_norms <= 0).any().item()):
+        raise ValueError("phi4 jump atoms must be nonzero")
+    units = atoms / atom_norms
+    max_componentwise_jump_reach = float(
+        (atoms.abs() + float(h) * units.abs()).amax().item())
+
+    n_modes, dimension = means.shape
+    tail_quantile_probability = 1.0 - tail_probability / (
+        2.0 * n_modes * dimension)
+    normal = torch.distributions.Normal(
+        torch.tensor(0.0, dtype=means.dtype, device=means.device),
+        torch.tensor(1.0, dtype=means.dtype, device=means.device))
+    normal_quantile = float(normal.icdf(torch.tensor(
+        tail_quantile_probability, dtype=means.dtype,
+        device=means.device)).item())
+    inverse_hessians = torch.linalg.inv(hessians)
+    max_component_std_target = float(torch.sqrt(
+        torch.diagonal(inverse_hessians / float(beta), dim1=-2, dim2=-1)
+    ).amax().item())
+    max_component_std_hottest_pt = float(torch.sqrt(
+        torch.diagonal(inverse_hessians / float(pt_beta_min), dim1=-2, dim2=-1)
+    ).amax().item())
+    phase_component_extent = float(means.abs().amax().item())
+    target_phase_envelope = (
+        phase_component_extent + normal_quantile * max_component_std_target)
+    hottest_pt_envelope = (
+        phase_component_extent + normal_quantile * max_component_std_hottest_pt)
+    one_jump_target_requirement = (
+        target_phase_envelope + max_componentwise_jump_reach)
+    required_half_width = max(one_jump_target_requirement, hottest_pt_envelope)
+    sampling_half_width = float(math.ceil(required_half_width))
+    if sampling_half_width < required_half_width:
+        raise AssertionError("rounded phi4 sampling box is not conservative")
+    return {
+        "formula": (
+            "ceil(max(B_beta(alpha)+R_infinity, B_beta_min(alpha))); "
+            "B_b(alpha)=max|mu|+Phi^{-1}(1-alpha/(2Kd))*"
+            "max sqrt(diag(H_k^{-1})/b); "
+            "R_infinity=max(|r_ac|+h_a|u_ac|)"),
+        "tail_probability_union_bound": float(tail_probability),
+        "normal_quantile": normal_quantile,
+        "n_phase_modes": int(n_modes),
+        "dimension": int(dimension),
+        "phase_component_extent": phase_component_extent,
+        "max_component_std_beta": max_component_std_target,
+        "max_component_std_beta_min": max_component_std_hottest_pt,
+        "beta": float(beta),
+        "pt_beta_min": float(pt_beta_min),
+        "target_phase_envelope_half_width": target_phase_envelope,
+        "hottest_pt_envelope_half_width": hottest_pt_envelope,
+        "max_componentwise_jump_reach": max_componentwise_jump_reach,
+        "one_jump_target_required_half_width": one_jump_target_requirement,
+        "required_half_width_before_rounding": required_half_width,
+        "sampling_box_half_width": sampling_half_width,
+        "jump_safe_core_half_width": (
+            sampling_half_width - max_componentwise_jump_reach),
+        "jitter_sigma": float(jitter_sigma),
+        "guaranteed_default_shell_jumps_from_target_envelope": (
+            float(jitter_sigma) == 0.0),
+        "jitter_caveat": (
+            "Gaussian jitter has unbounded support; the finite box guarantee "
+            "applies only to the default sigma=0 shell law"
+            if float(jitter_sigma) > 0.0 else None),
+    }
+
+
 # ===================================================================== E4
 def build_e4(device="cuda", basin_cache: str | None = None,
-             jitter_sigma: float = 0.0) -> Experiment:
+             jitter_sigma: float = 0.0, *,
+             basin_n_grid: int = 800,
+             basin_flow_steps: int = 40_000,
+             basin_flow_dt: float = 1.5e-4,
+             snis_proposals: int = 200_000) -> Experiment:
     pot = CoupledPhi4()
     cfg = RunConfig(name="coupled_phi4", d=24, n_particles=1000, T=100.0,
                     dt=0.002, seeds=tuple(range(16)))
@@ -389,8 +514,9 @@ def build_e4(device="cuda", basin_cache: str | None = None,
     A_e4 = atoms.shape[0]
     weights = torch.full((A_e4,), 1.0 / A_e4, dtype=torch.float64, device=device)
     h = 0.1 * float(atoms.norm(dim=1).min().item())
-    # optional per-site transverse jitter (RA-LSC only; free because the RA
-    # score needs no closed-form quadrature over the jump law). Off by default.
+    # Optional isotropic jitter, supported by sampled-bank RA/MA scores because
+    # they use the realised displacements directly. Off by default; the
+    # deterministic exact-quadrature score/certificate cannot use this law.
     if jitter_sigma > 0.0:
         from .jumps import JitteredShellJumpLaw
         law = JitteredShellJumpLaw(atoms, weights, h, jitter_sigma)
@@ -410,8 +536,6 @@ def build_e4(device="cuda", basin_cache: str | None = None,
     # taming-saturation effect, not estimator variance).
     drift_cap_e4 = 2.0 * float(h)
 
-    box = RectBox([-2.0] * 24, [2.0] * 24, device)
-
     # Laplace reference: 24x24 Hessians at the coherent minima (autograd)
     from torch.autograd.functional import hessian as _th_hessian
     Hs = []
@@ -421,10 +545,34 @@ def build_e4(device="cuda", basin_cache: str | None = None,
         Hs.append(0.5 * (Hk + Hk.T))
     H24 = torch.stack(Hs)
     energies = phi4_W(V2)                                    # V(1 (x) v) = W(v)
-    laplace = LaplaceMixture(means24, H24, energies, BETA)
+    laplace = LaplaceMixture(means24, H24, energies, cfg.beta)
 
-    basins = GradientFlowBasinMap2D(phi4_W_grad, V2, (-2.0, -2.0), (2.0, 2.0),
-                                    n_grid=400, device=device, cache=basin_cache)
+    pt_beta_min_e4 = 1.0
+    box_design = _phi4_sampling_box_design(
+        means24, atoms, h, H24, beta=cfg.beta,
+        pt_beta_min=pt_beta_min_e4, jitter_sigma=jitter_sigma)
+    # The target/diffusion are unbounded: this is a declared high-probability
+    # numerical overflow guard, not a truncation of the scientific model.
+    box_half_width = box_design["sampling_box_half_width"]
+    box = RectBox([-box_half_width] * 24, [box_half_width] * 24, device)
+    target_envelope_box = RectBox(
+        [-box_design["target_phase_envelope_half_width"]] * 24,
+        [box_design["target_phase_envelope_half_width"]] * 24, device)
+    jump_safe_core_box = RectBox(
+        [-box_design["jump_safe_core_half_width"]] * 24,
+        [box_design["jump_safe_core_half_width"]] * 24, device)
+
+    # Basin-map domain must cover the JUMP-REACHABLE order-parameter set, not
+    # just the phase minima: a coherent phase-to-phase atom moves qbar by
+    # ~2.12, so a jump from a displaced/thermal-tail state parks qbar out to
+    # ~3.3 (measured max 3.26 at production dynamics, 2026-07-17 probe).
+    # assign() clamps out-of-domain points into boundary cells, which
+    # mislabels exactly the LSC-CP-MA transport the study measures; +-4 with
+    # unchanged cell size covers double-jump reach with margin.
+    basins = GradientFlowBasinMap2D(
+        phi4_W_grad, V2, (-4.0, -4.0), (4.0, 4.0),
+        n_grid=basin_n_grid, device=device, cache=basin_cache,
+        dt_flow=basin_flow_dt, n_flow=basin_flow_steps)
 
     def qbar(x):
         return x.reshape(-1, pot.Ns, 2).mean(dim=1)          # (N, 2)
@@ -432,23 +580,45 @@ def build_e4(device="cuda", basin_cache: str | None = None,
     def labels_fn(x):
         return basins.assign(qbar(x))
 
-    # reference: EXACT pi via SNIS resampling from the Laplace mixture
-    # (Laplace itself is kept in extras as the proposal / cross-check);
-    # p_star from a large fixed-seed exact draw.
+    # High-accuracy importance reference. Unweighted samples needed by W2/MMD
+    # use finite SIR and are explicitly approximate; basin masses and scalar
+    # expectations use the lower-variance direct SNIS weights.
+    sir_oversample = 16
+
     def ref_sample(n, gen):
-        return laplace.sample_exact_snis(n, gen, pot, BETA)
+        return laplace.sample_sir(
+            n, gen, pot, cfg.beta, oversample=sir_oversample)
 
     g_p = torch.Generator(device=device)
     g_p.manual_seed(31337)
-    from .metrics import occupancy as _occ
-    p_star = _occ(labels_fn(laplace.sample_exact_snis(200_000, g_p, pot, BETA)), 4)
+    with pot.no_count():
+        p_x, p_w, reference_diagnostics = laplace.snis_weighted_proposals(
+            snis_proposals, g_p, pot, cfg.beta)
+        p_metric = qbar(p_x)
+        basin_lo = basins.lo.to(dtype=p_metric.dtype, device=device)
+        basin_hi = basins.hi.to(dtype=p_metric.dtype, device=device)
+        basin_inside = ((p_metric >= basin_lo) & (p_metric <= basin_hi)).all(dim=1)
+        reference_diagnostics["weighted_basin_map_outside_mass"] = float(
+            p_w[~basin_inside].sum().item())
+        p_star = laplace.weighted_category_probabilities(labels_fn(p_x), 4, p_w)
+        reference_diagnostics["weighted_outside_target_phase_envelope_mass"] = float(
+            p_w[~target_envelope_box.contains(p_x)].sum().item())
+        reference_diagnostics["weighted_outside_jump_safe_core_mass"] = float(
+            p_w[~jump_safe_core_box.contains(p_x)].sum().item())
+        reference_diagnostics["weighted_outside_sampling_box_mass"] = float(
+            p_w[~box.contains(p_x)].sum().item())
+        p_cv_mean_t = laplace.weighted_expectation(p_metric, p_w)
+        p_energy = pot.V(p_x)
+        p_energy_mean_t = laplace.weighted_expectation(p_energy, p_w)
+        p_energy_var_t = laplace.weighted_expectation(
+            (p_energy - p_energy_mean_t).square(), p_w)
 
     def init_fn(n, gen):
         return means24[0] + 0.05 * torch.randn(n, 24, generator=gen,
                                                device=device, dtype=torch.float64)
 
     def make_score(q_theta=Q_THETA, q_rho=Q_RHO):
-        return ShellScore(pot, law, LAMBDA, BETA, q_theta, q_rho)
+        return ShellScore(pot, law, cfg.lam, cfg.beta, q_theta, q_rho)
 
     # Kramers for the coherent -- escape: homogeneous soft modes dominate;
     # use full-24D overdamped Kramers with the coherent saddle of W
@@ -463,14 +633,14 @@ def build_e4(device="cuda", basin_cache: str | None = None,
     log_pref = 0.5 * (torch.log(ev_s.abs()).sum() - torch.log(ev_b).sum())
     barrier = float((phi4_W(sad0.unsqueeze(0)) - energies[0]).item())
     kramers = (2.0 * math.pi / lam_neg) * math.exp(float(log_pref.item())) \
-        * math.exp(BETA * barrier)
+        * math.exp(cfg.beta * barrier)
 
     return Experiment(
         name="coupled_phi4", cfg=cfg, pot=pot, law=law, box=box,
         init_fn=init_fn, ref_sample=ref_sample,
         make_score=make_score, labels_fn=labels_fn, p_star=p_star,
         metric_space=qbar,
-        pt_beta_min=1.0,
+        pt_beta_min=pt_beta_min_e4,
         # committed exit from --: mean order parameter within 0.35 of another
         # coherent minimum
         exit_committed=lambda x: (
@@ -480,8 +650,39 @@ def build_e4(device="cuda", basin_cache: str | None = None,
         cp_drift_cap=drift_cap_e4,
         extras={"minima_2d": V2, "means24": means24, "hessians": H24,
                 "laplace": laplace, "basins": basins, "h": h,
+                "basin_cache_provenance": basins.cache_provenance(),
                 "barrier_minus_minus": barrier, "phases": phases,
-                "edge_pairs": edge_pairs, "jitter_sigma": jitter_sigma},
+                "edge_pairs": edge_pairs, "jitter_sigma": jitter_sigma,
+                "sampling_box_design": box_design,
+                # Derived from the basin map itself so the outside-mass gate
+                # can never measure against a different domain than assign().
+                "basin_map_metric_bounds": [basins.lo.tolist(),
+                                            basins.hi.tolist()],
+                "reference_diagnostics": reference_diagnostics,
+                "reference_sample_method": "sampling_importance_resampling",
+                "reference_scalar_method": "direct_snis",
+                "builder_reference_parameters": {
+                    "basin_bounds": [[-4.0, -4.0], [4.0, 4.0]],
+                    "basin_n_grid": int(basin_n_grid),
+                    "basin_flow_steps": int(basin_flow_steps),
+                    "basin_flow_dt": float(basin_flow_dt),
+                    "direct_snis_proposals": int(snis_proposals),
+                    "direct_snis_seed": 31337,
+                    "unweighted_sir_oversample": sir_oversample,
+                    "sampling_box_design": box_design,
+                },
+                # Keep only the low-dimensional weighted cloud needed for a
+                # direct-SNIS FES; retaining all 200k x 24 proposals would waste
+                # GPU memory after the high-dimensional observables are reduced.
+                "reference_metric_points": p_metric.detach(),
+                "reference_metric_weights": p_w.detach(),
+                # One-dimensional energy values are cheap to retain and let
+                # energy-overlap use direct SNIS rather than finite SIR.
+                "reference_energy_values": p_energy.detach(),
+                "reference_energy_weights": p_w.detach(),
+                "reference_cv_means": p_cv_mean_t.detach().cpu().tolist(),
+                "reference_energy_mean": float(p_energy_mean_t.item()),
+                "reference_energy_var": float(p_energy_var_t.item())},
     )
 
 
@@ -496,9 +697,15 @@ def _mog40_committed_exit(pot):
 # ============================================================ sampler wiring
 def make_sampler_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
                          n_particles: int | None = None,
-                         score_kwargs: dict | None = None):
-    """Factory (method, seed) -> fresh sampler; x0 shared across methods per
-    seed; CP and LSC-CP share the jump stream (pathwise coupling)."""
+                         score_kwargs: dict | None = None,
+                         reference_init: bool = False):
+    """Factory ``(method, seed) -> fresh sampler``.
+
+    Initial positions are shared across methods for each seed.  Production
+    relaxation runs use ``exp.init_fn``; stationary-trace runs set
+    ``reference_init=True`` and start from the experiment's reference sampler.
+    CP and exact LSC-CP share the jump stream pathwise.
+    """
     dev = exp.p_star.device
     N = n_particles or exp.cfg.n_particles
     eps = exp.cfg.eps
@@ -509,7 +716,8 @@ def make_sampler_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
     def factory(method: str, seed: int):
         g_init = torch.Generator(device=dev)
         g_init.manual_seed(init_seed(seed))
-        x0 = exp.init_fn(N, g_init)
+        init = exp.ref_sample if reference_init else exp.init_fn
+        x0 = init(N, g_init)
         gen = torch.Generator(device=dev)
         gen.manual_seed(diffusion_seed(method, seed))
         if method == "ULA":
@@ -539,16 +747,15 @@ def make_sampler_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
                                    gen, g_jump, exp.box, score=score,
                                    name=method, drift_cap=exp.cp_drift_cap,
                                    jump_mode="atomic")
-        if method == "LSC-CP-MA":                             # multi-atom RA
+        if method == "LSC-CP-MA":                             # paired multi-atom RA
             g_jump = torch.Generator(device=dev)
             g_jump.manual_seed(jump_seed(seed))
             q_theta = score_kwargs.get("q_theta", Q_THETA)
-            sgen = torch.Generator(device=dev)
-            sgen.manual_seed(diffusion_seed(method, seed) + 500_000)
-            score = MultiAtomShellScore(exp.pot, exp.law, lam, beta, q_theta, gen=sgen)
+            score = MultiAtomShellScore(exp.pot, exp.law, lam, beta, q_theta)
             return CompoundPoisson(exp.pot, x0, dt, eps, lam, exp.law,
                                    gen, g_jump, exp.box, score=score,
-                                   name=method, drift_cap=exp.cp_drift_cap)
+                                   name=method, drift_cap=exp.cp_drift_cap,
+                                   jump_mode="paired_multiatom")
         raise ValueError(method)
 
     return factory
@@ -556,12 +763,14 @@ def make_sampler_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
 
 def make_batched_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
                          seeds, n_particles: int | None = None,
-                         score_kwargs: dict | None = None):
+                         score_kwargs: dict | None = None,
+                         reference_init: bool = False):
     """All seeds batched into one (S*N)-particle ensemble per method (the
     wall-clock axis is no longer reported, so sequential per-seed timing is
     unnecessary and the GPU is far better utilised). Per-seed x0 blocks are
-    generated exactly as in the sequential path; CP and LSC-CP still share
-    one jump stream."""
+    generated exactly as in the sequential path; setting ``reference_init``
+    starts every block from an independently seeded reference draw. CP and
+    exact LSC-CP still share one jump stream."""
     dev = exp.p_star.device
     N = n_particles or exp.cfg.n_particles
     eps, beta, lam = exp.cfg.eps, exp.cfg.beta, exp.cfg.lam
@@ -572,7 +781,8 @@ def make_batched_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
         for seed in seeds:
             g = torch.Generator(device=dev)
             g.manual_seed(init_seed(seed))
-            blocks.append(exp.init_fn(N, g))
+            init = exp.ref_sample if reference_init else exp.init_fn
+            blocks.append(init(N, g))
         x0 = torch.cat(blocks, dim=0)
         gen = torch.Generator(device=dev)
         gen.manual_seed(diffusion_seed(method, 0))
@@ -603,16 +813,15 @@ def make_batched_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
                                    gen, g_jump, exp.box, score=score,
                                    name=method, drift_cap=exp.cp_drift_cap,
                                    jump_mode="atomic")
-        if method == "LSC-CP-MA":                             # multi-atom RA
+        if method == "LSC-CP-MA":                             # paired multi-atom RA
             g_jump = torch.Generator(device=dev)
             g_jump.manual_seed(jump_seed(0))
             q_theta = score_kwargs.get("q_theta", Q_THETA)
-            sgen = torch.Generator(device=dev)
-            sgen.manual_seed(diffusion_seed(method, 0) + 500_000)
-            score = MultiAtomShellScore(exp.pot, exp.law, lam, beta, q_theta, gen=sgen)
+            score = MultiAtomShellScore(exp.pot, exp.law, lam, beta, q_theta)
             return CompoundPoisson(exp.pot, x0, dt, eps, lam, exp.law,
                                    gen, g_jump, exp.box, score=score,
-                                   name=method, drift_cap=exp.cp_drift_cap)
+                                   name=method, drift_cap=exp.cp_drift_cap,
+                                   jump_mode="paired_multiatom")
         raise ValueError(method)
 
     return factory
@@ -637,22 +846,96 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
     beta_m = exp.cfg.beta
     with exp.pot.no_count():
         ref_V = exp.pot.V(ref_x)                              # (n,)
-    ref_mean_V = float(ref_V.mean().item())
-    ref_var_V = float(ref_V.var(unbiased=True).item())
-    # free-energy CV = first metric-space coordinate (z1 for E3, x for E1, ...)
+    # Use direct weighted SNIS for E4 scalar expectations when available;
+    # finite SIR is retained only where an unweighted cloud is mathematically
+    # required (W2/MMD/KDE). Energy and FES histograms use direct weights.
+    ref_mean_V = float(exp.extras.get(
+        "reference_energy_mean", float(ref_V.mean().item())))
+    ref_var_V = float(exp.extras.get(
+        "reference_energy_var", float(ref_V.var(unbiased=True).item())))
+    # Reduced free-energy surface in kBT units. Use the full physically relevant
+    # metric space for 1D and the first two coordinates for multidimensional
+    # systems (MB active plane and phi4 mean order parameter). A larger frozen
+    # reference suppresses histogram noise; probability outside the frozen grid
+    # is reported separately rather than silently renormalized away.
+    fes_dim = min(2, d_m)
+    # Choose the 2D resolution from the empirical sample size, not the much
+    # larger reference size: otherwise a 40x40 grid with N=1000 would put as
+    # much Jeffreys prior mass as data into the FES.  The rule targets roughly
+    # ten empirical observations per cell on average; 1D retains 40 bins.
+    fes_bins_per_dim = (40 if fes_dim == 1 else
+                        max(8, min(25, int(math.sqrt(n / 10.0)))))
+    weighted_fes_points = exp.extras.get("reference_metric_points")
+    weighted_fes_weights = exp.extras.get("reference_metric_weights")
+    if weighted_fes_points is not None:
+        if weighted_fes_weights is None:
+            raise ValueError("weighted FES points require matching weights")
+        ref_fes_m = weighted_fes_points[:, :fes_dim]
+        ref_fes_weights = weighted_fes_weights
+        fes_ref_n = int(ref_fes_m.shape[0])
+        fes_reference_method = "direct_snis_weighted_histogram"
+    else:
+        fes_ref_n = max(n, 50_000)
+        g_fes = torch.Generator(device=device)
+        g_fes.manual_seed(ref_seed + 101)
+        ref_fes_x = exp.ref_sample(fes_ref_n, g_fes)
+        ref_fes_m = exp.metric_space(ref_fes_x)[:, :fes_dim]
+        ref_fes_weights = None
+        fes_reference_method = exp.extras.get(
+            "reference_sample_method", "direct_reference_sampler")
+    fes_edges = []
+    for j in range(fes_dim):
+        lo_j = float(ref_fes_m[:, j].min().item())
+        hi_j = float(ref_fes_m[:, j].max().item())
+        pad_j = 0.05 * (hi_j - lo_j + 1e-9)
+        fes_edges.append(torch.linspace(
+            lo_j - pad_j, hi_j + pad_j, fes_bins_per_dim + 1,
+            dtype=torch.float64, device=device))
+    fes_edges = tuple(fes_edges)
+    ref_fes_p = M.binned_probabilities(
+        ref_fes_m, fes_edges, smooth=0.5,
+        sample_weights=ref_fes_weights)
+    # Only compare cells carrying enough reference mass to expect at least
+    # five observations in the *empirical* ensemble.  Using 5/N_ref would score
+    # bins the run has no statistical power to resolve.
+    fes_pi_min = 5.0 / n
+    # First-coordinate references remain for collaborator-parity CDF/PDF metrics.
     ref_cv = ref_m[:, 0]
     cv_lo, cv_hi = float(ref_cv.min().item()), float(ref_cv.max().item())
     cv_pad = 0.05 * (cv_hi - cv_lo + 1e-9)
-    cv_edges = torch.linspace(cv_lo - cv_pad, cv_hi + cv_pad, 41,
-                              dtype=torch.float64, device=device)
-    ref_F, ref_p = M.free_energy_profile(ref_cv, cv_edges, beta_m)
-    pi_min = 5.0 / n                                          # >= ~5 ref counts/bin
-    e_lo, e_hi = float(ref_V.min().item()), float(ref_V.max().item())
+    weighted_energy_values = exp.extras.get("reference_energy_values")
+    weighted_energy_weights = exp.extras.get("reference_energy_weights")
+    if weighted_energy_values is not None:
+        if weighted_energy_weights is None:
+            raise ValueError("weighted energy values require matching weights")
+        energy_reference_values = weighted_energy_values.reshape(-1)
+        energy_reference_weights = weighted_energy_weights.reshape(-1).to(
+            device=energy_reference_values.device, dtype=torch.float64)
+        if (energy_reference_values.numel() != energy_reference_weights.numel()
+                or not bool(torch.isfinite(energy_reference_values).all().item())
+                or not bool(torch.isfinite(energy_reference_weights).all().item())
+                or bool((energy_reference_weights < 0).any().item())
+                or float(energy_reference_weights.sum().item()) <= 0.0):
+            raise ValueError("invalid direct-SNIS energy reference")
+        energy_reference_method = "direct_snis_weighted_histogram"
+    else:
+        energy_reference_values = ref_V.reshape(-1)
+        energy_reference_weights = None
+        energy_reference_method = exp.extras.get(
+            "reference_sample_method", "direct_reference_sampler")
+    e_lo = float(energy_reference_values.min().item())
+    e_hi = float(energy_reference_values.max().item())
     e_pad = 0.05 * (e_hi - e_lo + 1e-9)
     e_edges = torch.linspace(e_lo - e_pad, e_hi + e_pad, 41,
                              dtype=torch.float64, device=device)
-    _ei = torch.bucketize(ref_V.reshape(-1), e_edges[1:-1])
-    ref_ehist = torch.bincount(_ei, minlength=e_edges.shape[0] - 1).to(torch.float64)
+    _ei = torch.bucketize(energy_reference_values, e_edges[1:-1])
+    if energy_reference_weights is None:
+        ref_ehist = torch.bincount(
+            _ei, minlength=e_edges.shape[0] - 1).to(torch.float64)
+    else:
+        ref_ehist = torch.zeros(
+            e_edges.shape[0] - 1, dtype=torch.float64, device=device)
+        ref_ehist.scatter_add_(0, _ei, energy_reference_weights)
     ref_ehist = ref_ehist / ref_ehist.sum()
 
     # ---- 1D density/CDF target along the CV (collaborator-parity metrics) ---
@@ -673,7 +956,7 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
         nb = exp.extras["density_tv_bins"]
         edges = torch.linspace(lo, hi, nb + 1, dtype=torch.float64, device=device)
         centers = 0.5 * (edges[1:] + edges[:-1])
-        logp = -BETA * (centers * centers - 1.0) ** 2
+        logp = -exp.cfg.beta * (centers * centers - 1.0) ** 2
         mass = torch.exp(logp - logp.max())
         target_mass = mass / mass.sum()
 
@@ -685,6 +968,12 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
         return M.w2_exact_1d(a, b) if d_m == 1 else M.sliced_w2(a, b, proj)
 
     uniform = exp.uniform_target
+    basin_map_metric_bounds = exp.extras.get("basin_map_metric_bounds")
+    if basin_map_metric_bounds is not None:
+        basin_map_lo = torch.as_tensor(
+            basin_map_metric_bounds[0], dtype=torch.float64, device=device)
+        basin_map_hi = torch.as_tensor(
+            basin_map_metric_bounds[1], dtype=torch.float64, device=device)
 
     def emc_fn(p_hat):
         # near 1 = better in BOTH cases: exp(H)/K for uniform targets,
@@ -700,16 +989,33 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
             "TV": M.occupancy_tv(p_hat, exp.p_star),
             "MMD": M.mmd_biased(xm, ref_m, bw),
             "EMC": emc_fn(p_hat),
+            "nonfinite_count": M.nonfinite_count(x),
             "nonfinite_frac": M.nonfinite_frac(x),
         }
+        if basin_map_metric_bounds is not None:
+            basin_coords = xm[:, :basin_map_lo.numel()]
+            basin_inside = ((basin_coords >= basin_map_lo)
+                            & (basin_coords <= basin_map_hi)).all(dim=1)
+            out["basin_map_outside_mass"] = float(
+                (~basin_inside).to(torch.float64).mean().item())
         if is_e1:
             out["TV_density"] = M.density_tv_1d(x, edges, target_mass)
         if proj10 is not None:
             out["W2_10d"] = M.sliced_w2(x, ref_x, proj10)
         # ---- chemistry-native + KSD (potential evals excluded from NFE) ----
         cv = xm[:, 0]
-        out["e_F"] = M.free_energy_profile_error(cv, cv_edges, beta_m,
-                                                 ref_F, ref_p, pi_min)
+        fes_x = xm[:, :fes_dim]
+        fes_p = M.binned_probabilities(fes_x, fes_edges, smooth=0.5)
+        fes_rmse = M.free_energy_rmse_from_probabilities(
+            fes_p, ref_fes_p, pi_min=fes_pi_min, weights="reference")
+        out["FES_RMSE_kBT"] = fes_rmse
+        out["e_F"] = fes_rmse  # backwards-compatible alias; now RMSE in kBT
+        in_grid = torch.ones(fes_x.shape[0], dtype=torch.bool, device=fes_x.device)
+        for j, edge in enumerate(fes_edges):
+            in_grid &= (fes_x[:, j] >= edge[0]) & (fes_x[:, j] <= edge[-1])
+        out["FES_outside_mass"] = float((~in_grid).to(torch.float64).mean().item())
+        out["basin_KL_target"] = M.basin_kl_target_to_empirical(
+            p_hat, exp.p_star, pseudocount=0.5 / x.shape[0])
         brel, bL1 = M.basin_rel_mass_error(p_hat, exp.p_star)
         out["basin_rel_max"] = brel
         out["basin_L1"] = bL1
@@ -746,7 +1052,25 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
                                   {"W2_10d": lambda a, b: M.sliced_w2(a, b, proj10)},
                                   {}, n, replicates=floor_replicates, device=device)
         floors.update(floors_10)
-    return metrics_fn, floors, {"bandwidth": bw, "ref_x": ref_x}
+    return metrics_fn, floors, {
+        "bandwidth": bw, "ref_x": ref_x, "fes_reference_n": fes_ref_n,
+        "fes_dim": fes_dim, "fes_bins_per_dim": fes_bins_per_dim,
+        "fes_pi_min": fes_pi_min, "fes_min_expected_count": 5.0,
+        "fes_pseudocount_per_bin": 0.5, "fes_weighting": "reference",
+        "fes_reference_method": fes_reference_method,
+        "basin_kl_orientation": "target_to_empirical",
+        "basin_kl_pseudocount_per_basin": 0.5,
+        "sample_reference_method": exp.extras.get(
+            "reference_sample_method", "direct_reference_sampler"),
+        "scalar_reference_method": exp.extras.get(
+            "reference_scalar_method", "unweighted_reference_sample"),
+        "reference_diagnostics": exp.extras.get("reference_diagnostics"),
+        "reference_energy_mean": ref_mean_V,
+        "reference_energy_var": ref_var_V,
+        "energy_reference_method": energy_reference_method,
+        "reference_cv_means": exp.extras.get(
+            "reference_cv_means", ref_m.mean(dim=0).cpu().tolist()),
+    }
 
 
 def _occ_floor_fns(exp: Experiment, K: int):
@@ -767,7 +1091,7 @@ def _occ_floor_fns(exp: Experiment, K: int):
         dev = exp.p_star.device
         edges = torch.linspace(lo, hi, nb + 1, dtype=torch.float64, device=dev)
         centers = 0.5 * (edges[1:] + edges[:-1])
-        logp = -BETA * (centers * centers - 1.0) ** 2
+        logp = -exp.cfg.beta * (centers * centers - 1.0) ** 2
         mass = torch.exp(logp - logp.max())
         target_mass = mass / mass.sum()
         out["TV_density"] = lambda x: M.density_tv_1d(x, edges, target_mass)

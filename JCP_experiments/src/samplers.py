@@ -75,9 +75,16 @@ class SamplerBase:
     name = "base"
 
     def __init__(self) -> None:
+        # Interval diagnostics are reset after each checkpoint.  Cumulative
+        # diagnostics deliberately persist for the lifetime of the analyzed
+        # sampler (production warm-up uses a separate throwaway instance).
         self._sums: dict[str, torch.Tensor] = {}
         self._counts: dict[str, int] = {}
         self._maxes: dict[str, torch.Tensor] = {}
+        self._cumulative: dict[str, torch.Tensor] = {}
+        self._cumulative_ratio_numerators: dict[str, torch.Tensor] = {}
+        self._cumulative_ratio_denominators: dict[str, torch.Tensor] = {}
+        self._static_diagnostics: dict[str, int | float] = {}
 
     def _acc(self, key: str, val: torch.Tensor) -> None:
         if key in self._sums:
@@ -93,10 +100,95 @@ class SamplerBase:
         else:
             self._maxes[key] = val.clone()
 
-    def pop_diagnostics(self) -> dict[str, float]:
+    def _acc_cumulative(self, key: str, val: torch.Tensor) -> None:
+        """Accumulate a device scalar without synchronizing the host."""
+        if key in self._cumulative:
+            self._cumulative[key] = self._cumulative[key] + val
+        else:
+            self._cumulative[key] = val.clone()
+
+    def _acc_cumulative_ratio(self, key: str, numerator: torch.Tensor,
+                              denominator: torch.Tensor) -> None:
+        """Accumulate numerator/denominator for a lifetime-to-date ratio."""
+        if key in self._cumulative_ratio_numerators:
+            self._cumulative_ratio_numerators[key] = (
+                self._cumulative_ratio_numerators[key] + numerator)
+            self._cumulative_ratio_denominators[key] = (
+                self._cumulative_ratio_denominators[key] + denominator)
+        else:
+            self._cumulative_ratio_numerators[key] = numerator.clone()
+            self._cumulative_ratio_denominators[key] = denominator.clone()
+
+    def _clip_state(self, candidate: torch.Tensor) -> torch.Tensor:
+        """Clip finite boundary crossings without masking numerical explosions.
+
+        Nonfinite particle rows remain nonfinite so run-level safety gates see
+        the failure; they are counted separately from ordinary box clipping.
+        """
+        finite = torch.isfinite(candidate).all(dim=-1)
+        outside = ~self.box.contains(candidate)
+        finite_outside = finite & outside
+        clipped = finite_outside.to(torch.int64).sum()
+        nonfinite = (~finite).to(torch.int64).sum()
+        proposed = torch.as_tensor(outside.numel(), dtype=torch.int64,
+                                   device=outside.device)
+        self._acc_cumulative("state_box_clip_count_cumulative", clipped)
+        self._acc_cumulative("nonfinite_proposal_count_cumulative", nonfinite)
+        self._acc_cumulative_ratio(
+            "state_box_clip_fraction_cumulative", clipped, proposed)
+        self._acc_cumulative_ratio(
+            "nonfinite_proposal_fraction_cumulative", nonfinite, proposed)
+        clipped_candidate = self.box.clip(candidate)
+        return torch.where(finite.unsqueeze(-1), clipped_candidate, candidate)
+
+    def _record_score_diagnostics(self, diagnostics: dict) -> None:
+        """Record interval and lifetime score-clipping diagnostics."""
+        fraction = diagnostics["m_clip_fraction"]
+        count = diagnostics["m_clip_count"]
+        total = diagnostics["m_clip_total"]
+        if (count.dtype != torch.int64 or total.dtype != torch.int64
+                or count.device != fraction.device
+                or total.device != fraction.device):
+            raise TypeError("score clip counts must be device-resident int64 scalars")
+        self._acc("m_clip_fraction", fraction)
+        self._acc_max("max_log_magnitude", diagnostics["max_log_magnitude"])
+        self._acc_cumulative("score_clip_count_cumulative", count)
+        self._acc_cumulative_ratio(
+            "score_clip_fraction_cumulative", count, total)
+
+    def _record_outside_proposals(self, candidate: torch.Tensor,
+                                  inside: torch.Tensor) -> None:
+        """Distinguish finite box rejections from nonfinite MH proposals."""
+        finite = torch.isfinite(candidate).all(dim=-1)
+        finite_outside = finite & (~inside)
+        outside = finite_outside.to(torch.int64).sum()
+        nonfinite = (~finite).to(torch.int64).sum()
+        proposed = torch.as_tensor(inside.numel(), dtype=torch.int64,
+                                   device=inside.device)
+        self._acc_cumulative(
+            "outside_proposal_reject_count_cumulative", outside)
+        self._acc_cumulative("nonfinite_proposal_count_cumulative", nonfinite)
+        self._acc_cumulative_ratio(
+            "outside_proposal_reject_fraction_cumulative", outside, proposed)
+        self._acc_cumulative_ratio(
+            "nonfinite_proposal_fraction_cumulative", nonfinite, proposed)
+
+    def pop_diagnostics(self) -> dict[str, float | int]:
         """Host sync happens HERE (checkpoints only), never inside step()."""
         out = {k: (self._sums[k] / self._counts[k]).item() for k in self._sums}
         out.update({k: v.item() for k, v in self._maxes.items()})
+        out.update({k: v.item() for k, v in self._cumulative.items()})
+        out.update({
+            key: torch.where(
+                self._cumulative_ratio_denominators[key] > 0,
+                self._cumulative_ratio_numerators[key]
+                / self._cumulative_ratio_denominators[key],
+                torch.zeros_like(
+                    self._cumulative_ratio_numerators[key],
+                    dtype=torch.float64)).item()
+            for key in self._cumulative_ratio_numerators
+        })
+        out.update(self._static_diagnostics)
         self._sums, self._counts, self._maxes = {}, {}, {}
         return out
 
@@ -120,7 +212,8 @@ class ULA(SamplerBase):
         g = self.pot.grad(self.x)
         xi = torch.randn(self.x.shape, generator=self.gen, device=self.x.device,
                          dtype=self.x.dtype)
-        self.x = self.box.clip(self.x + self.dt * tame(-g, self.dt) + self._noise * xi)
+        candidate = self.x + self.dt * tame(-g, self.dt) + self._noise * xi
+        self.x = self._clip_state(candidate)
 
 
 # -------------------------------------------------------------------- MALA
@@ -154,12 +247,21 @@ class MALA(SamplerBase):
         bwd = ((x - mu_y) ** 2).sum(-1)
         log_alpha = -self.beta * (Vy - self.Vx) - (bwd - fwd) / (2.0 * h)
         u = torch.rand(x.shape[0], generator=self.gen, device=x.device, dtype=x.dtype)
-        acc = (torch.log(u) < log_alpha) & self.box.contains(y)
+        inside = self.box.contains(y)
+        self._record_outside_proposals(y, inside)
+        acc = (torch.log(u) < log_alpha) & inside
         accf = acc.to(x.dtype)
         self.x = torch.where(acc.unsqueeze(-1), y, x)
         self.Vx = torch.where(acc, Vy, self.Vx)
         self.gx = torch.where(acc.unsqueeze(-1), gy, self.gx)
+        accepted = acc.to(torch.int64).sum()
+        proposed = torch.as_tensor(
+            acc.numel(), dtype=torch.int64, device=acc.device)
         self._acc("mala_accept", accf.mean())
+        self._acc_cumulative("mala_accept_count_cumulative", accepted)
+        self._acc_cumulative("mala_proposal_count_cumulative", proposed)
+        self._acc_cumulative_ratio(
+            "mala_accept_fraction_cumulative", accepted, proposed)
 
 
 # --------------------------------------------------------------------- FLA
@@ -195,7 +297,8 @@ class FLA(SamplerBase):
         g = self.pot.grad(self.x)                     # grad U = beta grad V
         drift = tame(-self.c_alpha * self.beta * g, self.dt)
         xi = sample_sas(self.x.shape, self.alpha, self.gen, self.x.device)
-        self.x = self.box.clip(self.x + self.dt * drift + self._noise * xi)
+        candidate = self.x + self.dt * drift + self._noise * xi
+        self.x = self._clip_state(candidate)
 
 
 # ------------------------------------------------------------------- BAOAB
@@ -225,9 +328,10 @@ class BAOAB(SamplerBase):
         xi = torch.randn(q.shape, generator=self.gen, device=q.device, dtype=q.dtype)
         p = self.c1 * p + self.c2 * xi                                    # O
         q = q + 0.5 * dt * p                                              # A
+        q = self._clip_state(q)
         self.f = tame(-self.pot.grad(q), dt)                              # B (cached)
         self.p = p + 0.5 * dt * self.f
-        self.x = self.box.clip(q)
+        self.x = q
 
 
 # ---------------------------------------------------------------------- PT
@@ -272,11 +376,20 @@ class ParallelTempering(SamplerBase):
         log_alpha = (-self.betas.view(-1, 1) * (Vy - self.Vx)
                      - (bwd - fwd) / (2.0 * self.h))
         u = torch.rand(x.shape[:2], generator=self.gen, device=x.device, dtype=x.dtype)
-        acc = (torch.log(u) < log_alpha) & self.box.contains(y)
+        inside = self.box.contains(y)
+        self._record_outside_proposals(y, inside)
+        acc = (torch.log(u) < log_alpha) & inside
         self.x = torch.where(acc.unsqueeze(-1), y, x)
         self.Vx = torch.where(acc, Vy, self.Vx)
         self.gx = torch.where(acc.unsqueeze(-1), gy, self.gx)
+        accepted = acc.to(torch.int64).sum()
+        proposed = torch.as_tensor(
+            acc.numel(), dtype=torch.int64, device=acc.device)
         self._acc("mala_accept", acc.to(torch.float64).mean())
+        self._acc_cumulative("mala_accept_count_cumulative", accepted)
+        self._acc_cumulative("mala_proposal_count_cumulative", proposed)
+        self._acc_cumulative_ratio(
+            "mala_accept_fraction_cumulative", accepted, proposed)
 
         self._step_count += 1
         if self._step_count % self.n_swap == 0:
@@ -284,7 +397,8 @@ class ParallelTempering(SamplerBase):
             self._swap_pass(offset)
 
     def _swap_pass(self, offset: int) -> None:
-        accs = []
+        accepted_counts = []
+        proposal_counts = []
         for i in range(offset, self.K - 1, 2):
             log_a = (self.betas[i] - self.betas[i + 1]) * (self.Vx[i] - self.Vx[i + 1])
             u = torch.rand(self.x.shape[1], generator=self.gen,
@@ -301,9 +415,18 @@ class ParallelTempering(SamplerBase):
             new_gi = torch.where(swf, self.gx[i + 1], self.gx[i])
             new_gj = torch.where(swf, self.gx[i], self.gx[i + 1])
             self.gx[i], self.gx[i + 1] = new_gi, new_gj
-            accs.append(sw.to(torch.float64).mean())
-        if accs:
-            self._acc("pt_swap_accept", torch.stack(accs).mean())
+            accepted_counts.append(sw.to(torch.int64).sum())
+            proposal_counts.append(torch.as_tensor(
+                sw.numel(), dtype=torch.int64, device=sw.device))
+        if accepted_counts:
+            accepted = torch.stack(accepted_counts).sum()
+            proposed = torch.stack(proposal_counts).sum()
+            self._acc(
+                "pt_swap_accept", accepted.to(torch.float64) / proposed)
+            self._acc_cumulative("pt_swap_accept_count_cumulative", accepted)
+            self._acc_cumulative("pt_swap_proposal_count_cumulative", proposed)
+            self._acc_cumulative_ratio(
+                "pt_swap_accept_fraction_cumulative", accepted, proposed)
 
     def positions(self) -> torch.Tensor:
         return self.x[0]                                       # cold replica
@@ -372,9 +495,11 @@ class CompoundPoisson(SamplerBase):
         X1 = X + dt b(X)/(1 + dt||b||) + sqrt(2 eps dt) xi,
         X_{n+1} = X1 + sum_{k<=N_n} A_k,  N_n ~ Poisson(lam dt), A_k ~ nu.
 
-    b = -grad V (raw CP) or -grad V + S_{nu,beta} (LSC-CP). The jump stream
-    (gen_jump) is a dedicated generator seeded identically for both methods,
-    so their jump times and increments are pathwise identical."""
+    b = -grad V (raw CP) or -grad V + S_{nu,beta} (LSC-CP). ``gen_jump``
+    is a dedicated generator. Full-law CP/LSC-CP and the single-atom RA pair
+    can use identically seeded streams for pathwise coupling. Paired-MA instead
+    draws a stratified bank and atomwise counts from that stream; it has no
+    full-law raw-CP pathwise counterpart."""
 
     def __init__(self, pot, x0, dt, eps, lam, law, gen_diff, gen_jump, box,
                  score=None, name: str | None = None,
@@ -390,14 +515,111 @@ class CompoundPoisson(SamplerBase):
         #         the deployed exact LSC-CP / raw-CP pair.
         # "atomic": single displacement R_n per step drives BOTH the score
         #         (RandomAtomicShellScore) and the jump -- the RA estimator.
-        assert jump_mode in ("full", "atomic")
+        # "paired_multiatom": a realised bank R_{n,a} drives BOTH the
+        #         MultiAtomShellScore and independent atomwise Poisson jumps
+        #         N_{n,a} ~ Pois(lam*w_a*dt).
+        if jump_mode not in ("full", "atomic", "paired_multiatom"):
+            raise ValueError(f"unknown jump_mode {jump_mode!r}")
+        is_multiatom_score = (score is not None
+                              and hasattr(score, "sample_bank")
+                              and hasattr(score, "score_for_bank"))
+        if is_multiatom_score and jump_mode != "paired_multiatom":
+            raise ValueError("a multi-atom score must use paired_multiatom jumps")
+        if jump_mode == "paired_multiatom":
+            if not is_multiatom_score:
+                raise ValueError("paired_multiatom requires a multi-atom score")
+            if score.law is not law:
+                raise ValueError("paired_multiatom score and jumps must share the same law")
+            if score.potential is not pot:
+                raise ValueError("paired_multiatom score and sampler must share the same potential")
+            if not math.isclose(float(score.lam), float(lam), rel_tol=1e-14,
+                                abs_tol=0.0):
+                raise ValueError("paired_multiatom score and jumps must share lambda")
+            if not math.isclose(float(score.beta) * float(eps), 1.0,
+                                rel_tol=1e-12, abs_tol=1e-14):
+                raise ValueError("paired_multiatom requires eps = 1 / score.beta")
+            if law.atoms.device != self.x.device or law.atoms.dtype != self.x.dtype:
+                raise ValueError("paired_multiatom law and state must share device and dtype")
         self.jump_mode = jump_mode
+        if jump_mode == "full":
+            # Full-law mode uses a fixed unrolled jump loop.  The sampled
+            # Poisson count is retained separately so a cap hit is explicit.
+            self._static_diagnostics["jump_cap_k"] = int(K_MAX_JUMPS)
 
     def step(self) -> None:
         if self.jump_mode == "atomic":
             self._step_atomic()
+        elif self.jump_mode == "paired_multiatom":
+            self._step_paired_multiatom()
         else:
             self._step_full()
+
+    def _record_jump_counts(self, sampled: torch.Tensor,
+                            applied: torch.Tensor) -> None:
+        """Record exact occurrences, applied jumps, and lifetime jump rates."""
+        sampled_by_particle = (sampled if sampled.ndim == 1
+                               else sampled.sum(dim=tuple(range(1, sampled.ndim))))
+        applied_by_particle = (applied if applied.ndim == 1
+                               else applied.sum(dim=tuple(range(1, applied.ndim))))
+        sampled_total = sampled_by_particle.to(torch.int64).sum()
+        applied_total = applied_by_particle.to(torch.int64).sum()
+        particle_time = torch.as_tensor(
+            sampled_by_particle.numel() * self.dt,
+            dtype=torch.float64, device=sampled.device)
+        self._acc_cumulative("jump_count_cumulative", sampled_total)
+        self._acc_cumulative("jump_count_applied_cumulative", applied_total)
+        self._acc_cumulative_ratio(
+            "jump_rate_per_particle_time_cumulative",
+            sampled_total, particle_time)
+        self._acc_cumulative_ratio(
+            "jump_applied_rate_per_particle_time_cumulative",
+            applied_total, particle_time)
+
+        if self.jump_mode == "full":
+            excess_by_particle = (
+                sampled_by_particle.to(torch.int64)
+                - applied_by_particle.to(torch.int64))
+            cap_hits = (excess_by_particle > 0).to(torch.int64).sum()
+            proposals = torch.as_tensor(
+                sampled_by_particle.numel(), dtype=torch.int64,
+                device=sampled.device)
+            self._acc_cumulative(
+                "jump_cap_hit_count_cumulative", cap_hits)
+            self._acc_cumulative(
+                "jump_cap_excess_count_cumulative", excess_by_particle.sum())
+            self._acc_cumulative_ratio(
+                "jump_cap_hit_fraction_cumulative", cap_hits, proposals)
+
+    def _record_jump_boundary(self, before_jump: torch.Tensor,
+                              after_jump: torch.Tensor,
+                              applied: torch.Tensor) -> None:
+        """Count finite box exits conditional on actually applied jumps.
+
+        The generic state-box diagnostic mixes drift/diffusion and jump exits.
+        This diagnostic isolates particles whose finite pre-jump state was
+        inside the numerical box but whose finite post-jump candidate was not.
+        For rare multi-jump steps all applied jumps on such a particle are
+        charged; the exact applied-jump denominator is recorded separately.
+        """
+        applied_by_particle = (applied if applied.ndim == 1
+                               else applied.sum(dim=tuple(
+                                   range(1, applied.ndim))))
+        applied_i64 = applied_by_particle.to(torch.int64)
+        eligible = ((applied_i64 > 0)
+                    & torch.isfinite(before_jump).all(dim=-1)
+                    & self.box.contains(before_jump))
+        post_finite = torch.isfinite(after_jump).all(dim=-1)
+        boundary_exit = (eligible & post_finite
+                         & (~self.box.contains(after_jump)))
+        denominator = applied_i64[eligible].sum()
+        clipped = applied_i64[boundary_exit].sum()
+        self._acc_cumulative(
+            "jump_boundary_clip_count_cumulative", clipped)
+        self._acc_cumulative(
+            "jump_boundary_applied_count_cumulative", denominator)
+        self._acc_cumulative_ratio(
+            "jump_boundary_clip_fraction_per_applied_jump_cumulative",
+            clipped, denominator)
 
     def _step_full(self) -> None:
         g = self.pot.grad(self.x)
@@ -405,15 +627,18 @@ class CompoundPoisson(SamplerBase):
         if self.score is not None:
             S, sdiag = self.score(self.x)
             b = b + S
-            self._acc("m_clip_fraction", sdiag["m_clip_fraction"])
-            self._acc_max("max_log_magnitude", sdiag["max_log_magnitude"])
+            self._record_score_diagnostics(sdiag)
         xi = torch.randn(self.x.shape, generator=self.gen_diff,
                          device=self.x.device, dtype=self.x.dtype)
-        x1 = self.x + self.dt * tame(b, self.dt, self.drift_cap) + self._noise * xi
-        x1, counts = apply_poisson_jumps(x1, self.law, self.lam, self.dt,
-                                         self.gen_jump, K_MAX_JUMPS)
-        self.x = self.box.clip(x1)
-        self._acc("jump_count_mean", counts.mean())
+        before_jump = (self.x + self.dt * tame(b, self.dt, self.drift_cap)
+                       + self._noise * xi)
+        x1, applied_counts, sampled_counts = apply_poisson_jumps(
+            before_jump, self.law, self.lam, self.dt, self.gen_jump,
+            K_MAX_JUMPS, return_sampled_counts=True)
+        self._record_jump_boundary(before_jump, x1, applied_counts)
+        self._record_jump_counts(sampled_counts, applied_counts)
+        self.x = self._clip_state(x1)
+        self._acc("jump_count_mean", applied_counts.mean())
 
     def _step_atomic(self) -> None:
         """RA step: one displacement R_n per particle drives score AND jump.
@@ -436,13 +661,48 @@ class CompoundPoisson(SamplerBase):
         if self.score is not None:
             S, sdiag = self.score.score_for_shift(self.x, R_n)   # SAME R_n
             b = b + S
-            self._acc("m_clip_fraction", sdiag["m_clip_fraction"])
-            self._acc_max("max_log_magnitude", sdiag["max_log_magnitude"])
+            self._record_score_diagnostics(sdiag)
         xi = torch.randn(self.x.shape, generator=self.gen_diff,
                          device=self.x.device, dtype=self.x.dtype)
-        x1 = self.x + self.dt * tame(b, self.dt, self.drift_cap) + self._noise * xi
+        before_jump = (self.x + self.dt * tame(b, self.dt, self.drift_cap)
+                       + self._noise * xi)
         # M_n >= 2 jumps in one step share the single R_n (coincides with
         # full-law CP only as h -> 0; negligible at lam*dt ~ 5e-3).
-        x1 = x1 + M_n.unsqueeze(1) * R_n
-        self.x = self.box.clip(x1)
+        x1 = before_jump + M_n.unsqueeze(1) * R_n
+        self._record_jump_boundary(before_jump, x1, M_n)
+        self._record_jump_counts(M_n, M_n)
+        self.x = self._clip_state(x1)
         self._acc("jump_count_mean", M_n.mean())
+
+    def _step_paired_multiatom(self) -> None:
+        """Paired MA step using one random finite measure per particle.
+
+        Draw the state-independent bank ``R_{n,a} ~ q_a`` at the start of the
+        step, then use it in both the weighted score and atomwise jump process
+
+            N_{n,a} ~ Pois(lam * w_a * dt),
+            Delta J_n = sum_a N_{n,a} R_{n,a}.
+
+        Conditional on the frozen bank, score and jumps correspond to exactly
+        the same measure ``lam * sum_a w_a delta_{R_{n,a}}``. Counts are not
+        truncated: sampled multiplicities are applied exactly.
+        """
+        n = self.x.shape[0]
+        R = self.score.sample_bank(n, self.gen_jump)             # (N, A, d)
+        rates = (self.lam * self.dt * self.law.weights).view(1, -1).expand(n, -1)
+        counts = torch.poisson(rates, generator=self.gen_jump)   # (N, A)
+
+        g = self.pot.grad(self.x)
+        S, sdiag = self.score.score_for_bank(self.x, R)          # SAME R
+        b = -g + S
+        self._record_score_diagnostics(sdiag)
+
+        xi = torch.randn(self.x.shape, generator=self.gen_diff,
+                         device=self.x.device, dtype=self.x.dtype)
+        before_jump = (self.x + self.dt * tame(b, self.dt, self.drift_cap)
+                       + self._noise * xi)
+        x1 = before_jump + (counts.unsqueeze(-1) * R).sum(dim=1)
+        self._record_jump_boundary(before_jump, x1, counts)
+        self._record_jump_counts(counts, counts)
+        self.x = self._clip_state(x1)
+        self._acc("jump_count_mean", counts.sum(dim=1).mean())

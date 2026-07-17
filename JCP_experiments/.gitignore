@@ -8,6 +8,8 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 *.npz
+# reusable numerical caches (basin maps etc.), not run results
+cache/
 # internal working notes, kept local only
 REVISION_NOTES.md
 REVISION_NOTES_manuscript.md

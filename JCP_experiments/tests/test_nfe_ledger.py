@@ -5,7 +5,8 @@ Ledger (per particle per step):
   ULA / FLA / BAOAB / raw-CP / raw-CP-RA : 1 grad
   MALA                                   : 1 grad + 1 V
   exact LSC-CP                           : 1 grad + q_theta*A*q_rho V_delta
-  RA LSC-CP                              : 1 grad + (q_theta + 1) V
+  RA LSC-CP                              : 1 grad + q_theta V_delta
+  paired multi-atom LSC-CP                : 1 grad + A*q_theta V_delta
   PT                                     : K grad + K V (all replicas)
 """
 import torch
@@ -38,7 +39,8 @@ def test_nfe_ledger_per_step():
         "CP":        (1, 0, 0),
         "CP-RA":     (1, 0, 0),
         "LSC-CP":    (1, 0, Q_THETA * A * Q_RHO),
-        "LSC-CP-RA": (1, Q_THETA + 1, 0),
+        "LSC-CP-RA": (1, 0, Q_THETA),
+        "LSC-CP-MA": (1, 0, Q_THETA * A),
     }
     for method, (eg, ev, eq) in expect.items():
         g, v, q = _counts_one_step(exp, f, method, N)

@@ -28,9 +28,12 @@ class _Quadratic:
 
 
 def test_jump_law_mc_vs_quadrature():
-    """The nu used by the score/certificate quadrature and the nu used to
-    generate jumps must be the SAME measure: E_nu[phi(x+R) - phi(x)] by MC
-    (4e5 draws) vs quadrature to < 1e-3; probability weights sum to 1."""
+    """Quadrature approximates expectations under the declared jump law.
+
+    Compare E_nu[phi(x+R)-phi(x)] from 4e5 actual-law draws with the normalized
+    finite quadrature rule to <1e-3. Equality is numerical convergence, not a
+    claim that the discrete quadrature measure is the continuous sampler law.
+    """
     gen = torch.Generator(device=DEV)
     gen.manual_seed(0)
 

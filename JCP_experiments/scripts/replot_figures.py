@@ -1,106 +1,166 @@
-"""Regenerate all figures for an experiment from results/<experiment>/ ALONE:
-metrics_timeseries.csv (data) + manifest.json (bias_floors, emc_target, plot
-policy). No GPU, no experiment rebuild -- anyone with the repo's results/
-directory can reproduce every figure.
+"""Regenerate figures from one immutable JCP experiment artifact directory.
 
-Usage:  python scripts/replot_figures.py <experiment>
-        <experiment> in {double_well, mog40, mb3well_10d, coupled_phi4}
+The command is intentionally path-explicit and CPU-only.  It never searches a
+legacy ``results/<experiment>`` tree and never rebuilds an experiment on a GPU.
+The input directory must contain ``metrics_timeseries.csv`` and ``manifest.json``
+from a completed notebook run; output is written to a new directory.
 
-Fallback: for old result dirs whose manifest.json is missing or predates the
-emc_target/plot fields, the experiment is rebuilt on GPU to recover the floors
-(set JCP_GPU; this needs the jcp-exp env + a free GPU).
+Example::
+
+    python scripts/replot_figures.py \
+      --experiment double_well \
+      --artifacts-dir ../results/jcp_sampling/<run-id>/double_well/artifacts \
+      --output-dir /tmp/double-well-replot
 """
+from __future__ import annotations
+
+import argparse
 import csv
 import json
-import os
+from pathlib import Path
 import sys
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_JCP = os.path.dirname(_HERE)
-sys.path.insert(0, _JCP)
+_HERE = Path(__file__).resolve().parent
+_JCP = _HERE.parent
+sys.path.insert(0, str(_JCP))
 
-_SINGLE = ("W2", "TV", "TV_density", "MMD", "e_F", "basin_rel_max", "KSD",
-           "W1_cdf", "CDF_sup", "pdf_L1", "KDE_chi2", "W2_10d")
+_EXPERIMENTS = ("double_well", "mog40", "mb3well_10d", "coupled_phi4")
+_SINGLE = (
+    "W2", "TV", "TV_density", "MMD",
+    "FES_RMSE_kBT", "FES_outside_mass", "basin_KL_target",
+    "e_F",  # legacy metric column, suppressed when FES_RMSE_kBT is present
+    "basin_rel_max", "KSD", "W1_cdf", "CDF_sup", "pdf_L1", "KDE_chi2",
+    "W2_10d",
+)
 
 
-def _plot_policy(in_data: set) -> tuple[list, dict]:
-    """Derive the plotted-method policy from the methods present in the CSV
-    (mirrors the notebook figures cell): one raw-CP line, one LSC-CP line
-    (the practical estimator: MA > single-atom RA > exact), simple labels."""
-    lsc = next((m for m in ("LSC-CP-MA", "LSC-CP-RA", "LSC-CP")
-                if m in in_data), None)
+def _plot_policy(experiment: str,
+                 in_data: set[str]) -> tuple[list[str], dict[str, str]]:
+    """Use exact LSC in low dimension and paired MA in E3/E4.
+
+    Random-atomic LSC is a secondary estimator and is never silently relabeled
+    as the preferred method; it is shown explicitly only as a compatibility
+    fallback when the experiment's preferred estimator is absent.
+    """
+    low_dim_exact = experiment in ("double_well", "mog40")
+    preferred = "LSC-CP" if low_dim_exact else "LSC-CP-MA"
+    lsc = preferred if preferred in in_data else (
+        "LSC-CP-RA" if "LSC-CP-RA" in in_data else None)
     raw = "CP" if "CP" in in_data else ("CP-RA" if "CP-RA" in in_data else None)
-    methods = [m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT") if m in in_data]
-    lov = {}
+    methods = [m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
+               if m in in_data]
+    label_overrides: dict[str, str] = {}
     if raw:
         methods.append(raw)
-        lov[raw] = "Raw-CP"
+        label_overrides[raw] = "Raw-CP"
     if lsc:
         methods.append(lsc)
-        lov[lsc] = "LSC-CP"
-    return methods, lov
+        label_overrides[lsc] = (
+            "LSC-CP-RA (secondary)" if lsc == "LSC-CP-RA" else "LSC-CP")
+    return methods, label_overrides
 
 
-def _floors_from_gpu(name: str):
-    """Legacy fallback: rebuild the experiment to recover floors/emc_target
-    (old result dirs without a full manifest)."""
-    from src.gpu_guard import select_gpu
-    select_gpu(os.environ.get("JCP_GPU", "4"))
-    import torch
-    torch.set_default_dtype(torch.float64)
-    from src.experiments import (build_e1, build_e2, build_e3, build_e4,
-                                 make_metrics)
-    build = {"double_well": build_e1, "mog40": build_e2,
-             "mb3well_10d": build_e3, "coupled_phi4": build_e4}[name]
-    kw = {}
-    cache = os.path.join(_JCP, "results", name, "basin_map.npz")
-    if name in ("mb3well_10d", "coupled_phi4") and os.path.exists(cache):
-        kw["basin_cache"] = cache
-    exp = build(device="cuda", **kw)
-    _, floors, _ = make_metrics(exp, exp.cfg.n_particles, device="cuda")
-    return floors, exp.emc_target
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--experiment", required=True, choices=_EXPERIMENTS)
+    parser.add_argument(
+        "--artifacts-dir", required=True, type=Path,
+        help="immutable .../<run-id>/<experiment>/artifacts directory",
+    )
+    parser.add_argument(
+        "--output-dir", required=True, type=Path,
+        help="new directory for regenerated PNG/PDF figures (must not exist)",
+    )
+    return parser
 
 
-def main() -> int:
-    name = sys.argv[1]
-    res = os.path.join(_JCP, "results", name)
-    csv_path = os.path.join(res, "metrics_timeseries.csv")
-    if not os.path.exists(csv_path):
-        print(f"no CSV for {name} at {csv_path}; skip", file=sys.stderr)
-        return 1
-    rows = list(csv.DictReader(open(csv_path)))
+def replot(experiment: str, artifacts_dir: Path, output_dir: Path) -> dict:
+    """Replot from CSV+manifest only and return a small result manifest."""
+    artifacts_dir = artifacts_dir.expanduser().resolve()
+    output_dir = output_dir.expanduser().resolve()
+    csv_path = artifacts_dir / "metrics_timeseries.csv"
+    manifest_path = artifacts_dir / "manifest.json"
+    if not csv_path.is_file():
+        raise FileNotFoundError(f"missing metrics CSV: {csv_path}")
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"missing manifest: {manifest_path}")
 
-    man_path = os.path.join(res, "manifest.json")
-    man = json.load(open(man_path)) if os.path.exists(man_path) else {}
-    floors = man.get("bias_floors")
-    emc = man.get("emc_target")
-    if floors is None or emc is None:
-        print("manifest.json missing/incomplete -> GPU fallback for floors")
-        floors, emc = _floors_from_gpu(name)
+    with manifest_path.open(encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    manifest_experiment = manifest.get("experiment")
+    if manifest_experiment != experiment:
+        raise ValueError(
+            f"manifest experiment {manifest_experiment!r} does not match "
+            f"--experiment {experiment!r}"
+        )
+    floors = manifest.get("bias_floors")
+    emc = manifest.get("emc_target")
+    if not isinstance(floors, dict) or emc is None:
+        raise ValueError(
+            "manifest must contain bias_floors and emc_target; GPU fallback "
+            "and legacy path reconstruction are intentionally disabled"
+        )
 
-    in_data = {r["method"] for r in rows}
-    plot = man.get("plot") or {}
-    methods = [m for m in plot.get("methods", []) if m in in_data]
-    lov = plot.get("label_overrides") or {}
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        raise ValueError(f"metrics CSV is empty: {csv_path}")
+    if any("method" not in row for row in rows):
+        raise ValueError("metrics CSV has no method column")
+
+    in_data = {row["method"] for row in rows}
+    plot = manifest.get("plot") or {}
+    methods = [method for method in plot.get("methods", []) if method in in_data]
+    label_overrides = plot.get("label_overrides") or {}
     if not methods:
-        methods, lov = _plot_policy(in_data)
+        methods, label_overrides = _plot_policy(experiment, in_data)
+    if not methods:
+        raise ValueError("no plottable methods found in metrics CSV")
 
-    from src.plotting import metric_single, metric_grid  # matplotlib only
-    figdir = os.path.join(_JCP, "figures", name)
-    present = set().union(*[set(r) for r in rows])
-    single = [m for m in _SINGLE if m in present]
-    for m in single:
+    # A replot is a new derived artifact, not an in-place mutation of the
+    # immutable production directory.
+    output_dir.mkdir(parents=True, exist_ok=False)
+    from src.plotting import metric_grid, metric_single  # matplotlib only
+
+    present = set().union(*(set(row) for row in rows))
+    single = [
+        metric for metric in _SINGLE
+        if metric in present
+        and not (metric == "e_F" and "FES_RMSE_kBT" in present)
+    ]
+    for metric in single:
         for axis in ("t", "nfe", "wallclock"):
-            metric_single(rows, m, os.path.join(figdir, f"{name}_{m}_{axis}"),
-                          xaxis=axis, floors=floors, methods=methods,
-                          emc_target=emc, show=False, label_overrides=lov)
-    metric_grid(rows, os.path.join(figdir, f"{name}_metrics"),
-                metrics=("W2", "MMD", "EMC"), floors=floors, emc_target=emc,
-                methods=methods, show=False, label_overrides=lov)
-    print(f"replotted {name}: {len(single)} metrics x 3 axes + grid  "
-          f"(methods={methods}, CSV+manifest only)")
+            metric_single(
+                rows, metric, str(output_dir / f"{experiment}_{metric}_{axis}"),
+                xaxis=axis, floors=floors, methods=methods,
+                emc_target=float(emc), show=False,
+                label_overrides=label_overrides,
+            )
+    metric_grid(
+        rows, str(output_dir / f"{experiment}_metrics"),
+        metrics=("W2", "MMD", "EMC"), floors=floors,
+        emc_target=float(emc), methods=methods, show=False,
+        label_overrides=label_overrides,
+    )
+    return {
+        "experiment": experiment,
+        "artifacts_dir": str(artifacts_dir),
+        "output_dir": str(output_dir),
+        "single_metric_count": len(single),
+        "methods": methods,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    result = replot(args.experiment, args.artifacts_dir, args.output_dir)
+    print(
+        f"replotted {result['experiment']}: "
+        f"{result['single_metric_count']} metrics x 3 axes + grid into "
+        f"{result['output_dir']} (methods={result['methods']})"
+    )
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

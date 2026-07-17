@@ -22,7 +22,7 @@ def code(src: str):
 # ======================================================================
 def cell_setup(exp_name: str, builder: str, extra: str = "") -> str:
     return f'''EXPERIMENT = "{exp_name}"
-import os, sys, math, time, json
+import os, sys, math, time, json, re, hashlib
 sys.path.insert(0, os.path.abspath(".."))
 from src.gpu_guard import select_gpu
 select_gpu(int(os.environ.get("JCP_GPU", "4")))
@@ -42,20 +42,244 @@ from src.runner import (run_experiment_batched, run_one, refine_dt,
 from src.samplers import tune_ladder
 from src.certificate import make_phi_family, certificate_grid, certificate_importance
 from src.plotting import metric_grid
+from src.stationarity import (collect_stationary_trajectories,
+                              flat_summary_rows, write_stationarity_csv,
+                              write_stationarity_npz)
 
 DEV = "cuda"
-RESULTS = os.path.abspath(os.path.join("..", "results", EXPERIMENT))
-FIGURES = os.path.abspath(os.path.join("..", "figures", EXPERIMENT))
-os.makedirs(RESULTS, exist_ok=True); os.makedirs(FIGURES, exist_ok=True)
+RUN_ID = os.environ.get("JCP_RUN_ID")
+if not RUN_ID:
+    RUN_ID = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + f"-p{{os.getpid()}}"
+if (RUN_ID in (".", "..")
+        or re.fullmatch(r"[A-Za-z0-9_.-]+", RUN_ID) is None):
+    raise ValueError(
+        "JCP_RUN_ID must be a safe single component using letters, digits, "
+        "dot, underscore, or hyphen")
+RESULTS_ROOT = os.path.abspath(os.environ.get(
+    "JCP_RESULTS_ROOT", os.path.join("..", "..", "results", "jcp_sampling")))
+RUN_ROOT = os.path.join(RESULTS_ROOT, RUN_ID)
+EXPERIMENT_ROOT = os.path.join(RUN_ROOT, EXPERIMENT)
+RESULTS = os.path.join(EXPERIMENT_ROOT, "artifacts")
+FIGURES = os.path.join(RESULTS, "figures")
+CACHE = os.path.abspath(os.path.join("..", "cache", EXPERIMENT))
+# The launcher owns the experiment directory (logs/status/executed notebook);
+# this notebook exclusively creates its immutable artifacts/ leaf beneath it.
+# Reusing a run ID across experiments is allowed; artifacts never overwrite.
+os.makedirs(RESULTS, exist_ok=False)
+os.makedirs(FIGURES, exist_ok=False)
+os.makedirs(CACHE, exist_ok=True)
+print("RUN_ID:", RUN_ID, "RUN_ROOT:", RUN_ROOT, "RESULTS:", RESULTS)
+
+# Write the requested source configuration before constructing the experiment:
+# expensive reference/basin construction failures must still leave provenance.
+source_config_path = os.path.join(RESULTS, "original_config.yaml")
+_prebuild_config = dict(
+    schema_version=1,
+    experiment=EXPERIMENT,
+    builder_function="{builder}",
+    builder_invocation={extra!r},
+    requested_methods=os.environ.get(
+        "JCP_METHODS", ",".join(C.METHODS)).split(","),
+    requested_trace_environment=dict(
+        JCP_TRACE_SEEDS=os.environ.get("JCP_TRACE_SEEDS", "4"),
+        JCP_TRACE_CHAINS=os.environ.get("JCP_TRACE_CHAINS", "8"),
+        JCP_TRACE_DRAWS=os.environ.get("JCP_TRACE_DRAWS", "1000"),
+        JCP_TRACE_SETTLING_BURN_FRACTION=os.environ.get(
+            "JCP_TRACE_SETTLING_BURN_FRACTION", "1.0"),
+        JCP_PT_TRACE_BURN_FRACTION=os.environ.get(
+            "JCP_PT_TRACE_BURN_FRACTION",
+            os.environ.get("JCP_TRACE_SETTLING_BURN_FRACTION", "1.0"))),
+    cache_directory=CACHE,
+    cache_policy="builder-validated production cache; path and SHA256 recorded after build",
+    requested_failure_threshold_environment=dict(
+        JCP_MAX_SCORE_CLIP_FRACTION=os.environ.get(
+            "JCP_MAX_SCORE_CLIP_FRACTION", "0.01"),
+        JCP_MAX_STATE_BOX_CLIP_FRACTION=os.environ.get(
+            "JCP_MAX_STATE_BOX_CLIP_FRACTION", "0.01"),
+        JCP_MAX_JUMP_BOUNDARY_CLIP_FRACTION=os.environ.get(
+            "JCP_MAX_JUMP_BOUNDARY_CLIP_FRACTION", "0.0"),
+        JCP_MAX_BASIN_MAP_OUTSIDE_FRACTION=os.environ.get(
+            "JCP_MAX_BASIN_MAP_OUTSIDE_FRACTION", "0.001"),
+        JCP_MAX_JUMP_CAP_HITS=os.environ.get("JCP_MAX_JUMP_CAP_HITS", "0"),
+        JCP_MIN_MALA_ACCEPTANCE=os.environ.get(
+            "JCP_MIN_MALA_ACCEPTANCE", "0.05"),
+        JCP_MIN_PT_SWAP_ACCEPTANCE=os.environ.get(
+            "JCP_MIN_PT_SWAP_ACCEPTANCE", "0.10")),
+)
+with open(source_config_path, "x", encoding="utf-8") as config_handle:
+    config_handle.write("# YAML 1.2 source configuration; created before experiment build\\n")
+    for config_key, config_value in _prebuild_config.items():
+        config_handle.write(
+            config_key + ": " + json.dumps(config_value, sort_keys=True,
+                                             allow_nan=False) + "\\n")
 {extra}
 cfg = exp.cfg
-# method matrix: default = the 7 exact methods; override with JCP_METHODS (comma-
-# separated) e.g. run_production.sh sets E1/E2 = exact + RA dual-run, E3/E4 = RA.
+_basin_cache_provenance = exp.extras.get("basin_cache_provenance")
+if (_basin_cache_provenance is not None
+        and _basin_cache_provenance.get("validation_status")
+        not in ("validated", "created_validated")):
+    raise RuntimeError(
+        "production requires a fully metadata-validated basin cache; got "
+        + repr(_basin_cache_provenance))
+# Method matrix: seven configured methods by default; override with JCP_METHODS
+# (comma-separated). The production launcher uses exact+RA for E1/E2 and the
+# paired multi-atom estimator for E3/E4.
 RUN_METHODS = os.environ.get("JCP_METHODS", ",".join(C.METHODS)).split(",")
+
+# Declared fail-closed numerical thresholds. Environment overrides are recorded
+# in both source and resolved configs; they cannot silently change a run.
+FAIL_THRESHOLDS = dict(
+    max_score_clip_fraction=float(os.environ.get(
+        "JCP_MAX_SCORE_CLIP_FRACTION", "0.01")),
+    max_state_box_clip_fraction=float(os.environ.get(
+        "JCP_MAX_STATE_BOX_CLIP_FRACTION", "0.01")),
+    # Tolerance for pi-targeting LSC-CP methods only (raw CP is recorded, not
+    # gated). Zero is unsatisfiable: state-independent jumps give every
+    # CP-family sampler a small boundary-contact rate on any finite box
+    # (measured LSC-CP rates 2e-4..2e-3 per applied jump at production
+    # dynamics config, 2026-07-17 probe).
+    max_jump_boundary_clip_fraction=float(os.environ.get(
+        "JCP_MAX_JUMP_BOUNDARY_CLIP_FRACTION", "0.01")),
+    max_basin_map_outside_fraction=float(os.environ.get(
+        "JCP_MAX_BASIN_MAP_OUTSIDE_FRACTION", "0.001")),
+    max_jump_cap_hits=int(os.environ.get("JCP_MAX_JUMP_CAP_HITS", "0")),
+    min_mala_acceptance=float(os.environ.get(
+        "JCP_MIN_MALA_ACCEPTANCE", "0.05")),
+    min_pt_swap_acceptance=float(os.environ.get(
+        "JCP_MIN_PT_SWAP_ACCEPTANCE", "0.10")),
+)
+if (not 0.0 <= FAIL_THRESHOLDS["max_score_clip_fraction"] <= 1.0
+        or not 0.0 <= FAIL_THRESHOLDS["max_state_box_clip_fraction"] <= 1.0
+        or not 0.0 <= FAIL_THRESHOLDS["max_jump_boundary_clip_fraction"] <= 1.0
+        or not 0.0 <= FAIL_THRESHOLDS["max_basin_map_outside_fraction"] <= 1.0
+        or not 0.0 <= FAIL_THRESHOLDS["min_mala_acceptance"] <= 1.0
+        or not 0.0 <= FAIL_THRESHOLDS["min_pt_swap_acceptance"] <= 1.0
+        or FAIL_THRESHOLDS["max_jump_cap_hits"] < 0):
+    raise ValueError("invalid JCP numerical failure threshold")
+
+# Capture the requested trace settings before any certificate/refinement gate.
+# The final resolved config also records the bounded/derived trace protocol.
+TRACE_REQUEST = dict(
+    seed_count=int(os.environ.get("JCP_TRACE_SEEDS", "4")),
+    chains_per_seed=int(os.environ.get("JCP_TRACE_CHAINS", "8")),
+    draws=int(os.environ.get("JCP_TRACE_DRAWS", "1000")),
+    settling_burn_fraction=float(os.environ.get(
+        "JCP_TRACE_SETTLING_BURN_FRACTION", "1.0")),
+    pt_burn_fraction=float(os.environ.get(
+        "JCP_PT_TRACE_BURN_FRACTION",
+        os.environ.get("JCP_TRACE_SETTLING_BURN_FRACTION", "1.0"))),
+)
+# Freeze the actual model/bank/domain immediately after construction, before
+# expensive certificates, reference refinement, or dynamics can fail.  The
+# prebuild source file above remains unchanged; all resolved builder/model/
+# cache details belong in a separate immutable preflight JSON artifact.
+_jump_config = dict(type=type(exp.law).__name__)
+if hasattr(exp.law, "atoms"):
+    _jump_config.update(
+        atoms=exp.law.atoms.detach().cpu().tolist(),
+        weights=exp.law.weights.detach().cpu().tolist(),
+        shell_half_width=exp.law.h.detach().cpu().tolist())
+    if hasattr(exp.law, "jitter_sigma"):
+        _jump_config["jitter_sigma"] = float(exp.law.jitter_sigma)
+elif hasattr(exp.law, "a") and hasattr(exp.law, "b"):
+    _jump_config.update(
+        annulus_inner_radius=float(exp.law.a),
+        annulus_outer_radius=float(exp.law.b))
+_box_config = dict(
+    type=type(exp.box).__name__,
+    coordinates=("latent" if type(exp.box).__name__ == "LatentRectBox"
+                 else "sampling"),
+    lower=exp.box.lo.detach().cpu().tolist(),
+    upper=exp.box.hi.detach().cpu().tolist())
+_cache_artifacts = []
+for _cache_name in sorted(os.listdir(CACHE)):
+    _cache_path = os.path.join(CACHE, _cache_name)
+    if os.path.isfile(_cache_path):
+        with open(_cache_path, "rb") as _cache_handle:
+            _cache_sha256 = hashlib.sha256(_cache_handle.read()).hexdigest()
+        _cache_artifacts.append(dict(
+            path=os.path.abspath(_cache_path), sha256=_cache_sha256))
+preflight_config = dict(
+    schema_version=1,
+    experiment=EXPERIMENT,
+    source="resolved immediately after experiment/model/cache build",
+    source_config_file=os.path.abspath(source_config_path),
+    builder=dict(
+        function="{builder}", invocation={extra!r},
+        parameters=exp.extras.get("builder_reference_parameters", dict())),
+    model=dict(
+        experiment_name=exp.name,
+        potential_type=type(exp.pot).__name__,
+        dimension=cfg.d,
+        beta=cfg.beta),
+    run_config=dict(
+        d=cfg.d, n_particles=cfg.n_particles, T=cfg.T, dt=cfg.dt,
+        beta=cfg.beta, eps=cfg.eps, lam=cfg.lam,
+        seeds=list(cfg.seeds), n_checkpoints=cfg.n_checkpoints,
+        q_theta=cfg.q_theta, q_rho=cfg.q_rho),
+    jump_law=_jump_config,
+    sampling_box=_box_config,
+    sampling_box_design=exp.extras.get("sampling_box_design"),
+    cp_drift_cap=float(exp.cp_drift_cap),
+    pt_beta_min=float(exp.pt_beta_min),
+    reference_and_cache=dict(
+        sample_method=exp.extras.get("reference_sample_method", "unspecified"),
+        scalar_method=exp.extras.get(
+            "reference_scalar_method",
+            exp.extras.get("reference_sample_method", "unspecified")),
+        builder_parameters=exp.extras.get(
+            "builder_reference_parameters", dict()),
+        cache_directory=os.path.abspath(CACHE),
+        cache_artifacts=_cache_artifacts,
+        basin_cache_provenance=_basin_cache_provenance,
+        diagnostics=exp.extras.get("reference_diagnostics")),
+    requested_methods=list(RUN_METHODS),
+    trace_request=TRACE_REQUEST,
+    failure_thresholds=FAIL_THRESHOLDS,
+    hardware_and_git=hardware_manifest(),
+)
+preflight_config_path = os.path.join(RESULTS, "resolved_preflight_config.json")
+write_manifest(preflight_config_path, **preflight_config)
+with open(preflight_config_path, "rb") as _preflight_handle:
+    _preflight_config_sha256 = hashlib.sha256(_preflight_handle.read()).hexdigest()
+source_config = dict(_prebuild_config)
+_reference_basin_map_outside_mass = float(
+    exp.extras.get("reference_diagnostics", dict()).get(
+        "weighted_basin_map_outside_mass", 0.0))
+if (_reference_basin_map_outside_mass
+        > FAIL_THRESHOLDS["max_basin_map_outside_fraction"]):
+    raise RuntimeError(
+        "reference basin-map outside mass %g exceeds declared threshold %g"
+        % (_reference_basin_map_outside_mass,
+           FAIL_THRESHOLDS["max_basin_map_outside_fraction"]))
+
+CERTIFICATE_TOLERANCE = 1e-6
+certificate_result_path = os.path.join(RESULTS, "certificate_result.json")
+def persist_certificate_result(report, settings):
+    """Persist the measured deployed-quadrature certificate before asserting."""
+    _max_residual = float(report["max_residual"])
+    _payload = dict(
+        schema_version=1,
+        experiment=EXPERIMENT,
+        stage="final gate immediately before production dynamics",
+        settings=dict(settings),
+        tolerance=CERTIFICATE_TOLERANCE,
+        max_residual=_max_residual,
+        passed=bool(_max_residual < CERTIFICATE_TOLERANCE),
+        report=report,
+        resolved_preflight_config_file=os.path.abspath(preflight_config_path),
+        resolved_preflight_config_sha256=_preflight_config_sha256,
+    )
+    write_manifest(certificate_result_path, **_payload)
+    return _payload
+
+print("wrote immutable source config before build:", source_config_path)
+print("wrote resolved preflight config after model/cache build:",
+      preflight_config_path, "sha256", _preflight_config_sha256)
 print(f"experiment={{cfg.name}}  d={{cfg.d}}  N={{cfg.n_particles}}  T={{cfg.T}}  dt0={{cfg.dt}}")
 print(f"beta={{cfg.beta}}  eps={{cfg.eps}}  lambda={{cfg.lam}}  seeds={{cfg.seeds}}")
 print("RUN_METHODS:", RUN_METHODS)
-print(hardware_manifest())'''
+print(preflight_config["hardware_and_git"])'''
 
 
 CELL_LADDER = '''# PT: geometric ladder beta_k = beta * r^(k-1); K tuned so the post-burn-in
@@ -78,6 +302,15 @@ emc_target = exp.emc_target
 print("p_star:", np.round(exp.p_star.cpu().numpy(), 6),
       " uniform:", exp.uniform_target)
 print("MMD bandwidth:", round(aux["bandwidth"], 4))
+print("reference sample:", aux["sample_reference_method"],
+      " scalar reference:", aux["scalar_reference_method"],
+      " energy histogram:", aux["energy_reference_method"])
+print("FES:", aux["fes_dim"], "D,", aux["fes_bins_per_dim"],
+      "bins/dim, support threshold", aux["fes_pi_min"],
+      "reference-weighted RMSE in kBT; reference:",
+      aux["fes_reference_method"])
+if aux.get("reference_diagnostics"):
+    print("reference diagnostics:", aux["reference_diagnostics"])
 for k, v in floors.items():
     print(f"  floor {k:>12s}: {v['mean']:.5f} +- {v['std']:.5f}")'''
 
@@ -106,7 +339,7 @@ for row in dt_table:
     print(row)
 
 n_steps = int(round(cfg.T / dt_final))
-steps_per_ck = max(1, n_steps // C.N_CHECKPOINTS)
+steps_per_ck = max(1, n_steps // cfg.n_checkpoints)
 # dense-early checkpoint schedule: the nonlocal transient lives in the
 # first ~5% of the run; 60 dense + 160 sparse points, identical across
 # methods (measurement cadence only -- no protocol change)
@@ -121,24 +354,130 @@ rows, method_info = run_experiment_batched(RUN_METHODS, cfg.seeds, bfactory,
                                            cfg.n_particles,
                                            checkpoint_steps=ck_steps)
 print(f"production total: {{time.time()-t0:.0f}}s")
-assert max(r["nonfinite_frac"] for r in rows) == 0.0
-print("nonfinite fraction: identically zero")'''
+
+def _diagnostic_max(name, method=None):
+    return max((float(row[name]) for row in rows
+                if name in row and (method is None or row["method"] == method)),
+               default=0.0)
+
+def _method_info_max(name):
+    return max((float(info[name]) for info in method_info.values()
+                if name in info), default=0.0)
+
+def _method_info_value(method, name, default):
+    return float(method_info.get(method, {{}}).get(name, default))
+
+def _targeting_method_info_max(name):
+    return max((float(info[name]) for method, info in method_info.items()
+                if method not in ("FLA", "CP", "CP-RA") and name in info),
+               default=0.0)
+
+def _targeting_diagnostic_max(name):
+    return max((float(row[name]) for row in rows
+                if row["method"] not in ("FLA", "CP", "CP-RA")
+                and name in row), default=0.0)
+
+def _lsc_cp_method_info_max(name):
+    return max((float(info[name]) for method, info in method_info.items()
+                if method.startswith("LSC-CP") and name in info), default=0.0)
+
+def _raw_cp_method_info_max(name):
+    return max((float(info[name]) for method, info in method_info.items()
+                if method.startswith("CP") and name in info), default=0.0)
+
+observed_failure_diagnostics = dict(
+    nonfinite_fraction=_diagnostic_max("nonfinite_frac"),
+    nonfinite_proposal_count=_method_info_max(
+        "nonfinite_proposal_count_cumulative"),
+    # Gate the final lifetime ratios saved once per batched method. Taking a
+    # max over checkpoint prefixes is not the same estimand because cumulative
+    # fractions may decrease as more proposals arrive.
+    score_clip_fraction=_method_info_max(
+        "score_clip_fraction_cumulative"),
+    state_box_clip_fraction=_method_info_max(
+        "state_box_clip_fraction_cumulative"),
+    # Jumps fire state-independently, so rare multi-jump excursions contact
+    # any finite box; a hard-zero gate is unsatisfiable at production scale.
+    # Gate pi-targeting LSC-CP methods against the declared tolerance. Raw
+    # CP's invariant law != pi and its (larger) boundary-contact rate is part
+    # of the documented defect: recorded, not gated, exactly like the dt and
+    # basin-map gates.
+    jump_boundary_clip_fraction_cp=(
+        _lsc_cp_method_info_max(
+            "jump_boundary_clip_fraction_per_applied_jump_cumulative")),
+    jump_boundary_clip_fraction_raw_cp=(
+        _raw_cp_method_info_max(
+            "jump_boundary_clip_fraction_per_applied_jump_cumulative")),
+    basin_map_outside_fraction_targeting=(
+        _targeting_diagnostic_max("basin_map_outside_mass")),
+    reference_basin_map_outside_mass=_reference_basin_map_outside_mass,
+    jump_cap_hits=_method_info_max("jump_cap_hit_count_cumulative"),
+    # Use exact accepted/proposed lifetime ratios from the intended method.
+    # PT's within-replica MALA counts remain reported but do not enter the
+    # standalone MALA gate.
+    mala_acceptance_mean=_method_info_value(
+        "MALA", "mala_accept_fraction_cumulative", -1.0),
+    pt_swap_acceptance_mean=_method_info_value(
+        "PT", "pt_swap_accept_fraction_cumulative", -1.0),
+)
+if observed_failure_diagnostics["nonfinite_fraction"] != 0.0:
+    raise RuntimeError("nonfinite production state/metric fraction is nonzero")
+if observed_failure_diagnostics["nonfinite_proposal_count"] != 0.0:
+    raise RuntimeError("nonfinite production proposal count is nonzero")
+for observed_name, threshold_name in (
+        ("score_clip_fraction", "max_score_clip_fraction"),
+        ("state_box_clip_fraction", "max_state_box_clip_fraction"),
+        ("jump_boundary_clip_fraction_cp",
+         "max_jump_boundary_clip_fraction"),
+        ("basin_map_outside_fraction_targeting",
+         "max_basin_map_outside_fraction"),
+        ("reference_basin_map_outside_mass",
+         "max_basin_map_outside_fraction"),
+        ("jump_cap_hits", "max_jump_cap_hits")):
+    observed = observed_failure_diagnostics[observed_name]
+    threshold = FAIL_THRESHOLDS[threshold_name]
+    if observed > threshold:
+        raise RuntimeError("%s=%g exceeds declared %s=%g" %
+                           (observed_name, observed, threshold_name, threshold))
+for observed_name, threshold_name in (
+        ("mala_acceptance_mean", "min_mala_acceptance"),
+        ("pt_swap_acceptance_mean", "min_pt_swap_acceptance")):
+    observed = observed_failure_diagnostics[observed_name]
+    threshold = FAIL_THRESHOLDS[threshold_name]
+    if observed < threshold:
+        raise RuntimeError("%s=%g is below declared %s=%g" %
+                           (observed_name, observed, threshold_name, threshold))
+print("fail-closed diagnostics:", observed_failure_diagnostics,
+      "thresholds:", FAIL_THRESHOLDS)'''
 
 
 CELL_FIGURES = '''from src.plotting import metric_single
 from src.runner import convergence_report
-# plotted-method policy: figures show ONE LSC-CP line -- the practical
-# estimator advocated for this experiment (multi-atom if run, else single-atom
-# RA, else exact), labeled "LSC-CP". When the exact-score run is also in the
-# matrix (E1/E2 dual-run) it stays in the CSV as the estimator-agreement
-# record but is not drawn: the estimators agree within the seed band, and a
-# second black line only clutters / stretches the cost axes.
-PLOT_LSC = next((m for m in ("LSC-CP-MA", "LSC-CP-RA", "LSC-CP")
-                 if m in RUN_METHODS), "LSC-CP")
-PLOT_RAW = "CP" if "CP" in RUN_METHODS else "CP-RA"
+# Plotted-method policy: low-dimensional E1/E2 show deterministic full-law
+# quadrature LSC-CP against full-law Raw-CP; E3/E4 show paired multi-atom LSC-CP.
+# RA remains an explicitly named secondary estimator in the CSV and is used in
+# figures only as a labeled compatibility fallback when the preferred estimator
+# is absent. This is not a claim that numerical estimators are interchangeable.
+_LOW_DIM_EXACT = EXPERIMENT in ("double_well", "mog40")
+PLOT_RAW = "CP" if "CP" in RUN_METHODS else (
+    "CP-RA" if "CP-RA" in RUN_METHODS else None)
+_preferred_lsc = "LSC-CP" if _LOW_DIM_EXACT else "LSC-CP-MA"
+PLOT_LSC = _preferred_lsc if _preferred_lsc in RUN_METHODS else None
 PLOT_METHODS = [m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
-                if m in RUN_METHODS] + [PLOT_RAW, PLOT_LSC]
-PLOT_LABELS = {PLOT_RAW: "Raw-CP", PLOT_LSC: "LSC-CP"}
+                if m in RUN_METHODS]
+PLOT_LABELS = {}
+if PLOT_RAW is not None:
+    PLOT_METHODS.append(PLOT_RAW)
+    PLOT_LABELS[PLOT_RAW] = "Raw-CP"
+if PLOT_LSC is not None:
+    PLOT_METHODS.append(PLOT_LSC)
+    PLOT_LABELS[PLOT_LSC] = "LSC-CP"
+elif "LSC-CP-RA" in RUN_METHODS:
+    # Compatibility for older/incomplete artifacts: never disguise RA as the
+    # preferred deterministic or paired-MA estimator.
+    PLOT_LSC = "LSC-CP-RA"
+    PLOT_METHODS.append(PLOT_LSC)
+    PLOT_LABELS[PLOT_LSC] = "LSC-CP-RA (secondary)"
 print("plotted methods:", PLOT_METHODS, " labels:", PLOT_LABELS)
 
 fig = metric_grid(rows, os.path.join(FIGURES, EXPERIMENT + "_metrics"),
@@ -156,9 +495,11 @@ _present = set().union(*[set(r) for r in rows])
 # FULL metric list -- must stay in sync with scripts/replot_figures.py _SINGLE:
 # every per-metric figure on disk is regenerated here, so none can go stale
 # with old data/axes when the notebook re-runs
-_single = [m for m in ("W2", "TV", "TV_density", "MMD", "e_F",
-                       "basin_rel_max", "KSD", "W1_cdf", "CDF_sup",
-                       "pdf_L1", "KDE_chi2", "W2_10d") if m in _present]
+_single = [m for m in ("W2", "TV", "TV_density", "MMD",
+                       "FES_RMSE_kBT", "FES_outside_mass", "basin_KL_target",
+                       "e_F", "basin_rel_max", "KSD", "W1_cdf", "CDF_sup",
+                       "pdf_L1", "KDE_chi2", "W2_10d")
+           if m in _present and not (m == "e_F" and "FES_RMSE_kBT" in _present)]
 for _m in _single:
     for _axis in ("t", "nfe", "wallclock"):
         metric_single(rows, _m, os.path.join(FIGURES, f"{EXPERIMENT}_{_m}_{_axis}"),
@@ -167,47 +508,231 @@ for _m in _single:
                       show=False)
 print("saved per-metric log-y figures:", _single, "x {t, nfe, wallclock}")
 
-# cross-seed convergence: rank-normalized split-Rhat on the slow basin-0
-# occupancy (each seed a chain); metastable targets that trap seeds -> Rhat >> 1
-# (reported for ALL run methods, including any undrawn exact-score run)
-conv = convergence_report(rows, RUN_METHODS, cfg.seeds)
-print("split-Rhat(occ0) | final NFE:")
-for _mth, _d in conv.items():
-    print(f"  {_mth:11s}: Rhat={_d['split_rhat']:.3f}  NFE={_d['final_nfe']:.3g}")'''
+# R-hat/IAT are deliberately NOT computed from the sparse, nonstationary
+# relaxation checkpoints above.  The separate reference-start trace cell
+# reports them from uniform post-step scalar trajectories only.
+print("stationary diagnostics are in", os.path.join(RESULTS, "stationarity"))'''
+
+
+CELL_STATIONARITY = r"""# Uniform scalar trajectories for IAT/ESS/R-hat.
+# These are separate from the sparse, nonstationary relaxation checkpoints.
+# Raw CP and FLA are deliberately excluded: they do not target pi, so an ESS
+# about the target would be scientifically misleading. Their target bias is
+# retained in the relaxation/FES/basin tables.
+STATIONARY_METHODS = [m for m in RUN_METHODS
+                      if m not in ("CP", "CP-RA", "FLA")]
+TRACE_SEED_COUNT = min(len(cfg.seeds), int(os.environ.get("JCP_TRACE_SEEDS", "4")))
+TRACE_CHAINS_PER_SEED = int(os.environ.get("JCP_TRACE_CHAINS", "8"))
+TRACE_DRAWS_REQUESTED = int(os.environ.get("JCP_TRACE_DRAWS", "1000"))
+if TRACE_SEED_COUNT < 1 or TRACE_CHAINS_PER_SEED < 1 or n_steps < 2:
+    raise ValueError("stationary traces require >=1 seed/chain and >=2 production steps")
+TRACE_SEEDS = tuple(cfg.seeds[:TRACE_SEED_COUNT])
+TRACE_DRAWS = min(max(2, TRACE_DRAWS_REQUESTED), n_steps)
+TRACE_STEPS_PER_DRAW = max(1, n_steps // TRACE_DRAWS)
+TRACE_SETTLING_BURN_FRACTION = float(os.environ.get(
+    "JCP_TRACE_SETTLING_BURN_FRACTION", "1.0"))
+TRACE_PT_BURN_FRACTION = float(os.environ.get(
+    "JCP_PT_TRACE_BURN_FRACTION", str(TRACE_SETTLING_BURN_FRACTION)))
+if TRACE_SETTLING_BURN_FRACTION < 0 or TRACE_PT_BURN_FRACTION < 0:
+    raise ValueError("stationary settling-burn fractions must be non-negative")
+TRACE_SETTLING_BURN = int(round(TRACE_SETTLING_BURN_FRACTION * n_steps))
+TRACE_PT_BURN = int(round(TRACE_PT_BURN_FRACTION * n_steps))
+
+trace_factory = make_sampler_factory(
+    exp, dt_final, pt_betas, n_particles=TRACE_CHAINS_PER_SEED,
+    score_kwargs=CHOSEN_QUAD, reference_init=True)
+reference_cv_means = aux["reference_cv_means"]
+cv_names = ["x"] if len(reference_cv_means) == 1 else [
+    f"cv_{j}" for j in range(len(reference_cv_means))]
+reference_method = aux["sample_reference_method"]
+# Zero burn for MALA is an explicit opt-in, never inferred from a friendly
+# sampler name. The present inverse-CDF/grid/SIR references are numerical or
+# approximate; E2's exact unbounded MoG draw is not exactly the box-restricted
+# MALA target. Therefore every current experiment receives charged settling.
+reference_is_exact_target_draw = bool(
+    exp.extras.get("reference_exact_for_mala", False))
+
+_common = dict(
+    sampler_factory=trace_factory, seeds=TRACE_SEEDS,
+    n_draws=TRACE_DRAWS, steps_per_draw=TRACE_STEPS_PER_DRAW, dt=dt_final,
+    labels_fn=exp.labels_fn, energy_fn=exp.pot.V, cv_fn=exp.metric_space,
+    counter_source=exp.pot, warmup_steps=C.N_WARMUP_STEPS,
+    basin_ids=list(range(exp.p_star.numel())), cv_names=cv_names,
+    basin_target_probabilities=exp.p_star.cpu().tolist(),
+    reference_energy_mean=aux["reference_energy_mean"],
+    reference_cv_means=reference_cv_means,
+)
+stationarity = {"schema_version": 1, "methods": {}, "collection": {}}
+
+def _collect_stationary_group(key, methods, burn_steps, exact_stationary_start,
+                              initialization_method):
+    if not methods:
+        return
+    collected = collect_stationary_trajectories(
+        methods=methods, burn_in_steps=burn_steps,
+        equilibrium_initialized=exact_stationary_start,
+        initialization_method=initialization_method, **_common)
+    stationarity["methods"].update(collected["methods"])
+    stationarity["collection"][key] = collected["collection"]
+
+# Only target-start MALA begins stationary for its exact discrete-time kernel.
+# ULA, BAOAB, and split LSC-CP have finite-step invariant laws that need not be
+# pi, so their target draw is NOT a stationary kernel draw: charge a T-length
+# settling run before measuring IAT/ESS. With an approximate SIR reference,
+# MALA is settled as well. Bias against pi remains beside every ESS value.
+_exact_mala = (["MALA"] if reference_is_exact_target_draw
+               and "MALA" in STATIONARY_METHODS else [])
+_settled_nonpt = [m for m in STATIONARY_METHODS
+                  if m != "PT" and m not in _exact_mala]
+_collect_stationary_group(
+    "exact_target_start_mala", _exact_mala, 0, True,
+    reference_method + ":exact_target_draw_for_invariant_MALA")
+_collect_stationary_group(
+    "charged_settling_non_pt", _settled_nonpt, TRACE_SETTLING_BURN, False,
+    reference_method + ":reference_draw_then_charged_kernel_settling")
+if "PT" in STATIONARY_METHODS:
+    # PT replicates one cold reference draw over the ladder, not the joint
+    # tempered equilibrium. Its declared burn is timed and charged.
+    _collect_stationary_group(
+        "charged_settling_pt", ["PT"], TRACE_PT_BURN, False,
+        reference_method + ":cold_draw_replicated_over_ladder_then_charged_settling")
+
+_stationary_rows = []
+if stationarity["methods"]:
+    _stationary_dir = os.path.join(RESULTS, "stationarity")
+    os.makedirs(_stationary_dir, exist_ok=False)
+    for _method, _result in stationarity["methods"].items():
+        _summary = _result["summary"]
+        _raw = _result["raw"]
+        write_stationarity_csv(
+            os.path.join(_stationary_dir, f"{_method}_summary.csv"), _summary)
+        write_stationarity_npz(
+            os.path.join(_stationary_dir, f"{_method}_traces.npz"),
+            trace_times=_raw["trace_times"], positions_t=_raw["positions_t"],
+            labels_t=_raw["labels_t"], energy_t=_raw["energy_t"], cv_t=_raw["cv_t"],
+            seed_index=_raw["seed_index"],
+            chain_index_within_seed=_raw["chain_index_within_seed"],
+            summary=_summary,
+            metadata={"experiment": EXPERIMENT, "run_id": RUN_ID, "method": _method})
+        _stationary_rows.extend(flat_summary_rows(_summary))
+    _stationary_table = pd.DataFrame(_stationary_rows)
+    _stationary_table.to_csv(
+        os.path.join(_stationary_dir, "all_methods_summary.csv"),
+        index=False, mode="x")
+else:
+    _stationary_dir = None
+    _stationary_table = pd.DataFrame()
+
+stationarity_manifest = {
+    "methods": {m: r["summary"] for m, r in stationarity["methods"].items()},
+    "collection": stationarity["collection"],
+    "protocol": {
+        "exact_zero_burn_methods": _exact_mala,
+        "charged_settling_non_pt_methods": _settled_nonpt,
+        "settling_burn_steps": TRACE_SETTLING_BURN,
+        "pt_burn_steps": TRACE_PT_BURN,
+        "recorded_steps": TRACE_DRAWS * TRACE_STEPS_PER_DRAW,
+        "reference_sample_method": reference_method,
+        "basin_target_method": aux["scalar_reference_method"],
+        "energy_target_method": aux["scalar_reference_method"],
+        "cv_target_method": aux["scalar_reference_method"],
+        "reference_exact_for_mala": reference_is_exact_target_draw,
+        "reference_requires_settling": not reference_is_exact_target_draw,
+        "sir_reference_is_approximate": (
+            reference_method == "sampling_importance_resampling"),
+    },
+    "excluded_non_targeting_methods": [m for m in RUN_METHODS
+                                         if m in ("CP", "CP-RA", "FLA")],
+}
+print("stationary trace protocol:", TRACE_SEEDS, TRACE_CHAINS_PER_SEED,
+      "chains/seed,", TRACE_DRAWS, "draws, stride", TRACE_STEPS_PER_DRAW,
+      "recorded steps", TRACE_DRAWS * TRACE_STEPS_PER_DRAW,
+      "settling burn", TRACE_SETTLING_BURN, "PT burn", TRACE_PT_BURN)
+if not _stationary_table.empty:
+    display(_stationary_table[
+        ["method", "kind", "name", "mean", "target", "absolute_bias", "iat",
+         "ess", "rhat", "ess_per_second", "ess_per_gradient_eval",
+         "ess_per_potential_eval", "ess_per_score_quadrature_eval"]
+    ].round(5))"""
 
 
 def cell_csv(extra_manifest: str = "") -> str:
     return f'''ts_path = os.path.join(RESULTS, "metrics_timeseries.csv")
 write_timeseries_csv(rows, ts_path)
-summary_metrics = MAIN_METRICS + ["nonfinite_frac"]
+summary_metrics = MAIN_METRICS + ["nonfinite_frac", "basin_map_outside_mass"]
 summary = write_summary_csv(rows, RUN_METHODS, cfg.seeds, summary_metrics,
                             method_info, floors, os.path.join(RESULTS, "summary.csv"))
 
+write_manifest(
+    os.path.join(RESULTS, "resolved_config.json"),
+    schema_version=1,
+    experiment=EXPERIMENT,
+    run_id=RUN_ID,
+    source_config_file=os.path.abspath(source_config_path),
+    resolved_preflight_config_file=os.path.abspath(preflight_config_path),
+    resolved_preflight_config_sha256=_preflight_config_sha256,
+    certificate_result_file=os.path.abspath(certificate_result_path),
+    results_directory=RESULTS,
+    resolved_dt=dt_final,
+    resolved_n_steps=n_steps,
+    resolved_quadrature=CHOSEN_QUAD,
+    resolved_pt_ladder=dict(
+        betas=[float(v) for v in pt_betas.detach().cpu()],
+        tuning=ladder_info),
+    selected_methods=list(RUN_METHODS),
+    requested_trace_settings=TRACE_REQUEST,
+    stationarity_protocol=stationarity_manifest["protocol"],
+    failure_thresholds=FAIL_THRESHOLDS,
+    observed_failure_diagnostics=observed_failure_diagnostics,
+)
+
 # plot policy recomputed here (not inherited from the figures cell) so the
 # manifest is self-contained even if cells are run out of order; it makes
-# results/<exp>/ sufficient to regenerate every figure with no GPU
+# the immutable timestamped experiment directory sufficient to regenerate
+# every figure with no GPU
 # (scripts/replot_figures.py reads it).
-_plot_lsc = next((m for m in ("LSC-CP-MA", "LSC-CP-RA", "LSC-CP")
-                  if m in RUN_METHODS), "LSC-CP")
-_plot_raw = "CP" if "CP" in RUN_METHODS else "CP-RA"
+_low_dim_exact = EXPERIMENT in ("double_well", "mog40")
+_plot_raw = "CP" if "CP" in RUN_METHODS else (
+    "CP-RA" if "CP-RA" in RUN_METHODS else None)
+_plot_preferred_lsc = "LSC-CP" if _low_dim_exact else "LSC-CP-MA"
+_plot_lsc = (_plot_preferred_lsc if _plot_preferred_lsc in RUN_METHODS
+             else ("LSC-CP-RA" if "LSC-CP-RA" in RUN_METHODS else None))
+_plot_methods = [m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
+                 if m in RUN_METHODS]
+_plot_labels = {{}}
+if _plot_raw is not None:
+    _plot_methods.append(_plot_raw)
+    _plot_labels[_plot_raw] = "Raw-CP"
+if _plot_lsc is not None:
+    _plot_methods.append(_plot_lsc)
+    _plot_labels[_plot_lsc] = (
+        "LSC-CP-RA (secondary)" if _plot_lsc == "LSC-CP-RA" else "LSC-CP")
 manifest = dict(
     experiment=EXPERIMENT,
+    run_id=RUN_ID,
+    results_directory=RESULTS,
     config=dict(d=cfg.d, N=cfg.n_particles, T=cfg.T, dt0=cfg.dt, dt=dt_final,
                 beta=cfg.beta, eps=cfg.eps, lam=cfg.lam, seeds=list(cfg.seeds),
-                n_checkpoints=C.N_CHECKPOINTS, warmup_steps=C.N_WARMUP_STEPS,
+                n_checkpoints=cfg.n_checkpoints, warmup_steps=C.N_WARMUP_STEPS,
                 batched_seeds=True),
     emc_target=float(emc_target),
     p_star=[float(v) for v in exp.p_star.cpu()],
-    plot=dict(
-        methods=[m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
-                 if m in RUN_METHODS] + [_plot_raw, _plot_lsc],
-        label_overrides={{_plot_raw: "Raw-CP", _plot_lsc: "LSC-CP"}}),
+    plot=dict(methods=_plot_methods, label_overrides=_plot_labels),
     quadrature=dict(chosen=CHOSEN_QUAD, table=quad_table),
     dt_refinement=[{{k: (str(v) if isinstance(v, tuple) else v) for k, v in row.items()}}
                    for row in dt_table],
     pt_ladder={{k: v for k, v in ladder_info.items()}},
     certificate=cert_report,
+    provenance=dict(
+        source_config_file=os.path.abspath(source_config_path),
+        resolved_preflight_config_file=os.path.abspath(preflight_config_path),
+        resolved_preflight_config_sha256=_preflight_config_sha256,
+        certificate_result_file=os.path.abspath(certificate_result_path)),
     bias_floors=floors,
+    reference={{k: v for k, v in aux.items() if k != "ref_x"}},
+    stationarity=stationarity_manifest,
+    failure_thresholds=FAIL_THRESHOLDS,
+    observed_failure_diagnostics=observed_failure_diagnostics,
     barrier_verification=barrier_report,
     method_info={{m: {{k: v for k, v in mi.items() if isinstance(v, (int, float))}}
                  for m, mi in method_info.items()}},
@@ -230,22 +755,24 @@ def build_e1_nb() -> nbf.NotebookNode:
 **Target.** $\pi(x)\propto e^{-\beta V(x)}$ at $\beta=8$ ($\varepsilon=1/\beta$) with $V(x)=(x^2-1)^2$: minima $\pm1$, saddle $0$, $\beta\Delta V=8$, Kramers time $\tau=\tfrac{2\pi}{\sqrt{32}}e^{8}\approx3.3\times10^3$ — local samplers started in the left well essentially never equilibrate within $T=100$. Seven methods (ULA, MALA, FLA, BAOAB, PT, Raw-CP, LSC-CP) share one tamed drift map, one $\Delta t$, one metric cadence and per-seed initial conditions $x_0\sim\mathcal N(-1,0.05^2)$."""),
         code(cell_setup("double_well", "build_e1", "exp = build_e1(device=DEV)")),
         code('''# model asserts + barrier verification (committed arrival in the right-well
-# core x > 0.7; censored-exponential MLE vs the Kramers estimate)
+# core x > 0.7; exposure/events exponential MLE and KM restricted mean)
 V = lambda x: (x**2 - 1.0)**2
 assert V(1.0) == 0.0 and V(-1.0) == 0.0 and V(0.0) == 1.0
 g = torch.Generator(device=DEV); g.manual_seed(0)
 barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
                                    exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt),
-                                   C.EPS, g)
+                                   cfg.eps, g)
 barrier_report["kramers_tau"] = exp.kramers_tau
-print(f"ULA committed MFPT {barrier_report['mfpt_estimate']:.0f} vs Kramers "
-      f"{exp.kramers_tau:.0f} ({barrier_report['n_exits']} exits of "
-      f"{barrier_report['n_particles']})")'''),
+print(f"ULA committed events {barrier_report['event_count']}/"
+      f"{barrier_report['n_particles']}; exponential waiting-time MLE "
+      f"{barrier_report['exponential_waiting_time_mle']:.0f}, "
+      f"KM RMST@T {barrier_report['kaplan_meier_rmst_at_horizon']:.0f}, "
+      f"Kramers time {exp.kramers_tau:.0f}")'''),
         md(r"""## Jump law and Lévy score
 
 Two-atom symmetric shell: $r = \pm2 + \rho\,u$, $\rho\sim\mathrm{Unif}(-h,h)$, $h=0.2$, $w=(\tfrac12,\tfrac12)$, $\lambda=1$ — a $\pm2$ jump maps minimum to minimum. The stationary correction
 $$S_{\nu,\beta}(x) = -\lambda\!\int\!\nu(dr)\,r\!\int_0^1\! e^{-\beta[V(x-\theta r)-V(x)]}d\theta$$
-makes $\pi$ invariant for the jump diffusion *exactly at generator level, for any $\nu$*. It is computed with Gauss–Legendre probability weights on both inner integrals (the quadrature measure equals the sampling $\nu$) and **log-space accumulation**: the per-direction integrals span hundreds of orders of magnitude at $\beta=8$, so we assemble $\log I$ by log-sum-exp, extract the max exponent $M(x)$, form the $O(1)$ direction vector $v(x)$, and return $S = -\lambda e^{\min(M,600)}v$ — the drift is tamed, so only the direction matters when $\|S\|$ is astronomical. The weak stationarity residual $\mathcal R(\varphi)$ (drift term assembled in log space; domain one jump length beyond the support) certifies the correction; a deliberately tight box fails it."""),
+makes $\pi$ invariant for the jump diffusion *exactly at generator level, for any $\nu$*. It is approximated with Gauss–Legendre probability weights for expectations under the same declared continuous $\nu$ used by the jump sampler; finite quadrature is not literally that continuous measure, and the refinement/certificate gates control its error. We use **log-space accumulation**: the per-direction integrals span hundreds of orders of magnitude at $\beta=8$, so we assemble $\log I$ by log-sum-exp, extract the max exponent $M(x)$, form the $O(1)$ direction vector $v(x)$, and return $S = -\lambda e^{\min(M,600)}v$ — the drift is tamed, so only the direction matters when $\|S\|$ is astronomical. The weak stationarity residual $\mathcal R(\varphi)$ (drift term assembled in log space; domain one jump length beyond the support) certifies the correction; a deliberately tight box fails it."""),
         code('''DEFAULT_QUAD = dict(q_theta=C.Q_THETA, q_rho=C.Q_RHO)
 phis = make_phi_family(1, [0.0], 1.0, DEV)
 
@@ -256,8 +783,9 @@ def cert_e1(q_theta, q_rho, lo=-5.2, hi=5.2):
                             phis, [lo], [hi], n_panels=120, nodes_per_panel=8)
 
 cert_report = cert_e1(**DEFAULT_QUAD)
-print(f"max R = {cert_report['max_residual']:.3e}")
-assert cert_report["max_residual"] < 1e-6
+print(f"max R at default orders = {cert_report['max_residual']:.3e}")
+if cert_report["max_residual"] >= CERTIFICATE_TOLERANCE:
+    print("default quadrature is not certified; refinement must select a passing order")
 tight = cert_e1(**DEFAULT_QUAD, lo=-1.3, hi=1.3)
 print(f"deliberately TIGHT box: max R = {tight['max_residual']:.3e}")'''),
         code(CELL_LADDER),
@@ -274,8 +802,13 @@ settings = [dict(q_theta=qt, q_rho=qr) for qt in (8, 16, 32) for qr in (4, 8, 16
 CHOSEN_QUAD, quad_table = quadrature_refinement(
     settings, run_terminal_lsc, lambda **s: cert_e1(**s)["max_residual"], floors)
 print("chosen quadrature:", CHOSEN_QUAD)
+cert_report = cert_e1(**CHOSEN_QUAD)
+certificate_result = persist_certificate_result(cert_report, CHOSEN_QUAD)
+print("final certificate result:", certificate_result)
+assert certificate_result["passed"], certificate_result
 display(pd.DataFrame(quad_table).round(6))'''),
         code(cell_dt_production('["W2", "TV", "TV_density", "MMD", "EMC"]')),
+        code(CELL_STATIONARITY),
         code(CELL_FIGURES),
         code('''# terminal-sample CDF of every method vs the true CDF (single plot;
 # all 5 seed blocks pooled -> 20k points per method)
@@ -295,8 +828,8 @@ import matplotlib.pyplot as _plt
 fen = doublewell_rawcp_forensic(exp.law, cfg.beta, cfg.lam, lo=-5.2, hi=5.2)
 xg, cdf_pred, cdf_gibbs = fen["x"], fen["cdf_pred"], fen["cdf_gibbs"]
 # empirical raw-CP terminal ensemble (all seeds pooled). NB: production runs
-# clip to the [-3,3] box; rho_inf^raw carries ~0 mass beyond |x|=3 here, so the
-# boundary difference is negligible for this mild-bias regime.
+# use the same [-5.2,5.2] box as the stationary solve; boundary mass is
+# therefore represented rather than silently clipped away.
 emp_cp = method_info["CP"]["final_positions_all"].reshape(-1).cpu().numpy()
 w1_ep = w1_from_samples(emp_cp, xg, cdf_pred)
 w1_et = w1_from_samples(emp_cp, xg, cdf_gibbs)
@@ -341,10 +874,13 @@ print(f"NN distances: min {nn.min():.2f} median {np.median(nn):.2f} max {nn.max(
       "  -> jump radii Unif[4, 15] chosen from this histogram alone")
 g = torch.Generator(device=DEV); g.manual_seed(0)
 barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
-                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), C.EPS, g)
+                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), cfg.eps, g)
 barrier_report["kramers_tau_mode0"] = exp.kramers_tau
-print(f"ULA committed MFPT {barrier_report['mfpt_estimate']:.0f} vs Kramers "
-      f"{exp.kramers_tau:.0f}")'''),
+print(f"ULA committed events {barrier_report['event_count']}/"
+      f"{barrier_report['n_particles']}; exponential waiting-time MLE "
+      f"{barrier_report['exponential_waiting_time_mle']:.0f}, "
+      f"KM RMST@T {barrier_report['kaplan_meier_rmst_at_horizon']:.0f}, "
+      f"mode-0 Kramers time {barrier_report['kramers_tau_mode0']:.0f}")'''),
         md(r"""## Jump law and Lévy score (closed form)
 
 Deliberately generic annulus law — $r=\rho u_\phi$, $\rho\sim\mathrm{Unif}[4,15]$, $\phi\sim\mathrm{Unif}[0,2\pi)$ — **neither PT nor LSC-CP receives mode locations**. For the Gaussian mixture the $\theta$ and $\rho$ integrals of the score are analytic: with $m_{k\ell}=u_\ell\cdot(x-\mu_k)$,
@@ -361,8 +897,9 @@ def cert_e2(m_phi):
                             n_panels=120, nodes_per_panel=6, chunk=8192)
 
 cert_report = cert_e2(**DEFAULT_QUAD)
-print(f"max R = {cert_report['max_residual']:.3e}")
-assert cert_report["max_residual"] < 1e-6'''),
+print(f"max R at default orders = {cert_report['max_residual']:.3e}")
+if cert_report["max_residual"] >= CERTIFICATE_TOLERANCE:
+    print("default quadrature is not certified; refinement must select a passing order")'''),
         code(CELL_LADDER),
         code(CELL_REFERENCE + '''
 assert aux["bandwidth"] > 3.0   # bandwidth reflects mode spacing, not width'''),
@@ -376,8 +913,13 @@ settings = [dict(m_phi=m) for m in (16, 32, 64)]
 CHOSEN_QUAD, quad_table = quadrature_refinement(
     settings, run_terminal_lsc, lambda **s: cert_e2(**s)["max_residual"], floors)
 print("chosen quadrature:", CHOSEN_QUAD)
+cert_report = cert_e2(**CHOSEN_QUAD)
+certificate_result = persist_certificate_result(cert_report, CHOSEN_QUAD)
+print("final certificate result:", certificate_result)
+assert certificate_result["passed"], certificate_result
 display(pd.DataFrame(quad_table).round(6))'''),
         code(cell_dt_production('["W2", "TV", "MMD", "EMC"]')),
+        code(CELL_STATIONARITY),
         code(CELL_FIGURES),
         code('''# terminal exact-W2 spot check (Hungarian, 500-point subsample, 2D only)
 gen_h = torch.Generator(device=DEV); gen_h.manual_seed(202)
@@ -411,7 +953,7 @@ print("p_star (W1..W4):", np.round(exp.p_star.cpu().numpy(), 4),
 # committed first passage from island W3 (expect ZERO local exits)
 g = torch.Generator(device=DEV); g.manual_seed(0)
 barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
-                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), C.EPS, g)
+                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), cfg.eps, g)
 barrier_report["kramers_tau_plateau"] = exp.kramers_tau
 print(f"ULA committed exits from W3: {barrier_report['n_exits']} of "
       f"{barrier_report['n_particles']} in T={cfg.T} "
@@ -495,10 +1037,8 @@ for k, m in zip(wells, mass):
 axes[1].set(title=r"2D marginal $\log_{10}\pi_2$ at $\beta=8$ (labels: basin masses)",
             xlabel="$z_1$", ylabel="$z_2$")
 fig.colorbar(cf1, ax=axes[1], label=r"$\log_{10}\pi_2$")
-os.makedirs(os.path.join("..", "figures", "mb4well_10d"), exist_ok=True)
 for ext in ("png", "pdf"):
-    fig.savefig(os.path.join("..", "figures", "mb4well_10d",
-                             "mb4well_10d_target." + ext), dpi=200,
+    fig.savefig(os.path.join(FIGURES, "mb4well_10d_target." + ext), dpi=200,
                 bbox_inches="tight")
 plt.show()'''
 
@@ -523,8 +1063,9 @@ def cert_e3(q_theta, q_rho):
                             n_panels=170, nodes_per_panel=8, chunk=4096)
 
 cert_report = cert_e3(**DEFAULT_QUAD)
-print(f"max R = {cert_report['max_residual']:.3e}")
-assert cert_report["max_residual"] < 1e-6'''
+print(f"max R at default orders = {cert_report['max_residual']:.3e}")
+if cert_report["max_residual"] >= CERTIFICATE_TOLERANCE:
+    print("default quadrature is not certified; refinement must select a passing order")'''
 
 CELL_E3_QUAD = '''# the run's LSC estimator (exact LSC-CP, or a practical RA/MA variant)
 _LSC = next((m for m in RUN_METHODS if m.startswith("LSC-CP")), "LSC-CP")
@@ -538,6 +1079,10 @@ settings = [dict(q_theta=qt, q_rho=qr) for qt in (8, 16, 32) for qr in (4, 8, 16
 CHOSEN_QUAD, quad_table = quadrature_refinement(
     settings, run_terminal_lsc, lambda **s: cert_e3(**s)["max_residual"], floors)
 print("chosen quadrature:", CHOSEN_QUAD)
+cert_report = cert_e3(**CHOSEN_QUAD)
+certificate_result = persist_certificate_result(cert_report, CHOSEN_QUAD)
+print("final certificate result:", certificate_result)
+assert certificate_result["passed"], certificate_result
 display(pd.DataFrame(quad_table).round(6))'''
 
 CELL_E3_PISTART = '''# pi-start hold test: initialise at the reference and measure any stationary
@@ -674,10 +1219,9 @@ for k, m in zip(wells, mass):
 axes[1].set(title=r"2D marginal $\log_{10}\pi_2$ at $\beta=24$ (labels: basin masses)",
             xlabel="$z_1$", ylabel="$z_2$")
 fig.colorbar(cf1, ax=axes[1], label=r"$\log_{10}\pi_2$")
-os.makedirs(os.path.join("..", "figures", "mb3well_10d"), exist_ok=True)
 for ext in ("png", "pdf"):
-    fig.savefig(os.path.join("..", "figures", "mb3well_10d",
-                             "mb3well_10d_target." + ext), dpi=200, bbox_inches="tight")
+    fig.savefig(os.path.join(FIGURES, "mb3well_10d_target." + ext), dpi=200,
+                bbox_inches="tight")
 plt.show()'''
 
 MD_E3_JUMP_MB3 = r"""## Jump law and Lévy score
@@ -706,8 +1250,9 @@ def cert_e3(q_theta, q_rho):
                             n_panels=200, nodes_per_panel=10, chunk=8192)
 
 cert_report = cert_e3(**DEFAULT_QUAD)
-print(f"max R = {cert_report['max_residual']:.3e}")
-assert cert_report["max_residual"] < 1e-6'''
+print(f"max R at default orders = {cert_report['max_residual']:.3e}")
+if cert_report["max_residual"] >= CERTIFICATE_TOLERANCE:
+    print("default quadrature is not certified; refinement must select a passing order")'''
 
 CELL_E3_PISTART_MB3 = '''# pi-start hold test: initialise at the reference and measure any stationary
 # drift of the discretised LSC-CP chain
@@ -734,7 +1279,7 @@ def build_e3_nb() -> nbf.NotebookNode:
     cells = [
         md(MD_E3_TITLE_MB3),
         code(cell_setup("mb3well_10d", "build_e3",
-                        'exp = build_e3(device=DEV, basin_cache=os.path.join(RESULTS, "basin_map.npz"))')),
+                        'exp = build_e3(device=DEV, basin_cache=os.path.join(CACHE, "basin_map_v2.npz"))')),
         code(CELL_E3_ASSERTS_MB3),
         md(MD_E3_TARGET_MB3),
         code(CELL_E3_TARGET_VIZ_MB3),
@@ -744,6 +1289,7 @@ def build_e3_nb() -> nbf.NotebookNode:
         code(CELL_REFERENCE),
         code(CELL_E3_QUAD),
         code(cell_dt_production('["W2", "TV", "MMD", "EMC", "W2_10d"]')),
+        code(CELL_STATIONARITY),
         code(CELL_E3_PISTART_MB3),
         code(CELL_FIGURES),
         code(cell_csv("pi_start_hold=pi_start_hold,")),
@@ -761,7 +1307,7 @@ def build_e3_mb4well_nb() -> nbf.NotebookNode:
 
 **Target.** The equal-amplitude 4-well Müller–Brown variant (all four Gaussian amplitudes $-200\times0.05$; the true MB's repulsive hump replaced by a fourth well at $(-0.8,-0.5)$ — `archive/mueller.py` precedent), embedded in 10D exactly as before: $U(z) = V_4(z_1,z_2) + \|z_{3:10}\|^2/(2\cdot0.4^2)$, $x = zB^\top$. Unlike the true MB — whose depth gap equals its barrier scale, so *no* temperature is simultaneously multimodal and metastable — this target at $\beta=8$ has masses $p^\star \approx (0.617,\ 0.338,\ 0.027,\ 0.018)$ with a $\beta b = 16.5$ saddle between the two major wells and **plateau-level walls ($\beta b \approx 80$) around the two minor island wells** — locals provably never move, PT needs a deep ladder, and only nonlocal jumps can populate the islands at the right mass. Runs start on island W3 (2.7% mass). Metrics in latent 2D $z_{1:2}$ (full-10D sliced $W_2$ in the CSV)."""),
         code(cell_setup("mb4well_10d", "build_e3_mb4well",
-                        'exp = build_e3_mb4well(device=DEV, basin_cache=os.path.join(RESULTS, "basin_map.npz"))')),
+                        'exp = build_e3_mb4well(device=DEV, basin_cache=os.path.join(CACHE, "basin_map_v2.npz"))')),
         code(CELL_E3_ASSERTS),
         md(MD_E3_TARGET),
         code(CELL_E3_TARGET_VIZ),
@@ -773,6 +1319,7 @@ Complete graph over the four latent minima (12 directed atoms $r_a = (\Delta z, 
         code(CELL_REFERENCE),
         code(CELL_E3_QUAD),
         code(cell_dt_production('["W2", "TV", "MMD", "EMC", "W2_10d"]')),
+        code(CELL_STATIONARITY),
         code(CELL_E3_PISTART),
         code(CELL_FIGURES),
         code(cell_csv("pi_start_hold=pi_start_hold,")),
@@ -796,7 +1343,7 @@ $$W(x,y)=(x^2-1)^2+(y^2-1)^2-0.0125\,xy+0.0075\,x+0.015\,y$$
 
 - **Four phases.** $W$ has four minima at $v\approx(\pm1,\pm1)$ (tilt-shifted in the 3rd decimal) with $W$-values $-0.0351\,(--)$, $+0.0050\,(+-)$, $+0.0100\,(++)$, $+0.0200\,(-+)$: inter-phase asymmetries $\beta\Delta W\le0.44$, escape barriers $\beta b\approx7.8$–$8.2$. The global minima of $V$ are the four coherent fields $\mathbf 1\otimes v$.
 - **Stiff coupling.** A bond deviation costs $\beta\kappa/(2\delta)=120$ per unit squared distance, so $\pi$ concentrates in four narrow tubes around the coherent fields; the cheapest non-coherent excursion (a kink pair, cost $5.96$) is far above the coherent barrier $\approx1.0$, so phase changes proceed coherently.
-- **Slice vs marginal.** On the homogeneous slice $q_i\equiv v$ the coupling term vanishes and $V(\mathbf 1\otimes v)=W(v)$ exactly, so the right panel below ($e^{-\beta W}/Z_W$) is the exact restriction of $\pi$ to the coherent 2-plane. It is a slice, **not** a marginal: the phase masses $p^\star=(0.325,\,0.211,\,0.237,\,0.227)$ are 24D basin integrals (SNIS reference below) that also count transverse fluctuations, and agree with the Laplace (harmonic) prediction to $\sim10^{-2}$."""
+- **Slice vs marginal.** On the homogeneous slice $q_i\equiv v$ the coupling term vanishes and $V(\mathbf 1\otimes v)=W(v)$ exactly, so the right panel below ($e^{-\beta W}/Z_W$) is the exact restriction of $\pi$ to the coherent 2-plane. It is a slice, **not** a marginal: the phase masses $p^\star=(0.325,\,0.211,\,0.237,\,0.227)$ are 24D basin integrals estimated by direct weighted SNIS below that also count transverse fluctuations, and agree with the Laplace (harmonic) prediction to $\sim10^{-2}$."""
 
 CELL_E4_TARGET_VIZ = r'''# Target visualization (self-contained, CPU-safe; touches no run state).
 # Left: site potential W whose four minima define the coherent phases.
@@ -846,10 +1393,8 @@ axes[1].set(title=r"coherent-slice density $e^{-\beta W}/Z_W$ at $\beta=8$"
                   r" (labels: 24D phase masses)",
             xlabel="$x$", ylabel="$y$")
 fig.colorbar(cf1, ax=axes[1], label="slice density")
-os.makedirs(os.path.join("..", "figures", "coupled_phi4"), exist_ok=True)
 for ext in ("png", "pdf"):
-    fig.savefig(os.path.join("..", "figures", "coupled_phi4",
-                             "coupled_phi4_target." + ext), dpi=200,
+    fig.savefig(os.path.join(FIGURES, "coupled_phi4_target." + ext), dpi=200,
                 bbox_inches="tight")
 plt.show()'''
 
@@ -860,9 +1405,9 @@ def build_e4_nb() -> nbf.NotebookNode:
 
 **Target.** $q_i\in\mathbb R^2$, $N_s=12$ periodic sites, $\delta=1/N_s$, $\kappa=2.5$:
 $$V(q) = \frac{\kappa}{2\delta}\sum_i\|q_{i+1}-q_i\|^2 + \delta\sum_i W(q_i),\qquad W(x,y) = (x^2-1)^2+(y^2-1)^2-0.0125\,xy+0.0075\,x+0.015\,y.$$
-Four coherent phases $(\pm1,\pm1)$; for homogeneous fields $V(\mathbf 1\otimes v)=W(v)$, so the coherent barrier equals the barrier of $W$ ($\beta\cdot\min$ barrier $=7.8$), and the kink-pair cost $5.96\gg1$ makes **the coherent flip the minimum-energy path**. The tilt terms are chosen so the inter-phase asymmetry is $\beta\Delta W = 0.44 \le 0.5$: inside the regime where the tamed fixed-step integrator realises the correction's detailed-balance return flux (at $\beta\Delta W\approx1.8$ a measured, $\Delta t$-independent occupancy offset of order $10\%$ appears — a deliberate benchmark-design choice, recorded here). Phase masses remain distinguishably non-uniform, $p^\star \approx (0.323, 0.212, 0.238, 0.227)$. Init at the $--$ phase; partition = basin of $W$ at $\bar q$. **Reference: exact $\pi$ samples** by SNIS resampling from the harmonic (Laplace) mixture proposal; a long PT chain cross-checks the phase masses."""),
+Four coherent phases $(\pm1,\pm1)$; for homogeneous fields $V(\mathbf 1\otimes v)=W(v)$, so the coherent barrier equals the barrier of $W$ ($\beta\cdot\min$ barrier $=7.8$), and the kink-pair cost $5.96\gg1$ makes **the coherent flip the minimum-energy path**. The tilt terms are chosen so the inter-phase asymmetry is $\beta\Delta W = 0.44 \le 0.5$: inside the regime where the tamed fixed-step integrator realises the correction's detailed-balance return flux (at $\beta\Delta W\approx1.8$ a measured, $\Delta t$-independent occupancy offset of order $10\%$ appears — a deliberate benchmark-design choice, recorded here). Phase masses remain distinguishably non-uniform, $p^\star \approx (0.323, 0.212, 0.238, 0.227)$. Init at the $--$ phase; partition = basin of $W$ at $\bar q$. **Reference.** Unweighted $W_2$/MMD clouds use finite sampling-importance-resampling (SIR), which is approximate and not i.i.d.; phase masses and scalar energy moments use direct weighted SNIS with proposal diagnostics. A long PT chain provides an independent phase-mass cross-check."""),
         code(cell_setup("coupled_phi4", "build_e4",
-                        'exp = build_e4(device=DEV, basin_cache=os.path.join(RESULTS, "basin_map.npz"))')),
+                        'exp = build_e4(device=DEV, basin_cache=os.path.join(CACHE, "basin_map_v2.npz"))')),
         code('''from src.potentials import (PHI4_MINIMA, PHI4_ESCAPE_BARRIERS,
                             PHI4_LAPLACE_MASSES, phi4_W, phi4_W_grad, newton_refine)
 V2 = exp.extras["minima_2d"]
@@ -870,22 +1415,25 @@ for i, ph in enumerate(exp.extras["phases"]):
     v_tab, W_tab = PHI4_MINIMA[ph]
     W = phi4_W(V2[i].unsqueeze(0))[0].item()
     assert abs(V2[i][0].item()-v_tab[0]) < 5e-5 and abs(W - W_tab) < 5e-4
-    # p_star is the EXACT (SNIS) mass; the Laplace table should agree to
+    # p_star is a direct weighted-SNIS estimate; the Laplace table should agree to
     # the anharmonic correction scale (~1e-2)
     assert abs(exp.p_star[i].item() - PHI4_LAPLACE_MASSES[ph]) < 2e-2
 print("minima / Laplace masses verified; kink pair cost",
       round(2*exp.pot.kink_energy(), 2), ">> 1.0 coherent barrier")
 g = torch.Generator(device=DEV); g.manual_seed(0)
 barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
-                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), C.EPS, g)
+                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt), cfg.eps, g)
 barrier_report["kramers_tau_langer"] = exp.kramers_tau
-print(f"ULA committed MFPT {barrier_report['mfpt_estimate']:.0f} "
-      f"({barrier_report['n_exits']} exits) vs 24D Langer {exp.kramers_tau:.0f}")'''),
+print(f"ULA committed events {barrier_report['event_count']}/"
+      f"{barrier_report['n_particles']}; exponential waiting-time MLE "
+      f"{barrier_report['exponential_waiting_time_mle']:.0f}, "
+      f"KM RMST@T {barrier_report['kaplan_meier_rmst_at_horizon']:.0f}, "
+      f"24D Langer time {barrier_report['kramers_tau_langer']:.0f}")'''),
         md(MD_E4_TARGET),
         code(CELL_E4_TARGET_VIZ),
         md(r"""## Jump law and Lévy score (moment-exact)
 
-Homogeneous phase shifts on the **8 edge atoms** of the phase square ($r_a=\mathbf 1_{N_s}\otimes(v_j-v_i)$ for the four edges $\{--\!\leftrightarrow\!-+,\ --\!\leftrightarrow\!+-,\ -+\!\leftrightarrow\!++,\ +-\!\leftrightarrow\!++\}$ in both directions, $w_a=1/8$, shell $h=0.1\min\|r_a\|$). The two **diagonal** pairs $--\!\leftrightarrow\!++$ and $-+\!\leftrightarrow\!+-$ are dropped: their coherent chords pass through the field-zero hilltop at the centre; diagonal transitions relay through a mixed phase in two hops. The gradient energy is exactly invariant under homogeneous shifts, so $V(q-r)-V(q)=\delta\sum_i[W(q_i-d)-W(q_i)]$ is a fixed polynomial in $d$ whose coefficients are the per-particle moments $\sum x_i, \sum x_i^2, \sum x_i^3$ (and $y$ analogues): moments once per step in $O(N_s)$, then every quadrature energy delta is $O(1)$ — **no lattice sweeps** (validated to $10^{-13}$). In 24D the certificate uses the shifted-form identity with importance sampling from the Laplace mixture (equivalent to the deployed score; the $M$ cap never fires on the sampled region). *Optional per-site jitter* $r=\mathbf 1_{N_s}\otimes(v_j-v_i)+\sigma\xi$ (default $\sigma=0$) is free under the RA estimator, which needs no closed-form quadrature over the jump law."""),
+Homogeneous phase shifts on the **8 edge atoms** of the phase square ($r_a=\mathbf 1_{N_s}\otimes(v_j-v_i)$ for the four edges $\{--\!\leftrightarrow\!-+,\ --\!\leftrightarrow\!+-,\ -+\!\leftrightarrow\!++,\ +-\!\leftrightarrow\!++\}$ in both directions, $w_a=1/8$, shell $h=0.1\min\|r_a\|$). The two **diagonal** pairs $--\!\leftrightarrow\!++$ and $-+\!\leftrightarrow\!+-$ are dropped: their coherent chords pass through the field-zero hilltop at the centre; diagonal transitions relay through a mixed phase in two hops. The gradient energy is exactly invariant under homogeneous shifts, so $V(q-r)-V(q)=\delta\sum_i[W(q_i-d)-W(q_i)]$ is a fixed polynomial in $d$ whose coefficients are the per-particle moments $\sum x_i, \sum x_i^2, \sum x_i^3$ (and $y$ analogues): moments once per step in $O(N_s)$, then every quadrature energy delta is $O(1)$ — **no lattice sweeps** (validated to $10^{-13}$). In 24D the certificate uses the shifted-form identity with importance sampling from the Laplace mixture (equivalent to the deployed score; the $M$ cap never fires on the sampled region). *Optional isotropic jitter* $r=\mathbf 1_{N_s}\otimes(v_j-v_i)+\sigma\xi$ (default $\sigma=0$) is supported only by sampled-bank RA/MA estimators, which use the realised displacement directly; deterministic quadrature and its certificate do not apply when $\sigma>0$."""),
         code('''from src.jumps import gauss_legendre_01
 from src.certificate import TanhRidgeProduct
 DEFAULT_QUAD = dict(q_theta=C.Q_THETA, q_rho=C.Q_RHO)
@@ -922,9 +1470,9 @@ cert_report["max_log_magnitude_on_support"] = float(Mv.max().item())'''),
         code(CELL_LADDER),
         code(CELL_REFERENCE + '''
 
-# SNIS proposal quality + PT cross-check of the exact phase masses
+# SNIS proposal quality + PT cross-check of the direct-SNIS phase masses
 g_ess = torch.Generator(device=DEV); g_ess.manual_seed(555)
-ess = exp.extras["laplace"].snis_ess_fraction(exp.pot, C.BETA, g_ess)
+ess = exp.extras["laplace"].snis_ess_fraction(exp.pot, cfg.beta, g_ess)
 print(f"SNIS proposal ESS fraction: {ess:.3f}")
 gen_x = torch.Generator(device=DEV); gen_x.manual_seed(4242)
 from src.samplers import ParallelTempering
@@ -935,7 +1483,7 @@ for _ in range(int(round(300.0 / cfg.dt))):
     pt_x.step()
 p_pt = occupancy(exp.labels_fn(pt_x.positions()), 4).cpu().numpy()
 print("long-PT phase masses:", np.round(p_pt, 3),
-      " vs exact p* (SNIS):", np.round(exp.p_star.cpu().numpy(), 3))
+      " vs direct-SNIS p*:", np.round(exp.p_star.cpu().numpy(), 3))
 pt_crosscheck = p_pt.tolist()'''),
         code('''def run_terminal_lsc(**quad):
     f = make_sampler_factory(exp, cfg.dt, pt_betas, score_kwargs=quad)
@@ -947,12 +1495,13 @@ settings = [dict(q_theta=qt, q_rho=qr) for qt in (8, 16, 32) for qr in (4, 8, 16
 CHOSEN_QUAD, quad_table = quadrature_refinement(
     settings, run_terminal_lsc, lambda **s: cert_e4(**s)["max_residual"], floors)
 print("chosen quadrature:", CHOSEN_QUAD)
-if CHOSEN_QUAD != DEFAULT_QUAD:
-    cert_report = cert_e4(**CHOSEN_QUAD)
-    print(f"certificate at chosen orders: max R = {cert_report['max_residual']:.3e}")
-    assert cert_report["max_residual"] < 1e-6
+cert_report = cert_e4(**CHOSEN_QUAD)
+certificate_result = persist_certificate_result(cert_report, CHOSEN_QUAD)
+print("final certificate result:", certificate_result)
+assert certificate_result["passed"], certificate_result
 display(pd.DataFrame(quad_table).round(6))'''),
         code(cell_dt_production('["W2", "TV", "MMD", "EMC"]')),
+        code(CELL_STATIONARITY),
         code(CELL_FIGURES),
         code(cell_csv("pt_phase_mass_crosscheck=pt_crosscheck,")),
     ]

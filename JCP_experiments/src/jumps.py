@@ -1,7 +1,9 @@
 """Jump laws nu (probability measures on R^d) and their samplers.
 
-The invariant enforced by tests: the nu used by the Levy score (quadrature)
-and the nu used to generate jumps in the sampler are the SAME measure.
+The invariant enforced by tests: score integrals and jumps target the same
+declared jump law. Deterministic Gauss--Legendre rules approximate expectations
+under that continuous law; paired realised-bank MA has a literal conditional
+finite-measure identity.
 """
 from __future__ import annotations
 
@@ -34,14 +36,41 @@ class ShellJumpLaw:
 
     def __init__(self, atoms: torch.Tensor, weights: torch.Tensor,
                  h: float | torch.Tensor) -> None:
-        assert atoms.ndim == 2
+        if (not isinstance(atoms, torch.Tensor) or atoms.ndim != 2
+                or atoms.shape[0] < 1 or atoms.shape[1] < 1
+                or not atoms.is_floating_point()):
+            raise ValueError("atoms must be a nonempty rank-2 floating tensor")
+        if not bool(torch.isfinite(atoms).all().item()):
+            raise ValueError("atoms must be finite")
+        norms = atoms.norm(dim=1, keepdim=True)
+        if (not bool(torch.isfinite(norms).all().item())
+                or bool((norms <= 0).any().item())):
+            raise ValueError("every shell atom must have finite nonzero norm")
+        weights_t = torch.as_tensor(
+            weights, dtype=atoms.dtype, device=atoms.device)
+        if weights_t.shape != (atoms.shape[0],):
+            raise ValueError("weights must have shape (number of atoms,)")
+        weight_sum = weights_t.sum()
+        if (not bool(torch.isfinite(weights_t).all().item())
+                or bool((weights_t < 0).any().item())
+                or not bool(torch.isfinite(weight_sum).item())
+                or float(weight_sum.item()) <= 0.0):
+            raise ValueError("weights must be finite, nonnegative, and have positive sum")
+        h_t = torch.as_tensor(h, dtype=atoms.dtype, device=atoms.device)
+        try:
+            h_t = h_t.expand(atoms.shape[0]).clone()
+        except RuntimeError as exc:
+            raise ValueError("h must be scalar or have one entry per atom") from exc
+        if (not bool(torch.isfinite(h_t).all().item())
+                or bool((h_t < 0).any().item())):
+            raise ValueError("shell half-width h must be finite and nonnegative")
+
         self.atoms = atoms                                    # (A, d)
-        self.weights = weights / weights.sum()                # (A,)
+        self.weights = weights_t / weight_sum                 # (A,)
         self.d = atoms.shape[1]
         self.A = atoms.shape[0]
-        h_t = torch.as_tensor(h, dtype=atoms.dtype, device=atoms.device)
-        self.h = h_t.expand(self.A).clone()                   # (A,)
-        self.units = atoms / atoms.norm(dim=1, keepdim=True)  # (A, d)
+        self.h = h_t                                          # (A,)
+        self.units = atoms / norms                            # (A, d)
 
     def sample(self, n: int, gen: torch.Generator) -> torch.Tensor:
         dev = self.atoms.device
@@ -53,7 +82,8 @@ class ShellJumpLaw:
         """All r_{a,q} = r_a + rho_q h_a u_a with probability weights.
 
         Returns (shifts (A*Qr, d), log_weights (A*Qr,)); weights are
-        w_a * w_hat_q and sum to 1, matching the sampling measure exactly."""
+        w_a * w_hat_q and sum to 1. This is a normalized quadrature rule for
+        the declared shell law, not the continuous sampling measure itself."""
         dev = self.atoms.device
         rho, wr = gauss_legendre_m11(q_rho, dev)
         radial = self.h.view(-1, 1) * rho.view(1, -1)                 # (A, Qr)
@@ -66,18 +96,23 @@ class ShellJumpLaw:
 
 
 class JitteredShellJumpLaw(ShellJumpLaw):
-    """Shell law + fresh per-draw transverse Gaussian jitter:
+    """Shell law plus fresh per-draw isotropic Gaussian jitter:
     r = r_a + rho u_a + sigma xi,  xi ~ N(0, I_d).
 
-    RA-LSC ONLY. The random-atomic score integrates the chord for the realised
-    r, so no closed-form quadrature over the jump law is needed -- continuous
-    jitter is free. `quadrature_shifts` is therefore unsupported (there is no
-    finite-atom representation of the jittered nu), so the exact-quadrature
-    score and the certificate cannot use this law. Off by default (sigma = 0)."""
+    SAMPLED-BANK LSC ONLY. Random-atomic and paired multi-atom scores integrate
+    the chord for the same realised displacement(s) used by their jump update,
+    so neither needs closed-form quadrature over the jitter distribution.
+    ``quadrature_shifts`` is unsupported because the jittered measure has no
+    finite-atom representation; deterministic exact-quadrature scores and
+    certificates therefore cannot use this law. Off by default (sigma = 0).
+    """
 
     def __init__(self, atoms, weights, h, jitter_sigma: float) -> None:
         super().__init__(atoms, weights, h)
         self.jitter_sigma = float(jitter_sigma)
+        if (not math.isfinite(self.jitter_sigma)
+                or self.jitter_sigma < 0.0):
+            raise ValueError("jitter_sigma must be finite and nonnegative")
 
     def sample(self, n: int, gen: torch.Generator) -> torch.Tensor:
         r = super().sample(n, gen)
@@ -88,7 +123,8 @@ class JitteredShellJumpLaw(ShellJumpLaw):
 
     def quadrature_shifts(self, q_rho: int):
         raise NotImplementedError(
-            "JitteredShellJumpLaw has no finite-atom quadrature (RA-LSC only)")
+            "JitteredShellJumpLaw has no finite-atom quadrature "
+            "(sampled-bank RA/MA LSC only)")
 
 
 class AnnulusJumpLaw:
@@ -129,23 +165,37 @@ class AnnulusJumpLaw:
         return self.b
 
 
-def apply_poisson_jumps(x: torch.Tensor, law, lam: float, dt: float,
-                        gen: torch.Generator, k_max: int = 8) -> tuple[torch.Tensor, torch.Tensor]:
-    """x <- x + sum_{k=1}^{N} A_k, N ~ Poisson(lam dt), A_k ~ nu i.i.d.
+def apply_poisson_jumps(
+    x: torch.Tensor,
+    law,
+    lam: float,
+    dt: float,
+    gen: torch.Generator,
+    k_max: int = 8,
+    *,
+    return_sampled_counts: bool = False,
+):
+    """Apply capped full-law Poisson jumps without hiding cap exceedances.
 
-    Vectorised with a fixed unrolled loop of k_max candidate jumps (no host
-    sync). For lam*dt <= 0.01 the truncation P(N > 8) < 1e-20 per particle
-    per step. Jumps are always *drawn* (active or not) so that two samplers
-    sharing this generator consume identical streams (pathwise coupling of
-    raw CP and LSC-CP).
+    The default two-value return remains ``(x_new, jumps_applied)`` for legacy
+    callers.  ``return_sampled_counts=True`` additionally returns the exact
+    sampled Poisson multiplicities before the fixed ``k_max`` implementation
+    cap.  This lets production diagnostics distinguish requested occurrences
+    from applied jumps and fail closed if the nominally negligible tail fires.
 
-    Returns (x_new, jumps_applied (N,))."""
+    The fixed loop performs no host synchronization.  Jumps are always drawn
+    (active or not) so paired raw CP and LSC-CP consume identical streams.
+    """
     n = x.shape[0]
-    counts = torch.poisson(torch.full((n,), lam * dt, device=x.device), generator=gen)
+    counts = torch.poisson(torch.full(
+        (n,), lam * dt, device=x.device, dtype=x.dtype), generator=gen)
     # one batched draw of all k_max candidates (identical stream for any two
     # samplers sharing `gen`; ~6x fewer kernel launches than a k-loop)
     A = law.sample(n * k_max, gen).reshape(k_max, n, x.shape[1])
     ks = torch.arange(k_max, device=x.device, dtype=counts.dtype).unsqueeze(1)
     mask = (counts.unsqueeze(0) > ks).to(x.dtype)            # (k_max, n)
     x = x + (mask.unsqueeze(-1) * A).sum(dim=0)
-    return x, torch.clamp(counts, max=k_max)
+    applied = torch.clamp(counts, max=k_max)
+    if return_sampled_counts:
+        return x, applied, counts
+    return x, applied

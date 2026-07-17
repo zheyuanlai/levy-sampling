@@ -69,7 +69,8 @@ class RunConfig:
 METHOD_SEED_BASE: dict[str, int] = {m: 10_000 * (i + 1) for i, m in enumerate(METHODS)}
 # random-atomic (RA) estimator variants: distinct diffusion streams, but the RA
 # pair (CP-RA, LSC-CP-RA) shares the jump stream just like the exact pair.
-# LSC-CP-MA = multi-atom RA (sum over atoms; robust at high beta, full-law jumps).
+# LSC-CP-MA = paired multi-atom RA: a realized stratified bank is used by
+# both the score and its atomwise Poisson jump counts.
 METHOD_SEED_BASE.update({"CP-RA": 80_000, "LSC-CP-RA": 90_000,
                          "LSC-CP-MA": 110_000})
 JUMP_STREAM_BASE: int = 900_000

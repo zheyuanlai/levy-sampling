@@ -45,23 +45,57 @@ def _log_parts(log_terms: torch.Tensor, vecs: torch.Tensor,
     return M, v
 
 
-def _finalize(M: torch.Tensor, v: torch.Tensor, m_max: float) -> tuple[torch.Tensor, dict]:
-    """Step 4: S = -exp(min(M, M_MAX)) * v; log the clip fraction."""
-    S = -torch.exp(torch.clamp(M, max=m_max)).unsqueeze(1) * v
-    diag = {
-        "m_clip_fraction": (M > m_max).to(torch.float64).mean(),
+def _clip_diagnostics(M: torch.Tensor, m_max: float) -> dict:
+    """Exact device-resident clipping count, denominator, fraction, and max."""
+    clipped = M > m_max
+    count = clipped.to(torch.int64).sum()
+    total = torch.as_tensor(M.numel(), dtype=torch.int64, device=M.device)
+    return {
+        "m_clip_count": count,
+        "m_clip_total": total,
+        "m_clip_fraction": count.to(torch.float64) / total,
         "max_log_magnitude": M.max(),
     }
-    return S, diag
+
+
+def _finalize(M: torch.Tensor, v: torch.Tensor, m_max: float) -> tuple[torch.Tensor, dict]:
+    """Step 4: S = -exp(min(M, M_MAX)) * v; log exact clipping counts."""
+    S = -torch.exp(torch.clamp(M, max=m_max)).unsqueeze(1) * v
+    return S, _clip_diagnostics(M, m_max)
+
+
+def _realized_chord_deltas(potential, x: torch.Tensor,
+                            y: torch.Tensor) -> torch.Tensor:
+    """Evaluate per-particle chord energies under the score ledger.
+
+    ``y`` has shape ``(N, ..., d)`` and contains particle-specific shifts, so
+    the public ``V_delta(x, R)`` broadcasting interface cannot represent it.
+    Repository potentials expose ``_V_raw``; using it here while incrementing
+    ``n_Vdelta`` records every quadrature energy difference as a Lévy-score
+    evaluation rather than mixing that cost into ordinary potential calls.
+    Lightweight external/test potentials fall back to their public ``V`` API.
+    """
+    n = x.shape[0]
+    d = x.shape[-1]
+    n_quad = int(y.numel() // (n * d))
+    if (hasattr(potential, "_V_raw") and hasattr(potential, "n_Vdelta")):
+        potential.n_Vdelta += n * n_quad
+        v0 = potential._V_raw(x)
+        vy = potential._V_raw(y)
+    else:
+        v0 = potential.V(x)
+        vy = potential.V(y.reshape(-1, d)).reshape(y.shape[:-1])
+    return vy - v0.reshape((n,) + (1,) * (vy.ndim - 1))
 
 
 # ================================================================ 4.2 shell
 class ShellScore:
     """Generic shell score (E1, E3, and E4 via the moment-exact V_delta).
 
-    nu: centres {r_a} (weights w_a), shell half-thickness h; the theta and rho
-    integrals use Gauss-Legendre probability weights so the quadrature measure
-    is exactly the sampler's nu.
+    nu: centres {r_a} (weights w_a), shell half-thickness h. The theta/rho
+    expectations under that declared continuous law are approximated by
+    normalized Gauss--Legendre rules; the finite quadrature measure is not
+    literally the sampler's continuous nu.
     """
 
     def __init__(self, potential, law: ShellJumpLaw, lam: float, beta: float,
@@ -116,7 +150,7 @@ class RandomAtomicShellScore:
 
     It is a PRACTICAL ESTIMATOR of `ShellScore`, not a separate method. We do NOT
     claim finite-refresh spectral-gap transfer or exact target-preservation of
-    the Euler-Poisson discretisation. Cost is q_theta V-evaluations per particle
+    the Euler-Poisson discretisation. Cost is q_theta score-quadrature energy differences per particle
     per step (vs q_theta * A * q_rho for the exact quadrature), and the jump law
     need only be *sampleable* -- no closed-form rho/atom quadrature is required.
 
@@ -153,34 +187,50 @@ class RandomAtomicShellScore:
         (M_MAX cap), mirroring `_finalize` but per particle with a single atom.
         """
         n, d = x.shape
-        # chord points y = x - theta_p R  -> (N, Qt, d); count these V-evals so
-        # NFE accounting sees the estimator's cost (q_theta V per particle).
+        # Chord points y = x - theta_p R -> (N, Qt, d).  The helper
+        # records N*Qt score-quadrature energy differences in n_Vdelta.
         y = x.unsqueeze(1) - self.theta.view(1, -1, 1) * R.unsqueeze(1)
-        v0 = self.potential.V(x)                                 # (N,)  counted
-        vy = self.potential.V(y.reshape(n * self.q_theta, d)).reshape(n, self.q_theta)
-        dV = vy - v0.unsqueeze(1)                                # (N, Qt)
+        dV = _realized_chord_deltas(self.potential, x, y)        # (N, Qt)
         # log I = LSE_p[ log w_p + beta (V(x) - V(x - theta_p R)) ]
         log_I = torch.logsumexp(self.log_w_theta.view(1, -1) - self.beta * dV, dim=1)
         M = self.log_lam + log_I                                 # (N,)
         S = -torch.exp(torch.clamp(M, max=self.m_max)).unsqueeze(1) * R
-        diag = {
-            "m_clip_fraction": (M > self.m_max).to(torch.float64).mean(),
-            "max_log_magnitude": M.max(),
-        }
-        return S, diag
+        return S, _clip_diagnostics(M, self.m_max)
 
 
 class MultiAtomShellScore:
-    """Lower-variance Levy-score estimator: sum over ALL atoms (removing the
-    atom-selection variance that dominates single-atom RA at high beta) with one
-    sampled rho per atom per step.
+    """Paired multi-atom random-measure Levy score.
 
-        S(x) = -lambda sum_a w_a R_a exp(LSE_p[log w_p + beta(V(x)-V(x-theta_p R_a))]),
-        R_a = r_a + rho_a u_a,  rho_a ~ U(-h_a, h_a).
+    The realised per-particle bank is
 
-    Unbiased for S_nu (E_rho over each atom = the rho-integral; the atom sum is
-    exact). Cost A*q_theta V-evals/step (vs q_theta for single-atom RA, and
-    A*q_rho*q_theta for the exact quadrature). Used with full-law jumps."""
+        R = (R_1, ..., R_A),   R_a ~ q_a,
+
+    where ``q_a`` is atom ``a``'s radial shell (and optional jitter) law. It
+    defines the random finite measure
+
+        nu_R(dr) = lambda * sum_a w_a delta_{R_a}(dr).
+
+    ``score_for_bank`` evaluates the exact (up to theta quadrature/clipping)
+    score of *that same realised measure*:
+
+        S(x) = -lambda sum_a w_a R_a
+               exp(LSE_p[log w_p + beta(V(x)-V(x-theta_p R_a))]).
+
+    The paired sampler then uses independent counts
+
+        N_a ~ Poisson(lambda * w_a * dt)
+
+    and jumps by ``sum_a N_a R_a``. Conditional on every frozen bank R, the
+    drift and jump terms therefore use the identical ``nu_R`` and obey the
+    chord stationarity identity atom by atom. Averaging over R recovers the
+    original shell law.
+
+    Cost is A*q_theta score-quadrature energy differences/step (vs q_theta for
+    single-atom RA, and A*q_rho*q_theta for exact quadrature). ``sample_bank``
+    is deliberately state-free; the sampler draws the bank before evaluating
+    the score and passes the identical tensor to ``score_for_bank`` and the
+    jump update.
+    """
 
     def __init__(self, potential, law, lam: float, beta: float,
                  q_theta: int = None, m_max: float = M_MAX,
@@ -192,34 +242,128 @@ class MultiAtomShellScore:
         self.beta = float(beta)
         self.m_max = float(m_max)
         self.q_theta = int(q_theta if q_theta is not None else Q_THETA)
+        required = ("atoms", "weights", "h", "units", "A", "d")
+        missing = [name for name in required if not hasattr(law, name)]
+        if missing:
+            raise TypeError(
+                "paired multi-atom score requires a finite shell bank; "
+                f"missing {', '.join(missing)}"
+            )
+        if self.lam <= 0.0 or self.beta <= 0.0 or self.q_theta <= 0:
+            raise ValueError("lambda, beta, and q_theta must be positive")
+        if math.isnan(self.m_max):
+            raise ValueError("m_max must not be NaN")
+        atom_norms = law.atoms.norm(dim=1, keepdim=True)
+        if (law.atoms.shape != (law.A, law.d)
+                or law.h.shape != (law.A,)
+                or law.units.shape != law.atoms.shape
+                or not bool(torch.isfinite(law.atoms).all().item())
+                or not bool(torch.isfinite(atom_norms).all().item())
+                or bool((atom_norms <= 0).any().item())
+                or not bool(torch.isfinite(law.h).all().item())
+                or bool((law.h < 0).any().item())
+                or not bool(torch.isfinite(law.units).all().item())):
+            raise ValueError(
+                "multi-atom shell geometry/units must be finite, nonzero, "
+                "and have valid shapes with h >= 0")
+        expected_units = law.atoms / atom_norms
+        rtol = 2e-5 if law.atoms.dtype == torch.float32 else 2e-12
+        atol = 2e-6 if law.atoms.dtype == torch.float32 else 2e-14
+        if (not torch.allclose(law.units.norm(dim=1),
+                               torch.ones(law.A, dtype=law.units.dtype,
+                                          device=law.units.device),
+                               rtol=rtol, atol=atol)
+                or not torch.allclose(law.units, expected_units,
+                                      rtol=rtol, atol=atol)):
+            raise ValueError(
+                "multi-atom shell units must be normalized and aligned with atoms")
+        if (not bool(torch.isfinite(law.weights).all().item())
+                or bool((law.weights < 0).any().item())
+                or not math.isclose(float(law.weights.sum().item()), 1.0,
+                                    rel_tol=1e-12, abs_tol=1e-14)):
+            raise ValueError("multi-atom weights must be finite, nonnegative, and normalized")
         dev = law.atoms.device
-        theta, w_theta = gauss_legendre_01(self.q_theta, dev)
+        theta, w_theta = gauss_legendre_01(
+            self.q_theta, dev, dtype=law.atoms.dtype)
         self.theta = theta
         self.log_w_theta = torch.log(w_theta)
         self.log_lam = math.log(self.lam)
         self.gen = gen if gen is not None else torch.Generator(device=dev)
 
-    def __call__(self, x: torch.Tensor) -> tuple[torch.Tensor, dict]:
+    def sample_bank(self, n: int, gen: torch.Generator | None = None) -> torch.Tensor:
+        """Draw one conditional-shell displacement per atom and particle.
+
+        This method has no state argument, making independence of the refreshed
+        random measure from the current chain state structural. For a jittered
+        shell law, the same Gaussian jitter used by its marginal sampler is
+        applied independently to every realised atom.
+        """
+        if isinstance(n, bool) or int(n) != n or n < 1:
+            raise ValueError("n must be a positive integer")
+        n = int(n)
+        gen = self.gen if gen is None else gen
+        A, d = self.law.A, self.law.d
+        dev, dtype = self.law.atoms.device, self.law.atoms.dtype
+        rho = ((torch.rand(n, A, generator=gen, device=dev, dtype=dtype) * 2.0 - 1.0)
+               * self.law.h.view(1, A))
+        R = (self.law.atoms.view(1, A, d)
+             + rho.unsqueeze(-1) * self.law.units.view(1, A, d))
+        jitter_sigma = float(getattr(self.law, "jitter_sigma", 0.0))
+        if jitter_sigma > 0.0:
+            R = R + jitter_sigma * torch.randn(
+                R.shape, generator=gen, device=dev, dtype=dtype)
+        return R
+
+    def score_for_bank(self, x: torch.Tensor,
+                       R: torch.Tensor) -> tuple[torch.Tensor, dict]:
+        """Evaluate the score of a supplied realised bank ``R``.
+
+        ``R[n, a]`` is the atom used for particle ``n`` and component ``a``.
+        The sampler retains this tensor and uses it again in the paired jump.
+        """
         n, d = x.shape
         A, Qt = self.law.A, self.q_theta
-        # one sampled rho per atom per particle: R_a = r_a + rho_a u_a  -> (N,A,d)
-        rho = (torch.rand(n, A, generator=self.gen, device=x.device,
-                          dtype=x.dtype) * 2.0 - 1.0) * self.law.h.view(1, A)
-        R = self.law.atoms.view(1, A, d) + rho.unsqueeze(-1) * self.law.units.view(1, A, d)
+        if R.shape != (n, A, d):
+            raise ValueError(f"bank must have shape {(n, A, d)}, got {tuple(R.shape)}")
+        if R.device != x.device or R.dtype != x.dtype:
+            raise ValueError("bank must have the same device and dtype as x")
         # chord points y = x - theta_p R_a  -> (N, A, Qt, d)
         y = x.view(n, 1, 1, d) - self.theta.view(1, 1, Qt, 1) * R.view(n, A, 1, d)
-        v0 = self.potential.V(x)                                  # (N,)  counted
-        vy = self.potential.V(y.reshape(n * A * Qt, d)).reshape(n, A, Qt)
-        dV = vy - v0.view(n, 1, 1)                               # (N, A, Qt)
+        dV = _realized_chord_deltas(self.potential, x, y)        # (N, A, Qt)
         log_I = torch.logsumexp(self.log_w_theta.view(1, 1, Qt) - self.beta * dV, dim=2)
-        M = self.log_lam + log_I                                 # (N, A)
-        S_a = -torch.exp(torch.clamp(M, max=self.m_max)).unsqueeze(-1) * R  # (N,A,d)
-        S = (self.law.weights.view(1, A, 1) * S_a).sum(1)        # (N, d)
-        diag = {
-            "m_clip_fraction": (M > self.m_max).to(torch.float64).mean(),
-            "max_log_magnitude": M.max(),
-        }
-        return S, diag
+        # One global log accumulator per particle, matching ShellScore.  A
+        # per-atom cap before summation would change relative atom weights when
+        # clipping binds and would no longer be the score of the frozen bank.
+        log_terms = (self.log_lam + torch.log(self.law.weights).view(1, A)
+                     + log_I)                                   # (N, A)
+        M = log_terms.max(dim=1).values                          # (N,)
+        scaled = torch.exp(log_terms - M.unsqueeze(1))           # (N, A)
+        v = (scaled.unsqueeze(-1) * R).sum(dim=1)                # (N, d)
+        S = -torch.exp(torch.clamp(M, max=self.m_max)).unsqueeze(1) * v
+        return S, _clip_diagnostics(M, self.m_max)
+
+    def log_parts_for_bank(self, x: torch.Tensor,
+                           R: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Uncapped ``(M, v)`` for a bank frozen across all states ``x``.
+
+        This certificate-facing form satisfies ``S_R(x) = -exp(M(x)) v(x)``.
+        Production per-particle banks use ``score_for_bank`` instead.
+        """
+        n, d = x.shape
+        A, Qt = self.law.A, self.q_theta
+        if R.shape != (A, d):
+            raise ValueError(f"frozen bank must have shape {(A, d)}, got {tuple(R.shape)}")
+        if R.device != x.device or R.dtype != x.dtype:
+            raise ValueError("frozen bank must have the same device and dtype as x")
+        y = x.view(n, 1, 1, d) - self.theta.view(1, 1, Qt, 1) * R.view(1, A, 1, d)
+        dV = _realized_chord_deltas(self.potential, x, y)        # (N, A, Qt)
+        log_I = torch.logsumexp(self.log_w_theta.view(1, 1, Qt) - self.beta * dV, dim=2)
+        log_terms = torch.log(self.law.weights).view(1, A) + log_I
+        return _log_parts(log_terms, R, self.log_lam)
+
+    def __call__(self, x: torch.Tensor) -> tuple[torch.Tensor, dict]:
+        """Compatibility score-only path; paired sampling retains the bank."""
+        return self.score_for_bank(x, self.sample_bank(x.shape[0]))
 
 
 # ============================================================== 4.3 MoG40
