@@ -1,7 +1,6 @@
 \documentclass[11pt]{article}
 
 \usepackage[T1]{fontenc}
-\usepackage[utf8]{inputenc}
 \usepackage[margin=1in]{geometry}
 \usepackage{amsmath,amssymb,mathtools,bm}
 \usepackage{booktabs,longtable,array,multirow}
@@ -24,32 +23,34 @@
 \newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
 \setlength{\emergencystretch}{3em}
 
-\title{Numerical Experiments:\\
-L\'evy Score-Corrected Compound-Poisson Sampling\\
-on Multimodal Benchmarks}
-\author{Standalone experiment section with appendix}
-\date{17 July 2026}
+\title{Numerical Experiments for L\'evy Score-Corrected\\
+Compound-Poisson Equilibrium Sampling}
+\author{}
+\date{}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-This document is a standalone rendering of the numerical-experiment section of
-the L\'evy score-corrected compound-Poisson (LSC-CP) sampling paper, together
-with its appendix.  Every number, table, and figure is generated from one
-audited production campaign (immutable run directories
-\texttt{20260717-prod-gpu7-\{A2,B2,C3\}}; commit \texttt{687c788}, working tree
-recorded dirty) that passed all fail-closed numerical gates: weak-stationarity
-certificates, timestep and quadrature refinement, nonfinite/clipping/basin-map
-audits, and reference diagnostics.  Four systems are studied: the
-one-dimensional double well $V(x)=(x^2-1)^2$, a forty-mode planar Gaussian
-mixture, a depth-balanced three-well M\"uller--Brown landscape embedded in ten
-dimensions, and a coupled $\phi^4$ chain in twenty-four dimensions.  LSC-CP is
-the only method that reaches the finite-sample reference floor of the
-distributional metrics on all four systems while sustaining nonzero
-between-basin effective sample sizes; the three local baselines record exactly
-zero between-basin ESS on every system.  All comparisons are equilibrium
-sampling diagnostics; no physical kinetics is claimed.
+We evaluate L\'evy score-corrected compound-Poisson (LSC-CP) sampling on four
+multimodal Boltzmann model systems: a one-dimensional double well, a planar
+forty-mode Gaussian mixture, a depth-balanced three-well M\"uller--Brown
+landscape embedded in ten dimensions, and a coupled $\phi^4$ chain in
+twenty-four dimensions.  Across the reported horizons, LSC-CP markedly reduces
+terminal basin-population error relative to local samplers and raw
+compound-Poisson dynamics, and it yields nonzero post-settling effective
+sample sizes for every basin indicator.  The MoG40 global $W_2$ and MMD
+discrepancies remain above their finite-sample reference bands, so the results
+do not imply that every distributional metric reaches its sampling floor.
+The implementation uses finite chord quadrature, tamed Euler updates, an
+exponent cap, and projection onto a finite computational box.  These practical
+stabilizations control overflow and large updates and improve numerical
+robustness in the stiff score regime, but they define an approximate
+finite-step kernel.  Statistically resolved
+potential-energy biases are therefore reported explicitly.  The evidence
+supports accelerated interbasin exploration and accurate population recovery
+with observable-dependent numerical bias, rather than exact finite-step
+Boltzmann sampling.  No physical kinetics is inferred.
 \end{abstract}
 
 \section{Overview and compared methods}
@@ -74,12 +75,13 @@ is weakly stationary for $\piB$ (Appendix~\ref{app:construction}).  The
 practical estimators evaluate the score integral by deterministic chord
 quadrature where affordable and by \emph{paired} random-bank estimators in
 higher dimension: the realized jump displacements and the L\'evy-score drift of
-one step are generated from the same random finite measure, so the
-drift--jump cancellation holds conditionally on every realized bank
-(Appendix~\ref{app:paired}).  Figures label the deployed estimator simply
-\textsc{lsc-cp}; run manifests record the exact variant.  The deployed
-variants are: deterministic shell quadrature (double well), a closed-form
-score (MoG40), the paired single-atom estimator \textsc{lsc-cp-ra} (double
+one step are generated from the same random finite measure.  This pairing
+aligns the drift and jump measures before the remaining finite chord
+quadrature is applied (Appendix~\ref{app:paired}).  Figures label the
+implemented estimator simply \textsc{lsc-cp}.  The reported variants are:
+deterministic shell quadrature (double well), a semi-analytic score with
+angular quadrature (MoG40), the paired
+single-atom estimator \textsc{lsc-cp-ra} (double
 well and MoG40, as an estimator-agreement check), and the paired multi-atom
 estimator \textsc{lsc-cp-ma} (M\"uller--Brown and $\phi^4$).
 
@@ -91,16 +93,24 @@ fully counted replica cost.  Raw compound Poisson (\textsc{cp}), i.e.\ the
 same jump bank \emph{without} the score correction, is included as a
 stationarity-defect ablation: its invariant law is not $\piB$, so it is a
 control for the value of the correction, not a fair efficiency baseline.  All
-methods share per-seed initial ensembles; \textsc{cp} and full-law
-\textsc{lsc-cp} additionally share the jump random stream pathwise.
+methods share per-seed initial ensembles.  In the double-well and MoG40
+full-law experiments, \textsc{cp} and deterministic/closed-form
+\textsc{lsc-cp} additionally share the jump random stream pathwise.  In the
+M\"uller--Brown and $\phi^4$ experiments, raw full-law \textsc{cp} and
+\textsc{lsc-cp-ma} match the marginal jump geometry, weights, and intensity,
+but do not use the same realized random banks and hence are not pathwise
+paired.
 
-Two claims are \emph{not} made.  First, no statement about physical reaction
-kinetics: the jump bank, score drift, taming, and algorithmic clock are
-designed for equilibrium sampling, and passage statistics compare algorithmic
-mixing only.  Second, no claim that the finite-step chain preserves $\piB$
-exactly: the paired construction is exact at continuous-generator level, and
-the remaining finite-$\Delta t$ error is measured by the refinement and audit
-gates of Section~\ref{sec:protocol} rather than assumed away.
+The implemented scheme uses finite chord quadrature, log-domain accumulation
+with an exponent cap, tamed Euler drift updates, and projection onto a finite
+computational domain to stabilize evaluation in the stiff-score regime.  These
+operations define the finite-step algorithm evaluated below.  The stationarity
+identity applies to the ideal continuous-time generator with the exact,
+uncapped L\'evy-score field on an unbounded state space.  We assess the
+equilibrium fidelity of the discretization through timestep and quadrature
+sensitivity checks, observable biases, and cap/projection activation rates.
+Passage statistics are interpreted solely as algorithmic mixing diagnostics;
+no physical reaction kinetics is inferred.
 
 \section{Benchmark systems}
 \label{sec:systems}
@@ -108,6 +118,7 @@ gates of Section~\ref{sec:protocol} rather than assumed away.
 \begin{table}[ht]
 \centering
 \small
+\setlength{\tabcolsep}{5pt}
 \begin{tabular}{lllll}
 \toprule
  & Double well & MoG40 & Depth-balanced MB & Coupled $\phi^4$\\
@@ -116,19 +127,21 @@ dimension $d$        & 1 & 2 & 10 & 24\\
 $\beta$              & 8 & 8 & 24 & 8\\
 particles $N$        & 16{,}000 & 2{,}500 & 2{,}000 & 1{,}000\\
 horizon $T$          & 100 & 100 & 200 & 100\\
-$\Delta t$ (refined) & 0.005 & 0.010 & 0.005 & 0.002\\
+$\Delta t$ (used)    & 0.005 & 0.010 & 0.005 & 0.002\\
 steps                & 20{,}000 & 10{,}000 & 40{,}000 & 50{,}000\\
 seeds                & 24 & 24 & 16 & 16\\
 jump rate $\lambda$  & 1 & 1 & 1 & 1\\
-score quadrature     & $q_\theta{=}16$, $q_\rho{=}4$ & closed form ($m_\phi{=}16$) & $q_\theta{=}8$, $q_\rho{=}4$ & $q_\theta{=}32$, $q_\rho{=}4$\\
-deployed estimator   & exact + \textsc{ra} & closed form + \textsc{ra} & \textsc{ma} & \textsc{ma}\\
-certificate residual & $1.5\times10^{-7}$ & $3.0\times10^{-8}$ & $5.0\times10^{-7}$ & $2.0\times10^{-7}$\\
+score quadrature     & $q_\theta{=}16$, $q_\rho{=}4$ & analytic $\theta,\rho$; $m_\phi{=}16$ & $q_\theta{=}8$, $q_\rho{=}4$ & $q_\theta{=}32$, $q_\rho{=}4$\\
+score estimator      & deterministic + \textsc{ra} & semi-analytic + \textsc{ra} & \textsc{ma} & \textsc{ma}\\
+weak-identity residual & $1.5\times10^{-7}$ & $3.0\times10^{-8}$ & $5.0\times10^{-7}$ & $2.0\times10^{-7}$\\
 \bottomrule
 \end{tabular}
-\caption{Production configurations after fail-closed timestep and quadrature
-refinement, and the measured pre-production weak-stationarity certificate
-residual (gate: $10^{-6}$; Appendix~\ref{app:gates}).  Full model, bank, and
-ladder specifications are in Appendix~\ref{app:specs}.}
+\caption{Reported numerical configurations and uncapped weak drift--jump
+identity residuals (diagnostic tolerance $10^{-6}$;
+Appendix~\ref{app:stability}).  The residual measures generator-level
+drift--jump cancellation for a finite family of test functions.  Full model,
+bank, and ladder specifications are
+in Appendix~\ref{app:specs}.}
 \label{tab:configs}
 \end{table}
 
@@ -173,20 +186,21 @@ The four systems form a hierarchy of equilibrium questions---two-state
 balance, many-mode occupancy, curved-basin relay transport, and a collective
 field transition---rather than four independent leaderboard tasks.
 
-\section{Protocol, references, and validation gates}
+\section{Protocol, references, and numerical parameter selection}
 \label{sec:protocol}
 
 \paragraph{Run protocol.}
 For each system all seeds are batched into one ensemble per method with
 per-seed initial blocks; every method starts from the identical localized
-per-seed ensemble.  The timestep is selected by a fail-closed halving rule:
-the largest dyadic $\Delta t$ at which every $\piB$-targeting method's
-terminal metrics agree with their $\Delta t/2$ values within declared
-floor-guarded tolerances (\textsc{fla} and \textsc{cp}, whose invariant laws
-are not $\piB$, are recorded but do not gate).  Score quadrature is selected
-by the analogous rule with an additional weak-stationarity certificate
-threshold.  Exhausting either refinement grid aborts the run; it does not
-default to the finest attempted setting.
+per-seed ensemble.  We used dyadic timestep sensitivity checks based on
+terminal $W_2$, basin TV, MMD, and energy-moment-consistency diagnostics for
+the $\piB$-targeting methods.  The non-targeting \textsc{fla} and raw
+\textsc{cp} chains were recorded but did not determine the timestep.  Score
+quadrature was selected analogously, with the additional uncapped
+weak-identity residual.  These checks guided numerical parameter selection,
+but they did not include post-settling mean energy or collective-variable bias
+and therefore do not establish convergence of the invariant measure of the
+stabilized chain.
 
 \paragraph{References and floors.}
 The double well uses a dense-grid inverse-CDF reference; MoG40 an exact
@@ -195,26 +209,26 @@ with exact Gaussian auxiliaries; $\phi^4$ a Laplace-mixture proposal corrected
 by self-normalized importance weights (direct SNIS for basin masses, energy
 moments, CV means, and the free-energy surface; finite
 sampling-importance-resampling only where unweighted clouds are required).
-The $\phi^4$ weight diagnostics for the production reference are: $2\times
+The $\phi^4$ weight diagnostics for the reference are: $2\times
 10^5$ proposals, weight ESS $41{,}182$ (fraction $0.206$), maximum normalized
-weight $3.6\times10^{-3}$ (Appendix~\ref{app:references}).  For every metric,
-a finite-sample \emph{floor} is estimated by comparing two independent
+weight $3.6\times10^{-3}$ (Appendix~\ref{app:references}).  A separate
+$t=300$ parallel-tempering check gave phase masses
+$(0.365,0.204,0.234,0.197)$, whose TV distance from the SNIS masses is
+$0.042$.  Consequently, differences below this scale in the $\phi^4$ basin
+metrics are reference sensitive.  For every metric, a finite-sample
+\emph{floor} is estimated by comparing two independent
 reference draws of the same size; ``at the floor'' below means within the
 floor band $\text{mean}+3\,\text{sd}$.
 
-\paragraph{Gates.}
-A run is accepted only if: the pre-production certificate residual is below
-$10^{-6}$ on a domain extending at least one maximum jump beyond the
-high-probability region; refinements pass; nonfinite counts are exactly zero;
-score-exponent and state-box clipping stay below declared tolerances;
-jump-boundary contact of the $\piB$-targeting jump methods stays below
-$10^{-2}$ per applied jump; and the basin-map-domain escape fraction of
-targeting methods stays below $10^{-3}$.  All thresholds, measured values,
-and the two domain-coverage design rules they enforce are reported in
-Appendix~\ref{app:gates}.  Every run writes its requested and resolved
-configurations, certificate, refinement tables, diagnostics, logs, and
-outputs into an immutable timestamped directory
-(Appendix~\ref{app:provenance}).
+\paragraph{Stability diagnostics.}
+We monitored nonfinite states, score-cap and state-box projection frequencies,
+jump-boundary contact per applied jump, and basin-map-domain escape.  The
+uncapped weak-identity residual was evaluated on a domain extending at least
+one maximum jump beyond the high-probability region.  The measured values and
+domain-coverage rationale appear in Appendix~\ref{app:stability}.  These
+quantities diagnose numerical robustness and exposure to the stabilizations;
+small activation frequencies do not prove that the finite-step kernel has
+invariant law $\piB$.
 
 \section{Equilibrium recovery}
 \label{sec:recovery}
@@ -293,61 +307,73 @@ Top: double well, MoG40; bottom: M\"uller--Brown 10D, coupled $\phi^4$.}
 Four observations organize Table~\ref{tab:terminal} and
 Figure~\ref{fig:relaxation}.
 
-\emph{(i) Local samplers do not leave their initial basin.}
-On every system, \textsc{ula}, \textsc{mala}, and \textsc{baoab} remain
-essentially where they started for the entire horizon (basin TV
-$0.31$--$0.93$, basin KL $1.1$--$4.2$).  At these dimensionless barriers this
-is expected and quantifies the problem the nonlocal methods must solve.
+\emph{(i) Local dynamics remain strongly metastable.}
+On every system, the terminal \textsc{ula}, \textsc{mala}, and \textsc{baoab}
+ensembles remain strongly localized relative to the target (basin TV
+$0.31$--$0.93$, basin KL $1.1$--$4.2$).  Occasional label changes occur in
+some of the post-settling MoG40 and M\"uller--Brown traces, but they are too
+sparse to recover all basin populations.  This quantifies the metastability
+that the nonlocal methods are intended to address.
 
-\emph{(ii) LSC-CP reaches the floor on all four systems.}
-The deployed LSC-CP estimator attains basin TV and KL at or within the
-finite-sample floor band on the double well, M\"uller--Brown, and $\phi^4$,
-and comes within $25\%$ of the MoG40 TV floor while every alternative is at
-least $2.2\times$ further away.  It is the only method with this property.
-Parallel tempering matches it on the double well and M\"uller--Brown but is
-$4.6\times$ worse in basin KL on MoG40 ($0.055$ vs $0.012$) and $26\times$
-worse on $\phi^4$ ($0.039$ vs $0.0015$), at full replica cost.  The
-$\alpha$-stable flight is competitive only on the double well; its invariant
-law is visibly biased elsewhere (MB free-energy RMSE $0.94\,k_{\rm B}T$).
+\emph{(ii) LSC-CP improves basin recovery, with metric-dependent residual
+error.}
+The reported LSC-CP estimator attains basin TV and KL at or within the
+finite-sample floor band on the double well, M\"uller--Brown, and $\phi^4$;
+the last comparison is subject to the independent-reference uncertainty noted
+in Section~\ref{sec:protocol}.  Its MoG40 basin TV, $0.064$, is also within the
+upper reference band, $0.051+3(0.006)=0.069$.  The corresponding global
+$W_2=2.83$ exceeds its upper reference band of approximately $2.15$, however,
+and MMD $=0.0482$ exceeds its upper band of approximately $0.0317$.  On MoG40,
+the raw-jump and \textsc{pt} basin-TV errors are respectively $4.5$ and
+$2.2$ times the LSC-CP value, while \textsc{lsc-cp-ra} is $1.6$ times larger.
+Parallel tempering matches LSC-CP on the double well and M\"uller--Brown but
+has larger basin KL on MoG40 ($0.055$ versus $0.012$) and $\phi^4$ ($0.039$
+versus $0.0015$) at full replica cost.  The latter distinction is
+reference-sensitive below the $0.042$ scale.  The $\alpha$-stable flight is
+competitive on the double well but shows much larger discrepancies elsewhere
+(e.g., MB free-energy RMSE $0.94\,k_{\rm B}T$).
 
-\emph{(iii) The score correction, not the jumps alone, closes the defect.}
-Raw \textsc{cp} shares the bank, jump times, and jump increments with
-\textsc{lsc-cp} pathwise, yet retains a large stationary defect: basin TV
-$0.286/0.135/0.077$ on MoG40/MB/$\phi^4$ and, most tellingly, $17$--$25\%$ of
-its terminal mass falls outside the reference free-energy grid on the three
-multivariate systems, versus $\le0.6\%$ for LSC-CP.  Its boundary-contact
-rate---$2.5\%$, $6.7\%$, and $0.4\%$ of applied jumps on MoG40, MB, and
-$\phi^4$---is reported as part of this defect (Appendix~\ref{app:gates}).  We
-note for fairness that an earlier tight $\phi^4$ integration box
-$[-2,2]^{24}$ had \emph{flattered} raw \textsc{cp} by confining its spread;
-with the audited box $[-5,5]^{24}$ its $W_2$ moves from $0.28$ to $0.41$
-while LSC-CP-\textsc{ma} is unchanged ($0.099$ vs $0.100$), evidence that the
-corrected sampler is insensitive to the numerical box while the uncorrected
-one is not.
+\emph{(iii) The score correction substantially reduces the raw-jump
+distortion.}
+In the double-well and MoG40 full-law runs, raw \textsc{cp} and
+\textsc{lsc-cp} share jump streams pathwise.  The MB and $\phi^4$ comparisons
+instead match the marginal bank geometry, weights, and intensity but are not
+pathwise paired.  Raw \textsc{cp} retains basin TV $0.286/0.135/0.077$ on
+MoG40/MB/$\phi^4$, and $17$--$25\%$ of its terminal mass lies outside the
+reference free-energy grid on the three multivariate systems, versus
+$\le0.6\%$ for LSC-CP.  Raw \textsc{cp} also contacts the finite box on
+$2.5\%$, $6.7\%$, and $0.4\%$ of applied jumps on these systems
+(Appendix~\ref{app:stability}); this is a numerical-box confound, especially
+for MoG40 and MB, rather than an intrinsic component of the stationary
+defect.  In one $\phi^4$ sensitivity comparison, widening the box from
+$[-2,2]^{24}$ to $[-5,5]^{24}$ changes raw-CP $W_2$ from $0.28$ to $0.41$,
+whereas LSC-CP-\textsc{ma} changes from $0.099$ to $0.100$.  This single check
+supports robustness to that particular box change but does not establish
+general box-size independence.
 
-\emph{(iv) Paired estimators agree with the deterministic score.}
-Where both are run (double well, MoG40), the paired single-atom estimator
-tracks the deterministic-quadrature score within a factor of $1.6$ on
-every metric and with the same qualitative ordering (e.g.\ MoG40 basin KL
-$0.036$ vs $0.012$; double-well $W_2$ $0.131$ vs $0.111$), supporting the use
-of the cheaper paired multi-atom estimator on the two systems where
-deterministic quadrature is unaffordable.
+\emph{(iv) Random-bank and deterministic estimators are qualitatively
+consistent.}
+Where both are run (double well and MoG40), the paired single-atom estimator
+preserves the qualitative method ordering and gives comparable terminal
+errors on several metrics.  It is not numerically equivalent on every metric:
+for example, the MoG40 basin KL is $0.036$ versus $0.012$ (a factor of about
+three), and the outside-grid mass is about four times larger.  The comparison
+therefore provides an estimator-sensitivity check, not a proof of equivalence
+or a validation of the multi-atom approximation.
 
-\section{Stationary sampling efficiency}
+\section{Post-settling time-series diagnostics}
 \label{sec:efficiency}
 
-Terminal ensemble metrics answer ``how close is the law at time $T$''; they
-do not measure the precision of long-run time averages.  For that, small
-independent chains (4 seeds $\times$ 8 chains, 1000 uniformly spaced draws
-over one production horizon) are initialized from the system reference,
-charged one full settling horizon, and analyzed for basin indicators, energy,
-and the collective variables.  Every trace is labelled with its
-initialization provenance; none is claimed to be an exact stationary draw of
-the discrete kernel, so all values below are post-settling diagnostics of the
-numerical chains (Appendix~\ref{app:metrics}).  Chains with zero observed
-transitions contribute zero ESS by construction; a trapped chain is reported
-as trapped, not as converged.  Raw \textsc{cp} and \textsc{fla} are excluded
-because their invariant laws are not $\piB$.
+Terminal ensemble metrics quantify the law at time $T$; they do not measure
+the precision of time averages.  For that purpose, small independent chains
+(4 seeds $\times$ 8 chains, 1000 uniformly spaced draws over one additional
+horizon) are initialized from the system reference, evolved for one full
+settling horizon, and then analyzed for basin indicators, energy, and
+collective variables.  None is claimed to be an exact stationary draw of the
+discrete kernel, so the values below are post-settling diagnostics of the
+numerical chains (Appendix~\ref{app:metrics}).  A constant basin indicator
+contributes zero ESS by construction.  Raw \textsc{cp} and \textsc{fla} are
+excluded because their invariant laws are not $\piB$.
 
 \begin{table}[!ht]
 \centering
@@ -367,64 +393,75 @@ Method & DW & MoG40 & MB & $\phi^4$ & DW & MoG40 & MB & $\phi^4$\\
 \textsc{lsc-cp-ra} & 1{,}809 & 59 & --- & --- & 31{,}224 / $+0.247$ & 9{,}165 / $+0.448$ & --- & ---\\
 \bottomrule
 \end{tabular}
-\caption{Stationary-trace diagnostics aggregated over all seeds and chains.
-Worst-basin ESS is the minimum, over basins, of the summed per-chain
-effective sample size of that basin's indicator (Geyer IAT; constant chains
-contribute zero).  Energy bias is the signed difference between the trace
-mean of $V$ and the reference target, in energy units; its magnitude should
-be read against the Monte Carlo standard error, which is below $0.006$ in all
-cases.  $^{(\ast)}$\textsc{lsc-cp} row: deterministic/closed-form score on DW
-and MoG40, paired multi-atom on MB and $\phi^4$.  All split-$\Rhat$ values
-for the tabulated methods are below $1.11$.}
+\caption{Post-settling trace diagnostics aggregated over all seeds and chains.
+Worst-basin ESS is the minimum, over basins, of the summed per-chain effective
+sample size of that basin's indicator (Geyer IAT; constant chains contribute
+zero).  Energy bias is the signed difference between the trace mean of $V$ and
+the reference target, in energy units; it is interpreted with its
+observable-specific Monte Carlo standard error.  $^{(\ast)}$\textsc{lsc-cp}
+row: deterministic/semi-analytic score on DW and MoG40, paired multi-atom on
+MB and $\phi^4$.  Split-$\Rhat$ and MCSE values for every observable are
+reported in the supporting data.}
 \label{tab:ess}
 \end{table}
+
+The LSC energy MCSEs are $0.0194$ (double well), $0.00485$ (MoG40),
+$0.00143$ (MB), and $0.0141$ ($\phi^4$); the corresponding double-well and
+MoG40 random-atom values are $0.0273$ and $0.0164$.  Energy split-$\Rhat$ is
+below $1.11$ for the tabulated methods, but this does not extend to every
+basin or collective-variable trace.  For example, maximum values are $1.70$
+for MoG40 LSC-CP, $1.61$ for MoG40 LSC-CP-RA, $1.28$ for MoG40 PT, and $1.13$
+for $\phi^4$ PT.  We therefore use these quantities as finite-horizon
+diagnostics and interpret them jointly with population errors.
 
 Three conclusions follow from Table~\ref{tab:ess}.
 
 \emph{(i) Between-basin ESS separates the methods qualitatively.}
-The three local integrators record \emph{exactly zero} between-basin ESS on
-every system: over one full production horizon at stationarity, no chain
-crossed a barrier even once.  Their large energy ESS values illustrate why
-energy decorrelation alone must never be quoted as convergence evidence.
-LSC-CP sustains worst-basin ESS between $229$ and $1{,}952$---the same order
-as fully costed parallel tempering---using only local gradients plus the
-jump-bank score.
+The three local integrators record \emph{exactly zero} worst-basin ESS on
+every system because at least one basin indicator is constant or unvisited in
+the recorded traces.  This is not equivalent to zero transitions: on MoG40,
+for example, \textsc{ula}, \textsc{mala}, and \textsc{baoab} record 222, 230,
+and 60 label changes, and the corresponding MB counts are 209, 194, and 43.
+Their large energy ESS values illustrate why energy decorrelation alone is
+insufficient evidence of global mixing.  LSC-CP sustains worst-basin ESS
+between $229$ and $1{,}952$---the same order as fully costed parallel
+tempering---using local gradients and the jump-bank score.
 
 \emph{(ii) Mixing and accuracy must be read together.}
-On MoG40 and $\phi^4$, \textsc{pt} shows the larger between-basin ESS
-($572$ vs $229$; $2{,}567$ vs $1{,}150$) yet its terminal occupancy accuracy
-is a factor $4.6$--$26$ \emph{worse} in basin KL (Table~\ref{tab:terminal}).
-Tempered swaps relabel basins quickly, but the resulting cold-chain law is
-less accurate than the score-corrected chain at matched horizons.  Neither
-column alone ranks the samplers; the product of accuracy and per-cost mixing
-does.
+On MoG40 and $\phi^4$, \textsc{pt} has the larger post-settling worst-basin
+ESS ($572$ versus $229$; $2{,}567$ versus $1{,}150$), whereas LSC-CP has
+smaller terminal basin KL at the reported horizon (Table~\ref{tab:terminal}).
+The $\phi^4$ population difference is reference-sensitive as discussed above.
+Neither diagnostic alone ranks the samplers; population error, observable
+bias, mixing, and computational cost must be reported together.
 
-\emph{(iii) The LSC chains carry a measurable, honest energy bias.}
-The stationary energy mean of the LSC chains exceeds the target by $+0.04$ to
-$+0.25$ energy units (many standard errors), while local and \textsc{pt}
-chains are unbiased at the $10^{-3}$ level.  This is the expected signature
-of the finite-step chain's invariant law: a jump deposits a particle on a
-high-energy chord point and the tamed drift relaxes it over a finite time, so
-an $O(\lambda\tau_{\rm relax})$ fraction of stationary time is spent in
-elevated-energy transients.  The distributional metrics of
-Table~\ref{tab:terminal} include exactly these transients and still reach the
-reference floors, which bounds the practical impact; nevertheless every ESS
-or throughput number for LSC-CP must be displayed next to this bias, and is,
-throughout the released data.
+\emph{(iii) The LSC chains carry a measurable energy bias.}
+The post-settling energy mean of the LSC chains exceeds the target by $+0.04$
+to $+0.25$ energy units, and the MCSE values above resolve these differences.
+The local methods are not uniformly unbiased either: on $\phi^4$, the signed
+biases are $+0.1334$ for \textsc{ula}, $-0.0100$ for \textsc{mala}, and
+$+0.0276$ for \textsc{baoab}.  The LSC bias cannot be attributed merely to
+high-energy post-jump chord configurations, because those transients also
+occur in the exact continuous-time process whose drift--jump balance preserves
+$\piB$.  Instead, it indicates observable-dependent invariant-measure error
+in the finite-step kernel, potentially from Euler splitting, drift taming,
+finite quadrature, exponent capping, or box projection.  These devices are
+useful for robust computation, but systematic refinement is needed to
+separate their contributions to the measured bias.
 
 \emph{Cost-normalized throughput.}
-Per-second worst-basin throughput on the two cleanly timed systems (single
-tenant on one H200 GPU) is the same order for LSC-CP and \textsc{pt}: on MB,
-$33$ vs $48$ ESS/s (energy observable) with LSC-CP paying $A q_\theta=64$
-score-quadrature energy differences per particle step; on $\phi^4$, $51$ vs
-$62$ ESS/s with $Aq_\theta=256$.  The double-well and MoG40 timing columns
-were collected while a second job shared the GPU and are reported in the
-manifests with that caveat; per-gradient, per-potential, and
-per-score-quadrature ESS, which are hardware independent, are stored per
-observable in the released stationarity tables
-(Appendix~\ref{app:provenance}).
+Per-second comparisons are restricted to MB and $\phi^4$, which were timed on
+a dedicated H200 GPU.  On MB, LSC-CP and \textsc{pt} yield respectively
+$33.03$ and $48.23$ energy ESS/s, while their worst-basin throughputs are
+$2.41$ and $4.47$ ESS/s.  LSC-CP evaluates $Aq_\theta=4\times8=32$
+score-quadrature energy differences per particle step.  On $\phi^4$, the
+energy throughputs are $50.80$ and $62.17$ ESS/s and the worst-basin
+throughputs are $1.89$ and $6.55$ ESS/s, with $Aq_\theta=8\times32=256$ for
+LSC-CP.  Per-gradient, per-potential, and per-score-quadrature ESS are included
+for every observable in the supporting data; accounting conventions are given
+(Appendix~\ref{app:computational}).
 
-\section{Scope, negative controls, and outlook}
+\section{Scope and limitations}
 \label{sec:outlook}
 
 Three boundaries of the present evidence are stated explicitly.  First, all
@@ -432,17 +469,17 @@ results are equilibrium-sampling diagnostics of algorithmic chains; passage
 or round-trip statistics, where recorded, are Kaplan--Meier restricted means
 of algorithmic mixing times and carry no molecular-kinetics meaning.  Second,
 the finite-step LSC chains are not exactly $\piB$-invariant, and the measured
-consequences---the energy-transient bias of Section~\ref{sec:efficiency} and
-the audited clipping/boundary diagnostics of Appendix~\ref{app:gates}---are
-part of the reported results rather than suppressed.  Third, one planned
-ablation is not yet included: a matched-length \emph{random-geometry} jump
-control (same atom count, length multiset, weights, rate, and cost; randomized
-directions) that would isolate the contribution of the designed bank geometry
-from the generic value of long jumps; raw \textsc{cp} controls for the score
-correction, not for geometry.  A $\phi^4$ box-sensitivity confirmation at
-$L=6,7$ and an independent (non-SNIS) $\phi^4$ reference cross-check beyond
-the long \textsc{pt} run are planned for the same reason.  These are
-completions of the control matrix, not changes to the sampler or claims.
+consequences---the energy bias of Section~\ref{sec:efficiency} and the
+clipping/boundary diagnostics of Appendix~\ref{app:stability}---are part of
+the reported results.  Third, the present comparison does not include a
+matched-length \emph{random-geometry} jump control (same atom count, length
+multiset, weights, rate, and cost; randomized directions) that would isolate
+the contribution of the designed bank geometry from the generic value of long
+jumps; raw \textsc{cp} controls for the score correction, not for geometry.
+Box sensitivity has been checked only for one $\phi^4$ change ($L=2$ to
+$L=5$); broader checks at $L=5,6,7$ are needed.  Finally, the SNIS and long-PT
+$\phi^4$ references differ by basin TV $0.042$, so population-error
+distinctions below that scale are reference sensitive.
 
 \clearpage
 \appendix
@@ -480,14 +517,23 @@ score is
  I_a(x)=\int_0^1e^{\beta[V(x)-V(x-\theta R_a)]}\dd\theta,
  \label{eq:finite-bank-score}
 \end{equation}
-with $I_a$ evaluated by Gauss--Legendre quadrature in $\theta$ (and, for the
-deterministic shell score, in the radial coordinate).  The implementation
-accumulates the atom sum in log space with one \emph{global} maximum exponent
-extracted after the signed-vector accumulation; capping that single global
-exponent preserves the relative atom weights, whereas per-atom capping would
-no longer compute the score of the realized measure.  The cap activation
-fraction and maximum pre-cap exponent are recorded diagnostics
-(Appendix~\ref{app:gates}).
+with the chord integral evaluated by Gauss--Legendre quadrature.  For the
+deterministic shell calculation, radial quadrature additionally replaces the
+continuous shell law by a finite quadrature measure; the full-law jump step
+still samples the continuous shell.  This is a separate approximation from
+time discretization.  For MoG40, the chord and radial integrals are analytic,
+while the angular integral uses a finite trapezoidal rule.
+
+The score is accumulated in log space.  For each particle, the largest log
+magnitude is extracted over the positive quadrature/atom contributions
+\emph{before} their signed vector sum is formed.  Rescaling by this common
+maximum preserves cancellation among opposite vectors.  The implementation
+then replaces the common magnitude $\exp(M)$ by
+$\exp[\min(M,M_{\max})]$, with $M_{\max}=600$.  When active, this cap
+preserves the relative atom contributions and the score direction but changes
+its overall magnitude.  It is therefore a numerical-stability device, not an
+algebraically exact score evaluation.  Its activation frequency and the
+maximum pre-cap exponent are recorded in Appendix~\ref{app:stability}.
 
 \subsection{Paired random banks}
 \label{app:paired}
@@ -501,42 +547,46 @@ draws, at the start of each step and independently of the state,
  \widehat\nu_n(\dd r)=\lambda\sum_{a=1}^{A}w_a\delta_{R_{n,a}}(\dd r),
  \qquad \E[\widehat\nu_n]=\nu ,
 \end{equation}
-evaluates the score \eqref{eq:finite-bank-score} of the \emph{realized} bank,
-and jumps with atomwise counts drawn conditionally on that same bank,
+evaluates a finite-$q_\theta$ approximation to
+\eqref{eq:finite-bank-score} for the \emph{realized} bank, and draws the
+jump counts conditionally on that same bank,
 \begin{equation}
  N_{n,a}\sim\operatorname{Poisson}(\lambda w_a\Delta t),
  \qquad
  \Delta J_n=\sum_{a=1}^{A}N_{n,a}R_{n,a}.
  \label{eq:paired-counts}
 \end{equation}
-Conditional on every frozen bank, drift and jumps realize the same measure
-$\widehat\nu_n$, so \eqref{eq:weak-cancel} holds bank by bank at generator
-level; refreshing the state-independent bank averages back to $\nu$.  If
-instead the jumps were drawn from the marginal law while the score used an
-independently realized bank, the conditional defect
-$\int[J_{\widehat\nu}f-J_{\nu}f]\,\piB\dd x$ would generally be nonzero:
-unbiasedness of the score alone is not a substitute for conditional
-matching.  The production sampler enforces the pairing structurally (the bank
-tensor is drawn once, used by both operators, then discarded) and its
-constructor rejects any score/jump configuration whose law object, rate,
-temperature, device, or precision disagree.  The single-atom variant
-\textsc{lsc-cp-ra} is the $A=1$ case with the atom index resampled each step.
+With the exact chord integral, each frozen bank would satisfy the weak
+drift--jump identity \eqref{eq:weak-cancel}.  The finite chord rule makes this
+identity approximate, but pairing still removes the additional mismatch that
+would arise if the score and jumps used independent banks.  Averaging over the
+atom draw makes the estimator unbiased for the \emph{quadrature-defined}
+score, not for the exact continuous-score integral.  The single-atom variant
+\textsc{lsc-cp-ra} is the $A=1$ case with the atom family resampled each step.
 
-The implemented step, with drift cap $c$ set to twice the shell half-width
+The implemented step, with taming scale $c$ set to twice the shell half-width
 and integration box $\mathcal B$, is
 \begin{equation}
- X_{n+1}=\operatorname{clip}_{\mathcal B}\Bigl[
+ \begin{aligned}
+ X_{n+1}
+ &=\operatorname{clip}_{\mathcal B}\Bigl[
  X_n+\Delta t\,\frac{b_n}{1+\Delta t\lVert b_n\rVert/c}
- +\sqrt{2\Delta t/\beta}\,\xi_n+\sum_aN_{n,a}R_{n,a}\Bigr],
- \qquad b_n=-\nabla V(X_n)+S_{\mathcal R_n,\beta}(X_n).
+ +\sqrt{2\Delta t/\beta}\,\xi_n\\
+ &\hspace{8em}+\sum_aN_{n,a}R_{n,a}\Bigr],\\
+ b_n&=-\nabla V(X_n)+S_{\mathcal R_n,\beta}(X_n).
+ \end{aligned}
  \label{eq:euler-paired}
 \end{equation}
-Taming, clipping, quadrature, and the Euler step are outside the generator
-identity; their effects are measured (certificates, refinements, and the
-audit diagnostics of Appendix~\ref{app:gates}), not assumed absent.  Poisson
-multiplicities are applied exactly---never truncated---and multiple events on
-one atom within a step reuse its stored displacement, an $O(\Delta t^2)$
-difference from full-law compound-Poisson sampling.
+Euler splitting, finite quadrature, exponent capping, drift taming, and box
+projection all lie outside the exact generator identity.  The weak-identity
+residual tests the uncapped quadrature-level drift--jump cancellation only; it
+does not test these finite-step modifications.  The atomwise counts in
+\eqref{eq:paired-counts} are untruncated.  The separate full-law
+compound-Poisson implementation uses a safety cap $K_{\max}=8$ on applied
+multiplicity while recording the uncapped Poisson draw; no cap hit occurred in
+the reported trajectories.  Multiple events for one paired atom within a step
+reuse its stored displacement, an $O(\Delta t^2)$ difference from independently
+resampling every full-law event.
 
 \section{System specifications}
 \label{app:specs}
@@ -583,7 +633,7 @@ $B_{\beta_{\min}=1}=3.569$, and the maximum componentwise one-jump reach
 $R_\infty=2.200$; $L=\lceil\max\{B_\beta+R_\infty,B_{\beta_{\min}}\}\rceil=5$.
 The basin map for $\bar q$ is constructed by gradient flow on
 $[-4,4]^2$---the \emph{jump-reachable} order-parameter set (double-jump reach
-$|\bar q|\le3.3$), not merely the phase minima (Appendix~\ref{app:gates}).
+$|\bar q|\le3.3$), not merely the phase minima (Appendix~\ref{app:stability}).
 
 \paragraph{Parallel-tempering ladders (auto-tuned, fully costed).}
 Double well: $\beta\in\{8,1\}$ ($K=2$, swap acceptance $0.41$); MoG40:
@@ -643,14 +693,15 @@ declared home core, and summarized by the Kaplan--Meier restricted mean; the
 model-dependent censored-exponential estimate, when saved, is labelled as
 such.  Both are algorithmic-mixing diagnostics only.
 
-\section{References and the $\phi^4$ importance reference}
+\section{References and the
+\texorpdfstring{$\phi^4$}{phi4} importance reference}
 \label{app:references}
 
 Double well: dense-grid inverse CDF on the declared box ($2\times10^5$ grid
 points).  MoG40: exact mixture draws.  M\"uller--Brown: fine latent grid
 ($2400^2$) times exact Gaussian auxiliaries.  $\phi^4$: Laplace mixture at
 the four coherent minima (autograd Hessians) corrected by self-normalized
-importance weights.  Production weight diagnostics: $2\times10^5$ proposals,
+importance weights.  Weight diagnostics: $2\times10^5$ proposals,
 weight ESS $41{,}182$ ($20.6\%$), entropy ESS consistent, maximum normalized
 weight $3.6\times10^{-3}$; basin masses, energy moments, CV means, and the
 FES reference histogram use the weights directly (no resampling); finite SIR
@@ -658,79 +709,70 @@ supplies unweighted clouds only where required ($W_2$, MMD) and is labelled
 approximate.  Reference floors in Table~\ref{tab:terminal} are two-draw
 floors of the corresponding reference at matched sample size.
 
-\section{Numerical gates, audit diagnostics, and measured values}
-\label{app:gates}
+\section{Numerical convergence and stability diagnostics}
+\label{app:stability}
 
 \begin{table}[!ht]
 \centering
 \small
+\setlength{\tabcolsep}{3.5pt}
 \begin{tabular}{lcccc}
 \toprule
-Diagnostic (per run; gate) & DW & MoG40 & MB & $\phi^4$\\
+Diagnostic & DW & MoG40 & MB & $\phi^4$\\
 \midrule
-nonfinite states (gate $=0$)                     & 0 & 0 & 0 & 0\\
-score-cap activation (gate $\le10^{-2}$)          & 0 & 0 & 0 & 0\\
-state-box clip fraction (gate $\le10^{-2}$)       & $1.7\times10^{-6}$ & $3.2\times10^{-4}$ & $2.5\times10^{-3}$ & $9\times10^{-6}$\\
-jump-boundary contact, LSC (gate $\le10^{-2}$)     & $5.3\times10^{-4}$ & $1.1\times10^{-4}$ & $2.2\times10^{-3}$ & $1.6\times10^{-4}$\\
-jump-boundary contact, raw \textsc{cp} (recorded) & $3.0\times10^{-4}$ & $2.5\times10^{-2}$ & $6.7\times10^{-2}$ & $4.1\times10^{-3}$\\
-basin-map escape, targeting (gate $\le10^{-3}$)    & 0 & 0 & 0 & $1.0\times10^{-3}$\\
-certificate residual (gate $\le10^{-6}$)           & $1.5\times10^{-7}$ & $3.0\times10^{-8}$ & $5.0\times10^{-7}$ & $2.0\times10^{-7}$\\
+nonfinite states                              & 0 & 0 & 0 & 0\\
+score-cap fraction, reported LSC              & $5.02\times10^{-4}$ & 0 & $2.85\times10^{-7}$ & $2.09\times10^{-4}$\\
+state-box fraction, maximum over methods      & $8.67\times10^{-5}$ & $3.84\times10^{-4}$ & $3.304\times10^{-3}$ & $8.903\times10^{-4}$\\
+jump-boundary contact, reported LSC           & $1.69\times10^{-4}$ & $1.05\times10^{-5}$ & $2.18\times10^{-3}$ & $1.60\times10^{-4}$\\
+jump-boundary contact, raw \textsc{cp}         & $3.03\times10^{-4}$ & $2.475\times10^{-2}$ & $6.733\times10^{-2}$ & $4.130\times10^{-3}$\\
+basin-map escape, targeting methods           & 0 & 0 & 0 & exactly $1.0\times10^{-3}$\\
+uncapped weak-identity residual               & $1.5\times10^{-7}$ & $3.0\times10^{-8}$ & $5.0\times10^{-7}$ & $2.0\times10^{-7}$\\
 \bottomrule
 \end{tabular}
-\caption{Fail-closed gate thresholds and the values measured by the accepted
-production runs.  Jump-boundary contact is per applied jump; state-box
-clipping per proposal (the largest value belongs to the heavy-tailed
-\textsc{fla} baseline).  The $\phi^4$ basin-map entry corresponds to a single
-particle at a single checkpoint ($1/N$ with $N=1000$).}
-\label{tab:gates}
+\caption{Numerical-stability measurements for the reported trajectories.
+Score-cap and state-box entries are fractions of particle proposals; the
+state-box row is the maximum over all compared methods.  Jump-boundary contact
+is measured per applied jump.  The $\phi^4$ basin-map entry corresponds to one
+particle at one checkpoint ($1/N$ with $N=1000$).}
+\label{tab:stability}
 \end{table}
 
-Two domain-coverage rules were established by this campaign's failed
-first attempts, and are now part of the audit design.
+The score-cap activation is small but not identically zero for the double
+well, MB, or $\phi^4$.  On the deliberately extended weak-identity grids, the
+fractions with pre-cap exponent above $M_{\max}$ are $0.402$ for the double
+well and $0.374$ for MB; these grid values are distinct from the trajectory
+activation frequencies in Table~\ref{tab:stability}.  The residual itself is
+formed from the uncapped log-domain score and tests the generator identity for
+the quadrature-defined measure and a finite family of observables.  It does
+not test the exponent cap, drift taming, Euler splitting, or box projection,
+and it is not a certificate of the invariant distribution of the stabilized
+finite-step chain.
 
-\emph{Rule 1: a hard-zero jump-boundary gate is unsatisfiable.}  CP-family
-jumps fire independently of the state, so rare multi-jump excursions contact
-\emph{any} finite integration box; measured LSC contact rates are
-$10^{-4}$--$2\times10^{-3}$ per applied jump.  The gate therefore bounds
-$\piB$-targeting methods at $10^{-2}$ (five to fifty times the observed
-values) and \emph{records} raw \textsc{cp}, whose larger contact rate is part
-of its documented stationarity defect---consistent with the refinement and
-basin gates, which likewise never gate on non-targeting baselines.  Box
-truncation flatters raw \textsc{cp} (Section~\ref{sec:recovery}), so
-recording it is conservative for the comparison.
+Because compound-Poisson jumps occur independently of the current state, rare
+events can contact any finite computational box.  The contact and projection
+frequencies in Table~\ref{tab:stability} quantify this exposure.  In
+particular, the larger raw-CP contact rates on MoG40 and MB make the finite box
+a material confound in that ablation.  For $\phi^4$, the basin map was
+constructed on $[-4,4]^2$ to cover the jump-reachable order-parameter region
+rather than only the phase minima.  Even rare cap or projection events alter
+the numerical kernel, so low frequencies are evidence of numerical
+robustness, not exact stationarity.
 
-\emph{Rule 2: every domain-restricted diagnostic must cover the
-jump-reachable set.}  The $\phi^4$ basin map was originally built on the
-phase-minima square $[-2,2]^2$; a single phase-to-phase atom moves $\bar q$
-by $\approx2.12$, so legitimate LSC-CP transport parks $|\bar q|$ up to
-$3.3$, which the map lookup would silently clamp into boundary cells and
-mislabel.  The map is now built on $[-4,4]^2$ at unchanged cell size, with
-the metric bounds derived from the map object itself so the gate and the
-lookup can never measure different domains.
+\section{Computational details and data availability}
+\label{app:computational}
 
-\section{Provenance and runtime}
-\label{app:provenance}
+All calculations used float64 arithmetic on one NVIDIA H200 GPU, with Python
+3.12.13 and PyTorch 2.13.0+cu130.  Complete seed lists, numerical configurations,
+raw and time-series metrics, analysis-ready summaries, and stationarity traces
+accompany the supporting data.  Gradient, potential, and
+L\'evy-score-quadrature evaluation counts are stored separately for each
+method and observable.
 
-Accepted runs: \texttt{20260717-prod-gpu7-A2} (MoG40),
-\texttt{20260717-prod-gpu7-B2} (double well, M\"uller--Brown), and
-\texttt{20260717-prod-gpu7-C3} ($\phi^4$), each an immutable directory
-containing the requested YAML, resolved preflight and post-refinement JSON
-configurations with cache SHA-256 values, the certificate, refinement tables,
-metric time series, per-method summaries, stationarity traces (NPZ) and
-tables (CSV), figures, logs, and a status manifest; git commit
-\texttt{687c788} with the working tree recorded dirty (the audited revision
-under review).  Hardware: one NVIDIA H200 (float64 throughout), PyTorch
-2.13.0+cu130, Python 3.12.13.  End-to-end notebook wall times: double well
-142 min, MoG40 134 min, M\"uller--Brown 91 min, $\phi^4$ 80 min, including
-references, certificates, refinements, production dynamics, stationary
-traces, and rendering.  The double-well and MoG40 runs shared the GPU with
-each other for part of their execution; their wall-clock-derived columns
-carry that caveat in the manifests (the co-tenant process list at start is
-recorded), while the M\"uller--Brown and $\phi^4$ runs were single tenant.
-Hardware-independent cost counters (gradient, potential, and score-quadrature
-evaluations) are recorded per method and per observable in all cases.  Two
-preceding campaign attempts failed post-production audit gates (the
-jump-boundary and basin-map-domain issues of Appendix~\ref{app:gates}); their
-run directories and failure manifests are retained.
+The MB and $\phi^4$ ESS/s values in Section~\ref{sec:efficiency} were measured
+without a concurrent GPU workload; for the double well and MoG40, we report
+hardware-independent evaluation counts rather than wall-clock-normalized
+efficiency.  Source code, configurations, and analysis-ready numerical
+artifacts will be deposited in a public archival repository upon
+publication.
 
 \end{document}
