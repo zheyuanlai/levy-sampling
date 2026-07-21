@@ -770,11 +770,18 @@ def build_e5_alanine(device="cuda", *, reference_cache: str | None = None,
     def labels_fn(qt):
         return ref.assign(pot.to_cv(qt))
 
-    def make_score(q_theta=Q_THETA, q_rho=Q_RHO):
-        # Exact deterministic quadrature. Correct but costly here
-        # (q_theta * A * q_rho BAT reconstructions per particle per step); the
-        # deployed estimators are RA / paired-MA, which need only chord energies.
-        return ShellScore(pot, law, cfg.lam, cfg.beta, q_theta, q_rho)
+    def make_score(q_theta=Q_THETA, q_rho=Q_RHO, max_block_elems=1 << 18):
+        # Exact deterministic quadrature. Correct but costly here: it needs
+        # q_theta * A * q_rho = 768 chord points per particle per step (8x the
+        # paired-MA bank), each a full 19-atom BAT reconstruction plus a force
+        # field evaluation. The default block of 2^23 particle-chord units is
+        # sized for analytic potentials; here every chord point expands into a
+        # 22-atom geometry with NeRF intermediates, so it must be ~32x smaller
+        # or the block allocates >100 GiB. 2^18 peaks at 4.3 GiB.
+        # The deployed estimators remain RA / paired-MA, which need only chord
+        # energies -- the only thing a black-box force field affords.
+        return ShellScore(pot, law, cfg.lam, cfg.beta, q_theta, q_rho,
+                          max_block_elems=max_block_elems)
 
     # ---- the slow event: reaching the sparse C7ax/alpha_L island ----------
     # The barrier is the island basin's own escape barrier, NOT the minimum of F
