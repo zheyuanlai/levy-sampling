@@ -8,6 +8,8 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 *.npz
+# committed force-field parameters for E5 (alanine dipeptide), not a run cache
+!src/e5_alanine/params.npz
 # reusable numerical caches (basin maps etc.), not run results
 cache/
 # internal working notes, kept local only
