@@ -36,6 +36,22 @@ from .system import load_params
 ROOT = (4, 6, 8)
 FORCED_FIRST = (14, 16)
 
+# Reporting windows for the collective variables (task S2 periodicity discipline).
+# phi keeps the standard (-pi, pi]: only 0.5% of the reference mass lies near its
+# seam and the primary transition path runs through phi ~ 0. psi does NOT: the
+# C5/beta region wraps around psi = +-180 and carries 7.4% of the mass within
+# 0.15 rad of that seam, which would make Euclidean W2/MMD/FES distances treat
+# psi = +179 and psi = -179 as maximally distant. So psi is reported on the
+# window centred on PSI_WINDOW_CENTER, i.e. (-200, 160] degrees: the branch cut
+# then falls in the empty gap between alpha_R and C7eq (measured mass 1.7e-4),
+# leaving the C5/beta basin contiguous. This is a choice of fundamental domain
+# inside E5 only -- metrics.py is untouched and Euclidean distance stays valid.
+# NOTE: a window centred at c has its branch CUT at c + pi. To place the psi cut
+# at -20 deg the centre must be +160 deg, giving the window (-20, 340].
+PHI_WINDOW_CENTER = 0.0                              # window (-180, 180]
+PSI_WINDOW_CENTER = 160.0 * np.pi / 180.0            # window (-20, 340]
+PSI_BRANCH_CUT_DEG = -20.0
+
 
 def _adjacency(bond_idx: np.ndarray, n_atoms: int) -> list[list[int]]:
     adj = [[] for _ in range(n_atoms)]
@@ -263,9 +279,9 @@ class BATTransform:
                 + torch.log(torch.sin(a)).sum(-1))
 
     def cv(self, q: torch.Tensor) -> torch.Tensor:
-        """(phi, psi) collective variables (wrapped to (-pi, pi])."""
-        phi = _wrap(q[..., self.phi_slot])
-        psi = _wrap(q[..., self.psi_slot])
+        """(phi, psi) collective variables in their reporting windows."""
+        phi = wrap_about(q[..., self.phi_slot], PHI_WINDOW_CENTER)
+        psi = wrap_about(q[..., self.psi_slot], PSI_WINDOW_CENTER)
         return torch.stack([phi, psi], dim=-1)
 
 
@@ -306,3 +322,10 @@ def _nerf(A, B, C, b, theta, chi):
 def _wrap(t):
     """wrap angle(s) to (-pi, pi]."""
     return -(torch.remainder(np.pi - t, 2.0 * np.pi) - np.pi)
+
+
+def wrap_about(t, center: float):
+    """Wrap angle(s) into the window (center - pi, center + pi]."""
+    if isinstance(t, torch.Tensor):
+        return center + _wrap(t - center)
+    return center + (-(np.remainder(np.pi - (t - center), 2.0 * np.pi) - np.pi))

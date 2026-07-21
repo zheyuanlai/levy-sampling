@@ -111,7 +111,12 @@ def test_to_cv_and_counters():
     qt = _states(pot, n=8, seed=4)
     cv = pot.to_cv(qt)
     assert cv.shape == (8, 2)
-    assert bool(((cv > -np.pi - 1e-9) & (cv <= np.pi + 1e-9)).all())
+    # phi is reported on (-pi, pi]; psi on the window whose branch cut is moved
+    # off the populated +-pi seam (task S2), i.e. (-20, 340] degrees.
+    from src.e5_alanine.bat import PHI_WINDOW_CENTER, PSI_WINDOW_CENTER
+    for j, center in enumerate((PHI_WINDOW_CENTER, PSI_WINDOW_CENTER)):
+        assert bool(((cv[:, j] > center - np.pi - 1e-9)
+                     & (cv[:, j] <= center + np.pi + 1e-9)).all())
     pot.reset_counters()
     pot.V(qt)
     pot.grad(qt)
