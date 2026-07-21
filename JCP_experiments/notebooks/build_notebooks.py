@@ -1510,13 +1510,152 @@ display(pd.DataFrame(quad_table).round(6))'''),
     return nb
 
 
+MD_E5_TITLE = r"""# E5 — Alanine dipeptide (Ac-Ala-NHMe, vacuum, 22 atoms, 60D internal)
+
+**Target.** A real force field: the fully flexible `AlanineDipeptideVacuum`
+(`constraints=None`), so every bond is harmonic and the Cartesian potential is
+the smooth 66-D AMBER energy (21 bonds, 36 angles, 52 periodic torsions, 98
+nonbonded exceptions). Boltzmann at $T=300\,$K, $\beta = 1/(k_BT) = 0.40091$
+mol/kJ, $k_BT = 2.4943$ kJ/mol — threaded locally, `config.BETA = 8` is untouched.
+
+**Coordinates.** The sampler runs in whitened BAT internal coordinates
+$\tilde q\in\mathbb R^{60}$ (21 bonds + 20 angles + 19 torsions), so the backbone
+torsions $\varphi,\psi$ are literally two coordinates. Atoms sharing a rotation
+axis use the correlated *leader/offset* convention, so moving $\varphi$ rotates
+the whole fragment rather than distorting the C$\alpha$ centre. The Jacobian
+$J(q)=\ln r_{23}+\sum[2\ln b+\ln\sin a]$ carries **no torsion**, hence the
+Lévy-score chord for a pure-torsion jump is *Jacobian-free* — the score integrand
+is the physical energy difference (verified machine-zero, $4.6\times10^{-13}$).
+
+**Slow event.** The $\varphi$ sign flip: the negative-$\varphi$ cluster
+(C5/$\beta$, C7eq, $\alpha_R$) carries $\approx 99\%$ of the mass, and the
+positive-$\varphi$ island (C7ax, $\alpha_L$) is reachable only over the
+Ramachandran barrier. Init in C7eq. **Reference.** Well-tempered metadynamics on
+$(\varphi,\psi)$, reweighted under the frozen converged bias by
+$w=\exp(\beta V_{\rm bias})$ — exact for any static bias, so convergence controls
+variance, not bias. Partition = torus Voronoi around the FES minima."""
+
+CELL_E5_ASSERTS = '''# design constants and the physics that fixes them
+ref = exp.extras["reference"]
+print("basins (deg):", exp.extras["minima_deg"])
+print("p_star:", np.round(exp.p_star.cpu().numpy(), 4))
+print("basin free energies (kT):", np.round(exp.extras["basin_free_energies_kT"], 3))
+print(f"phi barrier: through phi~0 {exp.extras['phi_barrier_kJ_through_zero']:.1f} kJ/mol, "
+      f"through the +-pi seam {exp.extras['phi_barrier_kJ_through_seam']:.1f}; "
+      f"used {exp.extras['phi_barrier_kJ']:.1f} = {exp.extras['phi_barrier_kT']:.2f} kT")
+print(f"Kramers tau {exp.kramers_tau:.3g} (T = {cfg.T}); pt_beta_min {exp.pt_beta_min:.4f}")
+print("whitening:", exp.extras["whitening_provenance"])
+print(f"reference ESS {ref.ess:.0f} ({100*ref.ess_fraction:.1f}%), "
+      f"seam mass {ref.seam_mass():.4f} (must be ~0 for the (-pi,pi] window)")
+# the deployed jump law, with every dropped atom and its reason
+rec = exp.extras["jump_design"]
+print(f"jump atoms: {rec['n_retained']}/{rec['n_candidates']} retained, "
+      f"h={rec['h']:.4f}, drift cap={rec['cp_drift_cap']:.4f}")
+for info in rec["dropped"]:
+    print(f"  dropped {info['src']}->{info['dst']} "
+          f"(dphi={info['dphi_deg']:.0f}, dpsi={info['dpsi_deg']:.0f}): {info['reason']}")
+assert exp.cfg.d == 60 and abs(exp.cfg.beta*exp.cfg.eps - 1.0) < 1e-12'''
+
+CELL_E5_TARGET_VIZ = '''# reference Ramachandran free-energy surface with the basins and jump atoms
+import matplotlib.pyplot as plt
+F = ref.F_grid.cpu().numpy(); F = F - F.min()
+mins = ref.minima.cpu().numpy()
+fig, ax = plt.subplots(figsize=(5.2, 4.4))
+im = ax.imshow(F.T, origin="lower", extent=[-180, 180, -180, 180],
+               aspect="auto", cmap="viridis", vmax=40)
+ax.scatter(np.degrees(mins[:, 0]), np.degrees(mins[:, 1]), c="red", s=28, marker="x")
+for a in exp.law.atoms.cpu().numpy():
+    pass
+ax.set_xlabel(r"$\\varphi$ (deg)"); ax.set_ylabel(r"$\\psi$ (deg)")
+ax.set_title("E5 reference FES (kJ/mol)")
+fig.colorbar(im, ax=ax)
+fig.tight_layout()
+for ext in ("png", "pdf"):
+    fig.savefig(os.path.join(FIGURES, "alanine_dipeptide_target." + ext), dpi=200,
+                bbox_inches="tight")
+plt.close(fig)
+print("wrote target FES figure")'''
+
+MD_E5_JUMP = r"""## Jump law and Lévy score (random-atomic / paired multi-atom)
+
+Atoms are **pure-torsion** shifts: nonzero only in the $\varphi,\psi$ slots, so the
+chord is Jacobian-free and the shell jitter stays in the same plane. Candidates
+are the torus-minimal $(\Delta\varphi,\Delta\psi)$ between every ordered pair of
+FES basins (both homotopy directions, i.e. the $\pm$ pairs, by construction), and
+each is screened: an atom whose chord crosses a forbidden Ramachandran region
+drives the score exponent past $M_{\max}$ and is dropped with its geography
+logged — the analogue of E3's dropped direct A–C atom and E4's dropped diagonals.
+Unconnected pairs relay through an intermediate basin. $h=0.1\min_a\|r_a\|$ and
+the CP-pair drift cap is $2h$ (the E3/E4 rule).
+
+Because a black-box force field only affords chord energies, E5 deploys the
+**random-atomic** and **paired multi-atom** estimators rather than deterministic
+quadrature. In 60-D the certificate is the shifted form (as for E4 in 24-D),
+which collapses to the pointwise $\theta$-quadrature defect; $\mu$ expectations
+use the reweighted metadynamics pool, test functions are periodic on the torus
+and jump-aligned, and the direct form is reported but not gated (its integrand
+$p\cdot S$ is $O(1)$ where $p$ is exponentially small)."""
+
+CELL_E5_CERT = '''from src.score import RandomAtomicShellScore
+from src.e5_alanine.certificate import (certificate_atomwise_weighted,
+                                        torus_phi_family, tight_domain_mask)
+phis = torus_phi_family(exp.pot, exp.law.atoms)
+_score = RandomAtomicShellScore(exp.pot, exp.law, cfg.lam, cfg.beta, C.Q_THETA)
+cert_generous = certificate_atomwise_weighted(
+    exp.pot, ref.qt, ref.weights, exp.law.atoms, exp.law.weights,
+    cfg.lam, cfg.beta, phis, q_theta=C.Q_THETA, score=_score)
+_core = ref.minima[ref.deepest_basin()]
+cert_tight = certificate_atomwise_weighted(
+    exp.pot, ref.qt, ref.weights, exp.law.atoms, exp.law.weights,
+    cfg.lam, cfg.beta, phis, q_theta=C.Q_THETA,
+    mask=tight_domain_mask(ref.cvs, _core, 0.6), score=_score)
+certificate = {
+    "domain_generous": "full torus (-pi, pi]^2",
+    "domain_tight": "|dphi|,|dpsi| < 0.6 rad of the deepest basin",
+    "R_shifted_generous": cert_generous["max_residual_shifted"],
+    "R_shifted_tight": cert_tight["max_residual_shifted"],
+    "R_direct_generous": cert_generous.get("max_residual_direct"),
+    "R_direct_tight": cert_tight.get("max_residual_direct"),
+    "max_log_magnitude": cert_generous.get("max_log_magnitude"),
+    "n_samples_generous": cert_generous["n_samples"],
+    "n_samples_tight": cert_tight["n_samples"],
+}
+with open(os.path.join(RESULTS, "certificate.json"), "w") as _f:
+    json.dump(certificate, _f, indent=2)
+print(json.dumps(certificate, indent=2))
+assert certificate["R_shifted_generous"] < 1e-6, certificate
+assert certificate["max_log_magnitude"] < C.M_MAX'''
+
+
+def build_e5_nb() -> nbf.NotebookNode:
+    cells = [
+        md(MD_E5_TITLE),
+        code(cell_setup("alanine_dipeptide", "build_e5_alanine",
+                        "exp = build_e5_alanine(device=DEV)")),
+        code(CELL_E5_ASSERTS),
+        code(CELL_E5_TARGET_VIZ),
+        md(MD_E5_JUMP),
+        code(CELL_E5_CERT),
+        code(CELL_LADDER),
+        code(CELL_REFERENCE),
+        code(cell_dt_production('["W2", "TV", "MMD", "EMC", "FES_RMSE_kBT"]')),
+        code(CELL_STATIONARITY),
+        code(CELL_FIGURES),
+        code(cell_csv("certificate=certificate,")),
+    ]
+    nb = nbf.v4.new_notebook()
+    nb.cells = cells
+    return nb
+
+
 if __name__ == "__main__":
     import os
     here = os.path.dirname(os.path.abspath(__file__))
     for name, builder in [("01_double_well", build_e1_nb),
                           ("02_mog40", build_e2_nb),
                           ("03_mb3well_10d", build_e3_nb),          # main E3 (mb3)
-                          ("04_coupled_phi4", build_e4_nb)]:
+                          ("04_coupled_phi4", build_e4_nb),
+                          ("05_alanine_dipeptide", build_e5_nb)]:
         nb = builder()
         nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3",
                                      "language": "python"}

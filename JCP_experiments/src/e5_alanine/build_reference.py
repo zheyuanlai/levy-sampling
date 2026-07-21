@@ -70,9 +70,10 @@ def run_wt_metad(seed: int, *, equil_ns: float = 8.0, prod_ns: float = 10.0,
     1000 steps (2 ps, a standard metadynamics interval).  So the default is the
     CPU platform with ``OPENMM_CPU_THREADS=1`` and ``deposit_every=1000``, and
     separate seeds are run as parallel single-threaded processes.
+
+    Returns the FES, the equilibration convergence snapshots, and the production
+    frame pool.
     """
-    """One WT-metadynamics run: returns FES, convergence snapshots, and the
-    reweighted production frame pool."""
     import openmm
     import openmm.app as app
     import openmm.unit as unit

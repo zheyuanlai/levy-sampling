@@ -27,6 +27,7 @@ EXPERIMENTS = {
     "mog40": ("02_mog40.ipynb", DUAL),
     "mb3well_10d": ("03_mb3well_10d.ipynb", PAIRED_MA),
     "coupled_phi4": ("04_coupled_phi4.ipynb", PAIRED_MA),
+    "alanine_dipeptide": ("05_alanine_dipeptide.ipynb", PAIRED_MA),
 }
 SMOKE_CONFIG = {
     "particles": 64,

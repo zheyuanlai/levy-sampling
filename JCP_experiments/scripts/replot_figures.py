@@ -24,7 +24,8 @@ _HERE = Path(__file__).resolve().parent
 _JCP = _HERE.parent
 sys.path.insert(0, str(_JCP))
 
-_EXPERIMENTS = ("double_well", "mog40", "mb3well_10d", "coupled_phi4")
+_EXPERIMENTS = ("double_well", "mog40", "mb3well_10d", "coupled_phi4",
+                "alanine_dipeptide")
 _SINGLE = (
     "W2", "TV", "TV_density", "MMD",
     "FES_RMSE_kBT", "FES_outside_mass", "basin_KL_target",
