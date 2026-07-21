@@ -263,6 +263,64 @@ def binned_probabilities(
     return counts / total
 
 
+def binned_probabilities_with_outside(
+    samples: torch.Tensor,
+    edges: torch.Tensor | tuple[torch.Tensor, ...] | list[torch.Tensor],
+    smooth: float = 0.0,
+    sample_weights: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, float]:
+    """Flattened cell probabilities with an appended off-grid cell.
+
+    Returns (p, outside_mass). `p` has prod(shape) + 1 entries, the last being
+    the off-grid cell, and the pseudocount `smooth` is applied identically to
+    every entry including that one. `outside_mass` is the raw, unsmoothed
+    fraction of weight landing outside the grid.
+
+    `binned_probabilities` drops off-grid samples and renormalises, so a sampler
+    that leaks mass has its worst-placed mass simply removed from the score.
+    Keeping the off-grid cell makes the free-energy comparison mass-conserving.
+    """
+    edge_list = (edges,) if isinstance(edges, torch.Tensor) else tuple(edges)
+    x = samples
+    if not torch.is_floating_point(x):
+        x = x.to(torch.float64)
+    if x.ndim == 1:
+        x = x[:, None]
+    if x.shape[0] == 0:
+        raise ValueError("cannot histogram an empty sample")
+    w = None
+    if sample_weights is not None:
+        w = torch.as_tensor(sample_weights, device=x.device,
+                            dtype=torch.float64).reshape(-1)
+        if w.shape != (x.shape[0],):
+            raise ValueError("sample_weights must contain one weight per sample")
+        w = w * (x.shape[0] / w.sum())
+
+    inside = torch.ones(x.shape[0], dtype=torch.bool, device=x.device)
+    for j, edge in enumerate(edge_list):
+        edge = edge.to(device=x.device, dtype=x.dtype)
+        inside &= (x[:, j] >= edge[0]) & (x[:, j] <= edge[-1])
+
+    total = float(x.shape[0]) if w is None else float(w.sum().item())
+    out_w = (float((~inside).sum().item()) if w is None
+             else float(w[~inside].sum().item()))
+    outside_mass = out_w / total
+
+    n_cells = math.prod(int(e.numel() - 1) for e in edge_list)
+    if not bool(inside.any()):
+        counts = torch.zeros(n_cells, dtype=torch.float64, device=x.device)
+    else:
+        p_in = binned_probabilities(
+            x[inside], edge_list, smooth=0.0,
+            sample_weights=None if w is None else w[inside])
+        counts = p_in.reshape(-1) * (total - out_w)
+    counts = torch.cat([
+        counts,
+        torch.tensor([out_w], dtype=torch.float64, device=x.device),
+    ]) + float(smooth)
+    return counts / counts.sum(), outside_mass
+
+
 def _bin_volumes(
     edges: torch.Tensor | tuple[torch.Tensor, ...] | list[torch.Tensor],
     *,
@@ -321,6 +379,7 @@ def free_energy_rmse_from_probabilities(
     weights: str | torch.Tensor = "uniform",
     bin_volume: torch.Tensor | None = None,
     probability_floor: float = 1e-300,
+    always_keep: torch.Tensor | None = None,
 ) -> float:
     """Additive-constant-aligned free-energy RMSE in k_B T units.
 
@@ -328,6 +387,11 @@ def free_energy_rmse_from_probabilities(
     difference c, this returns sqrt(sum_i w_i*(A_hat_i-A_ref_i-c)^2/sum_i w_i).
     Uniform weights measure FES shape equally; reference weights emphasize
     thermodynamically common regions. Only p_ref >= pi_min bins are retained.
+
+    `always_keep` is a boolean mask of cells exempt from the pi_min cut. It
+    exists for the off-grid cell, whose reference mass is legitimately tiny but
+    whose empirical mass is the sharpest signature of a leaking sampler; cutting
+    it on reference mass would hide exactly the defect it measures.
     """
     p_hat = torch.as_tensor(p_hat, dtype=torch.float64)
     p_ref = torch.as_tensor(p_ref, device=p_hat.device, dtype=torch.float64)
@@ -345,6 +409,12 @@ def free_energy_rmse_from_probabilities(
     # Zero-reference-mass cells have undefined reference free energy and must
     # never enter the FES norm, including when pi_min is exactly zero.
     mask = (p_ref_norm > 0) & (p_ref_norm >= float(pi_min))
+    if always_keep is not None:
+        keep = torch.as_tensor(always_keep, device=p_hat.device, dtype=torch.bool)
+        if keep.shape != p_hat.shape:
+            raise ValueError("always_keep must match the probability shape")
+        # still require positive reference mass: -log(0) has no finite target
+        mask = mask | (keep & (p_ref_norm > 0))
     if not bool(mask.any()):
         raise ValueError("pi_min excludes every reference bin")
     a_hat = reduced_free_energy(p_hat, bin_volume, probability_floor)

@@ -101,6 +101,85 @@ the pass assertion; `resolved_config.json` is reserved for post-refinement
 choices such as timestep, quadrature, PT ladder, and trace protocol. A failed
 notebook status records which of these stages was preserved.
 
+## Method matrix and the two Lévy-score estimators
+
+Every experiment runs **eight** methods: four baselines (`ULA`, `MALA`,
+`BAOAB`, `PT`), two non-target-preserving diagnostics (`FLA`, `CP`), and
+**two LSC-CP arms**. The arms are declared in `launch_production.py`:
+
+```text
+DUAL_RA = ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA   # E1 double_well, E2 mog40
+DUAL_MA = ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA   # E3, E4, E5
+```
+
+Both arms estimate the same exact Lévy score
+
+```text
+S(x) = -lam * int nu(dr) r int_0^1 exp(beta[V(x) - V(x - theta r)]) dtheta
+```
+
+and differ only in how the `nu` and `theta` expectations are taken:
+
+| arm | estimator | randomness | cost per particle per step |
+|---|---|---|---|
+| `LSC-CP` | deterministic Gauss–Legendre quadrature (`ShellScore`) | none | `q_theta * A * q_rho` chord energies |
+| `LSC-CP-RA` | one realised displacement (`RandomAtomicShellScore`) | one draw, shared with the jump | `q_theta` |
+| `LSC-CP-MA` | one realised displacement per atom family, with atomwise Poisson counts (`MultiAtomShellScore`) | a stratified bank, shared with the jump | `A * q_theta` |
+
+MA is the A-atom generalisation of RA — the atom index is stratified rather
+than multinomially sampled, and the single Poisson count becomes `A` atomwise
+counts — so figures label it `LSC-CP-RA (A)` (`(4)` on E3, `(8)` on E4). RA
+needs only `law.sample`, so it is the only realised-displacement arm available
+for E2's continuous annulus law; MA additionally requires a finite shell bank.
+
+**Numerical integration only — no closed forms.** Every deployed arm obtains the
+score from chord energy differences `V(x - theta r) - V(x)` alone; the density's
+normalising constant cancels identically, so nothing about the target beyond a
+callable `V` is required. E2 previously shipped an analytic `MoG40Score` that
+integrated `theta` and `rho` in closed form using the mixture means. That does
+not generalise to a black-box target, so it has been demoted to a comparator
+(retained for `tests/` and `scripts/certificate_gate.py`) and E2 now integrates
+numerically like every other experiment. `tests_cpu` asserts that no deployed
+LSC arm has a zero-NFE score path.
+
+**E2 jump band.** `AnnulusJumpLaw(10.0, 14.0)`: `rho ~ Unif[10, 14]`,
+`phi ~ Unif[0, 2pi)`. The band is narrow so the radial rule needs few nodes,
+while `b = 14` keeps the mode graph connected — measured one connected
+component at both the 1e-3 and 3e-3 mode-hit thresholds (diameter 12 / 14),
+matching the former `[4, 15]` band's 11 / 13. Connectivity is all that is
+required: as on E3, modes need only be reachable through intermediates, not
+pairwise. The annulus rule is limited by its **angular** order — `q_rho`
+saturates by 3–4 while `m_phi` 32 → 48 improves the median relative score error
+67x — so `build_e2` sets its own `(q_theta, q_rho, m_phi)` defaults instead of
+inheriting the global `M_PHI`.
+
+**Blocking.** `ShellScore` materialises an `(N, q_theta*J, d)` chord tensor,
+which at production `N` exceeds device memory once `q_theta*J` is in the
+thousands. It therefore blocks over particles; `_log_parts` is row-wise, so the
+blocked result is bit-identical to the unblocked one.
+
+## Free-energy (FES) metric
+
+`FES_RMSE_kBT` is an additive-constant-aligned RMSE over histogram cells, in
+`kBT`. Three properties matter for reading it:
+
+* **uniform cell weights.** Reference weighting concentrated ~85% of the score
+  on the ten densest cells, so the metric measured basin-bottom shape only and
+  was blind to barrier and tail placement.
+* **an off-grid cell.** `binned_probabilities_with_outside` appends one cell
+  holding the mass that left the histogram domain, so the comparison conserves
+  mass. Without it, a sampler that leaks has its worst-placed mass silently
+  dropped and renormalised away — which inverted the ranking on E1, where raw
+  CP leaked 2.86% against LSC-CP's 0.47% and scored *better*. The off-grid cell
+  is exempt from the `pi_min` cut, since the reference legitimately puts almost
+  no mass there.
+* **`pi_min = 1/n`**, one expected observation, not five. At `5/n` the barrier
+  cells were deleted outright — exactly where corrected and uncorrected
+  dynamics differ most.
+
+`FES_outside_mass` remains reported separately as the raw, unsmoothed leaked
+fraction.
+
 ## Coupled-phi4 numerical domain
 
 The thermodynamic target is unbounded; the sampling box is only a numerical
@@ -162,9 +241,20 @@ event. Note the low-barrier φ route runs through ±180, not through φ ≈ 0
 branch cut moved to −20°, i.e. on (−20°, 340°]; seam mass 0.078 → 0.005. This is
 a fundamental-domain choice inside E5, so `metrics.py` is untouched.
 
-**Methods.** The E3/E4 `PAIRED_MA` set: `ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA`.
-Because a black-box force field affords only chord energies, E5 deploys the
-random-atomic and paired multi-atom estimators, not deterministic quadrature.
+**Methods.** E5 is registered with the E3/E4 `DUAL_MA` set,
+`ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA`, for consistency with the other
+experiments — but **the exact arm is unverified here and may be impractical**.
+Deterministic quadrature costs `q_theta * A * q_rho` BAT reconstructions per
+particle per step against a real force field, which is why the original E5
+design deployed only the realised-displacement estimator. Benchmark the
+`LSC-CP` arm before trusting an E5 production launch, and drop it back to a
+single MA arm if the cost is prohibitive.
+
+E5 has never been run to production: the registration and smoke exist, but
+there are no E5 results, and its reference cache must be rebuilt first.
+`launch_production.py` deselects `test_e5_*` from its preflight when
+`alanine_dipeptide` is not among the selected experiments, so an out-of-band
+reference rebuild cannot block an unrelated E1–E4 campaign.
 
 **Reference.** Well-tempered metadynamics on (φ, ψ), reweighted under the frozen
 converged bias by `w = exp(β V_bias)` — exact for any static bias, so

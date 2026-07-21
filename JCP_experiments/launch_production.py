@@ -20,14 +20,19 @@ REPOSITORY_ROOT = HERE.parent
 DEFAULT_OUTPUT_ROOT = REPOSITORY_ROOT / "results" / "jcp_sampling"
 HARD_MAX_CONCURRENT = 2
 
-DUAL = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA"
-PAIRED_MA = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA"
+# Every experiment carries TWO LSC-CP arms: the exact deterministic-quadrature
+# score (`LSC-CP`, always numerical integration -- no closed form anywhere) and
+# one realised-displacement estimator. Which estimator depends on the jump law:
+# a continuous law (E2's annulus) admits only the single-displacement RA form,
+# while a finite atom bank additionally admits the atom-stratified MA form.
+DUAL_RA = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA"
+DUAL_MA = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA"
 EXPERIMENTS = {
-    "double_well": ("01_double_well.ipynb", DUAL),
-    "mog40": ("02_mog40.ipynb", DUAL),
-    "mb3well_10d": ("03_mb3well_10d.ipynb", PAIRED_MA),
-    "coupled_phi4": ("04_coupled_phi4.ipynb", PAIRED_MA),
-    "alanine_dipeptide": ("05_alanine_dipeptide.ipynb", PAIRED_MA),
+    "double_well": ("01_double_well.ipynb", DUAL_RA),
+    "mog40": ("02_mog40.ipynb", DUAL_RA),
+    "mb3well_10d": ("03_mb3well_10d.ipynb", DUAL_MA),
+    "coupled_phi4": ("04_coupled_phi4.ipynb", DUAL_MA),
+    "alanine_dipeptide": ("05_alanine_dipeptide.ipynb", DUAL_MA),
 }
 SMOKE_CONFIG = {
     "particles": 64,
@@ -69,6 +74,7 @@ FULL_SUCCESS_ARTIFACT_NAMES = FULL_PREFLIGHT_ARTIFACT_NAMES + (
     "resolved_config.json",
     "metrics_timeseries.csv",
     "summary.csv",
+    "positions.csv",
     "manifest.json",
 )
 
@@ -148,12 +154,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--experiments", type=parse_experiments,
         default=tuple(EXPERIMENTS),
-        help="comma-separated subset of double_well,mog40,mb3well_10d,coupled_phi4",
+        help=("comma-separated subset of " + ",".join(EXPERIMENTS)),
     )
     parser.add_argument("--run-id", default=_default_run_id())
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
     parser.add_argument("--no-regen", action="store_true",
                         default=os.environ.get("JCP_REGEN", "1") == "0")
+    parser.add_argument(
+        "--methods", default=None,
+        help=("comma-separated method override for the selected experiments "
+              "(default: each experiment's registered set). Use it to split one "
+              "experiment's method set across GPUs when a single method dominates "
+              "the cost; each run records the subset it actually ran, and the "
+              "resulting run directories are combined afterwards."))
     parser.add_argument("--skip-tests", action="store_true",
                         help="skip the required unit-test preflight")
     parser.add_argument("--dry-run", action="store_true",
@@ -567,6 +580,19 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _validate_args(args, parser)
+    if args.methods:
+        requested = [m.strip() for m in args.methods.split(",") if m.strip()]
+        if not requested:
+            parser.error("--methods must name at least one method")
+        for name in args.experiments:
+            notebook, registered = EXPERIMENTS[name]
+            allowed = set(registered.split(","))
+            unknown = [m for m in requested if m not in allowed]
+            if unknown:
+                parser.error(
+                    f"--methods {unknown} not registered for {name}; "
+                    f"choose from {sorted(allowed)}")
+            EXPERIMENTS[name] = (notebook, ",".join(requested))
     run_dir = args.output_root.resolve() / args.run_id
     run_dir.mkdir(parents=True, exist_ok=False)
 
@@ -613,7 +639,7 @@ def main(argv: list[str] | None = None) -> int:
 
     preflight_env = job_environment(
         os.environ, gpu=args.gpus[0], selected_gpus=args.gpus,
-        run_id=args.run_id, methods=DUAL,
+        run_id=args.run_id, methods=DUAL_RA,
         results_root=args.output_root,
     )
     if not args.no_regen:
@@ -629,9 +655,17 @@ def main(argv: list[str] | None = None) -> int:
             })
             return 1
     if not args.skip_tests:
+        # E5's gates read the alanine metadynamics reference cache, which is
+        # gitignored and regenerated out of band (a multi-hour OpenMM job). A
+        # rebuild in flight leaves a partially converged reference that fails
+        # its own convergence assertion, which must not block an unrelated
+        # E1-E4 campaign. Deselect those tests unless E5 is actually selected;
+        # the resolved command is recorded in the stage status either way.
+        pytest_args = [sys.executable, "-m", "pytest", "-q"]
+        if "alanine_dipeptide" not in args.experiments:
+            pytest_args.append("--ignore-glob=*test_e5_*")
         status = _run_preflight(
-            "unit_tests", [sys.executable, "-m", "pytest", "-q",
-                           "tests", "tests_cpu"],
+            "unit_tests", [*pytest_args, "tests", "tests_cpu"],
             run_dir, preflight_env, timeout=1_800,
         )
         if status["status"] != "success":

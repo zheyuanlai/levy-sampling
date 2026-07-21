@@ -37,7 +37,7 @@ from src.experiments import ({builder}, make_sampler_factory,
                              make_batched_factory, make_metrics)
 from src.runner import (run_experiment_batched, run_one, refine_dt,
                         quadrature_refinement, write_timeseries_csv,
-                        write_summary_csv, write_manifest,
+                        write_summary_csv, write_manifest, write_positions_csv,
                         ula_first_passage, hardware_manifest)
 from src.samplers import tune_ladder
 from src.certificate import make_phi_family, certificate_grid, certificate_importance
@@ -453,31 +453,26 @@ print("fail-closed diagnostics:", observed_failure_diagnostics,
 
 CELL_FIGURES = '''from src.plotting import metric_single
 from src.runner import convergence_report
-# Plotted-method policy: low-dimensional E1/E2 show deterministic full-law
-# quadrature LSC-CP against full-law Raw-CP; E3/E4 show paired multi-atom LSC-CP.
-# RA remains an explicitly named secondary estimator in the CSV and is used in
-# figures only as a labeled compatibility fallback when the preferred estimator
-# is absent. This is not a claim that numerical estimators are interchangeable.
-_LOW_DIM_EXACT = EXPERIMENT in ("double_well", "mog40")
+# Plotted-method policy: BOTH LSC arms are shown in every experiment -- the
+# exact deterministic-quadrature score "LSC-CP" (black) and one realised-
+# displacement estimator (purple): single-atom RA on E1/E2, atom-stratified MA
+# on E3/E4. The MA arm reads as "LSC-CP-RA (A)" with A the atom count.
 PLOT_RAW = "CP" if "CP" in RUN_METHODS else (
     "CP-RA" if "CP-RA" in RUN_METHODS else None)
-_preferred_lsc = "LSC-CP" if _LOW_DIM_EXACT else "LSC-CP-MA"
-PLOT_LSC = _preferred_lsc if _preferred_lsc in RUN_METHODS else None
+_RA_LABEL = {"mb3well_10d": "LSC-CP-RA (4)", "coupled_phi4": "LSC-CP-RA (8)"}
 PLOT_METHODS = [m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
                 if m in RUN_METHODS]
 PLOT_LABELS = {}
 if PLOT_RAW is not None:
     PLOT_METHODS.append(PLOT_RAW)
     PLOT_LABELS[PLOT_RAW] = "Raw-CP"
-if PLOT_LSC is not None:
-    PLOT_METHODS.append(PLOT_LSC)
-    PLOT_LABELS[PLOT_LSC] = "LSC-CP"
-elif "LSC-CP-RA" in RUN_METHODS:
-    # Compatibility for older/incomplete artifacts: never disguise RA as the
-    # preferred deterministic or paired-MA estimator.
-    PLOT_LSC = "LSC-CP-RA"
-    PLOT_METHODS.append(PLOT_LSC)
-    PLOT_LABELS[PLOT_LSC] = "LSC-CP-RA (secondary)"
+if "LSC-CP" in RUN_METHODS:
+    PLOT_METHODS.append("LSC-CP")
+    PLOT_LABELS["LSC-CP"] = "LSC-CP"
+for _ra in ("LSC-CP-RA", "LSC-CP-MA"):
+    if _ra in RUN_METHODS:
+        PLOT_METHODS.append(_ra)
+        PLOT_LABELS[_ra] = _RA_LABEL.get(EXPERIMENT, "LSC-CP-RA")
 print("plotted methods:", PLOT_METHODS, " labels:", PLOT_LABELS)
 
 fig = metric_grid(rows, os.path.join(FIGURES, EXPERIMENT + "_metrics"),
@@ -507,6 +502,43 @@ for _m in _single:
                       emc_target=emc_target, label_overrides=PLOT_LABELS,
                       show=False)
 print("saved per-metric log-y figures:", _single, "x {t, nfe, wallclock}")
+
+# ---- sample-space figures. Terminal samples are persisted FIRST and then read
+# ---- back, so these figures are exactly what a CSV-only replot reproduces.
+# ---- metric_space maps to the plane the metrics live on (identity for E1/E2,
+# ---- latent for E3, qbar for E4).
+from src.runner import write_positions_csv
+from src.plotting import (load_positions_csv, density_overlay, fes_ceiling,
+                          fes_profile_1d, fes_map_2d, REFERENCE_KEY)
+_pos = {m: exp.metric_space(method_info[m]["final_positions_all"])[:, :2]
+        for m in RUN_METHODS}
+_pos[REFERENCE_KEY] = exp.metric_space(aux["ref_x"])[:, :2]
+_pos_csv = os.path.join(RESULTS, "positions.csv")
+_n_pos = write_positions_csv(_pos, _pos_csv)
+print(f"positions.csv: {_n_pos} rows over {len(_pos)} blocks "
+      f"({', '.join(_pos)})")
+_P = load_positions_csv(_pos_csv)
+_dim = _P[REFERENCE_KEY].shape[1]
+_plot_pos = [m for m in PLOT_METHODS if m in _P]
+
+for _m in _plot_pos:
+    density_overlay(_P, _m, os.path.join(FIGURES, f"{EXPERIMENT}_density_{_m}"),
+                    label_overrides=PLOT_LABELS, show=False)
+print(f"saved density overlays vs reference: {_plot_pos}")
+
+if _dim == 1:
+    fes_profile_1d(_P, os.path.join(FIGURES, f"{EXPERIMENT}_FES_profile"),
+                   beta=cfg.beta, methods=_plot_pos,
+                   label_overrides=PLOT_LABELS, show=False)
+    print("saved 1-D FES profile (true + every method, one figure)")
+else:
+    _fmax = fes_ceiling(_P, beta=cfg.beta)
+    for _m in [REFERENCE_KEY] + _plot_pos:
+        fes_map_2d(_P, _m, os.path.join(FIGURES, f"{EXPERIMENT}_FES_{_m}"),
+                   beta=cfg.beta, fmax=_fmax, label_overrides=PLOT_LABELS,
+                   show=False)
+    print(f"saved 2-D FES maps (shared F ceiling {_fmax:.2f} kT): "
+          f"{[REFERENCE_KEY] + _plot_pos}")
 
 # R-hat/IAT are deliberately NOT computed from the sparse, nonstationary
 # relaxation checkpoints above.  The separate reference-start trace cell
@@ -691,22 +723,27 @@ write_manifest(
 # the immutable timestamped experiment directory sufficient to regenerate
 # every figure with no GPU
 # (scripts/replot_figures.py reads it).
-_low_dim_exact = EXPERIMENT in ("double_well", "mog40")
+# BOTH LSC arms are recorded, matching CELL_FIGURES and
+# scripts/replot_figures.py::_plot_policy. These three must agree: replot reads
+# this manifest block in preference to its own policy, so a stale list here
+# would silently drop an arm from every regenerated figure.
 _plot_raw = "CP" if "CP" in RUN_METHODS else (
     "CP-RA" if "CP-RA" in RUN_METHODS else None)
-_plot_preferred_lsc = "LSC-CP" if _low_dim_exact else "LSC-CP-MA"
-_plot_lsc = (_plot_preferred_lsc if _plot_preferred_lsc in RUN_METHODS
-             else ("LSC-CP-RA" if "LSC-CP-RA" in RUN_METHODS else None))
+_plot_ra_label = {{"mb3well_10d": "LSC-CP-RA (4)",
+                  "coupled_phi4": "LSC-CP-RA (8)"}}
 _plot_methods = [m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
                  if m in RUN_METHODS]
 _plot_labels = {{}}
 if _plot_raw is not None:
     _plot_methods.append(_plot_raw)
     _plot_labels[_plot_raw] = "Raw-CP"
-if _plot_lsc is not None:
-    _plot_methods.append(_plot_lsc)
-    _plot_labels[_plot_lsc] = (
-        "LSC-CP-RA (secondary)" if _plot_lsc == "LSC-CP-RA" else "LSC-CP")
+if "LSC-CP" in RUN_METHODS:
+    _plot_methods.append("LSC-CP")
+    _plot_labels["LSC-CP"] = "LSC-CP"
+for _ra in ("LSC-CP-RA", "LSC-CP-MA"):
+    if _ra in RUN_METHODS:
+        _plot_methods.append(_ra)
+        _plot_labels[_ra] = _plot_ra_label.get(EXPERIMENT, "LSC-CP-RA")
 manifest = dict(
     experiment=EXPERIMENT,
     run_id=RUN_ID,

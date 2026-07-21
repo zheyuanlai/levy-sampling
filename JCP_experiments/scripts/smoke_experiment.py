@@ -24,9 +24,9 @@ sys.path.insert(0, str(JCP_ROOT))
 EXPERIMENT_NOTEBOOK_METHODS = {
     "double_well": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA",
     "mog40": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA",
-    "mb3well_10d": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA",
-    "coupled_phi4": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA",
-    "alanine_dipeptide": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA",
+    "mb3well_10d": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA",
+    "coupled_phi4": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA",
+    "alanine_dipeptide": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA",
 }
 
 
@@ -105,12 +105,13 @@ def _validate_args(args: argparse.Namespace) -> None:
 
 
 def _requires_score_quadrature(experiment: str, method: str) -> bool:
-    """Whether this LSC implementation should charge V(x-theta r) calls."""
-    if not method.startswith("LSC-CP"):
-        return False
-    # The deployed full MoG40 score analytically evaluates the radial/theta
-    # integrals and therefore exercises a real score path with n_Vdelta == 0.
-    return not (experiment == "mog40" and method == "LSC-CP")
+    """Whether this LSC implementation should charge V(x-theta r) calls.
+
+    Every deployed LSC arm now integrates numerically, so all of them charge.
+    (E2 previously deployed the analytic MoG40 score, which exercised a real
+    score path with n_Vdelta == 0; that arm has been retired to a comparator.)
+    """
+    return method.startswith("LSC-CP")
 
 
 def _strictly_finite_mapping(mapping: dict, *, context: str) -> None:

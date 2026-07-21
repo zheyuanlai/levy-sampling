@@ -133,16 +133,29 @@ def build_e2(device="cuda") -> Experiment:
     pot = MoG40(beta=cfg.beta, device=device)
     # deliberately generic law: [4, 15] set from the NN-distance histogram
     # alone; neither PT nor LSC-CP receives mode locations.
-    law = AnnulusJumpLaw(4.0, 15.0, device)
+    # The band is narrow ([10, 14], width 4 rather than the former [4, 15]) so
+    # the radial rule needs few nodes, while b = 14 still keeps the mode graph
+    # connected -- measured 1 component at both the 1e-3 and 3e-3 mode-hit
+    # thresholds (diameter 12 / 14), matching the former band's 11 / 13.
+    law = AnnulusJumpLaw(10.0, 14.0, device)
     box = RectBox([-65.0, -65.0], [65.0, 65.0], device)
 
     def init_fn(n, gen):
         return pot.mu[0] + 0.5 * torch.randn(n, 2, generator=gen, device=device,
                                              dtype=torch.float64)
 
-    def make_score(q_theta=None, q_rho=None, m_phi=M_PHI):
-        # closed form: theta and rho integrals are analytic; only m_phi matters
-        return MoG40Score(pot.mu, 4.0, 15.0, cfg.lam, m_phi=m_phi)
+    # E2-specific quadrature defaults, NOT the global Q_THETA/Q_RHO/M_PHI. The
+    # annulus rule is limited by its angular order: measured against a fine
+    # analytic comparator, q_rho saturates by 3-4 (8 is no better than 4) while
+    # m_phi 32 -> 48 improves the median relative score error 67x, from 2.3e-3
+    # to 3.5e-5. Inheriting the global M_PHI = 32 would silently under-resolve.
+    def make_score(q_theta=16, q_rho=4, m_phi=64, **kw):
+        # Numerical integration only. The analytic MoG40Score is retained in
+        # score.py as an exactness comparator (tests, certificate_gate) but is
+        # NOT deployed: it needs the mixture means, so it does not generalise.
+        # Annulus quadrature is q_theta x q_rho x m_phi chord energies.
+        return ShellScore(pot, law, cfg.lam, cfg.beta, q_theta, q_rho,
+                          m_phi=m_phi, **kw)
 
     def labels_fn(x):
         d2 = ((x.unsqueeze(1) - pot.mu.unsqueeze(0)) ** 2).sum(-1)
@@ -1036,13 +1049,20 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
             lo_j - pad_j, hi_j + pad_j, fes_bins_per_dim + 1,
             dtype=torch.float64, device=device))
     fes_edges = tuple(fes_edges)
-    ref_fes_p = M.binned_probabilities(
+    # Flattened cells plus one off-grid cell, so the FES comparison conserves
+    # mass. Without it a leaking sampler is scored only where it did not leak.
+    ref_fes_p, ref_fes_outside = M.binned_probabilities_with_outside(
         ref_fes_m, fes_edges, smooth=0.5,
         sample_weights=ref_fes_weights)
-    # Only compare cells carrying enough reference mass to expect at least
-    # five observations in the *empirical* ensemble.  Using 5/N_ref would score
-    # bins the run has no statistical power to resolve.
-    fes_pi_min = 5.0 / n
+    # The off-grid cell is exempt from the pi_min cut: the reference puts
+    # essentially no mass there (the grid is built from the reference's own
+    # range), but that is precisely the cell that exposes a leaking sampler.
+    fes_always_keep = torch.zeros_like(ref_fes_p, dtype=torch.bool)
+    fes_always_keep[-1] = True
+    # One expected observation in the empirical ensemble, not five: at 5/n the
+    # barrier cells are deleted outright, which is where the corrected and
+    # uncorrected dynamics differ most.
+    fes_pi_min = 1.0 / n
     # First-coordinate references remain for collaborator-parity CDF/PDF metrics.
     ref_cv = ref_m[:, 0]
     cv_lo, cv_hi = float(ref_cv.min().item()), float(ref_cv.max().item())
@@ -1149,15 +1169,17 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
         # ---- chemistry-native + KSD (potential evals excluded from NFE) ----
         cv = xm[:, 0]
         fes_x = xm[:, :fes_dim]
-        fes_p = M.binned_probabilities(fes_x, fes_edges, smooth=0.5)
+        fes_p, fes_outside = M.binned_probabilities_with_outside(
+            fes_x, fes_edges, smooth=0.5)
+        # Uniform weights: reference weighting concentrated ~85% of the score on
+        # the ten densest cells, so the metric measured basin-bottom shape only
+        # and was blind to barrier and tail placement.
         fes_rmse = M.free_energy_rmse_from_probabilities(
-            fes_p, ref_fes_p, pi_min=fes_pi_min, weights="reference")
+            fes_p, ref_fes_p, pi_min=fes_pi_min, weights="uniform",
+            always_keep=fes_always_keep)
         out["FES_RMSE_kBT"] = fes_rmse
         out["e_F"] = fes_rmse  # backwards-compatible alias; now RMSE in kBT
-        in_grid = torch.ones(fes_x.shape[0], dtype=torch.bool, device=fes_x.device)
-        for j, edge in enumerate(fes_edges):
-            in_grid &= (fes_x[:, j] >= edge[0]) & (fes_x[:, j] <= edge[-1])
-        out["FES_outside_mass"] = float((~in_grid).to(torch.float64).mean().item())
+        out["FES_outside_mass"] = fes_outside
         out["basin_KL_target"] = M.basin_kl_target_to_empirical(
             p_hat, exp.p_star, pseudocount=0.5 / x.shape[0])
         brel, bL1 = M.basin_rel_mass_error(p_hat, exp.p_star)
@@ -1199,8 +1221,10 @@ def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
     return metrics_fn, floors, {
         "bandwidth": bw, "ref_x": ref_x, "fes_reference_n": fes_ref_n,
         "fes_dim": fes_dim, "fes_bins_per_dim": fes_bins_per_dim,
-        "fes_pi_min": fes_pi_min, "fes_min_expected_count": 5.0,
-        "fes_pseudocount_per_bin": 0.5, "fes_weighting": "reference",
+        "fes_pi_min": fes_pi_min, "fes_min_expected_count": 1.0,
+        "fes_pseudocount_per_bin": 0.5, "fes_weighting": "uniform",
+        "fes_offgrid_cell": True,
+        "fes_reference_outside_mass": ref_fes_outside,
         "fes_reference_method": fes_reference_method,
         "basin_kl_orientation": "target_to_empirical",
         "basin_kl_pseudocount_per_basin": 0.5,

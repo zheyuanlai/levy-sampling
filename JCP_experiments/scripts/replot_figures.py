@@ -35,18 +35,16 @@ _SINGLE = (
 )
 
 
+_RA_LABEL = {"mb3well_10d": "LSC-CP-RA (4)", "coupled_phi4": "LSC-CP-RA (8)"}
+
+
 def _plot_policy(experiment: str,
                  in_data: set[str]) -> tuple[list[str], dict[str, str]]:
-    """Use exact LSC in low dimension and paired MA in E3/E4.
-
-    Random-atomic LSC is a secondary estimator and is never silently relabeled
-    as the preferred method; it is shown explicitly only as a compatibility
-    fallback when the experiment's preferred estimator is absent.
+    """Plot BOTH LSC arms: the exact deterministic-quadrature score and the
+    realised-displacement estimator (single-atom RA on E1/E2, atom-stratified MA
+    on E3/E4, labelled with its atom count). Must stay in sync with the notebook
+    generator's CELL_FIGURES policy.
     """
-    low_dim_exact = experiment in ("double_well", "mog40")
-    preferred = "LSC-CP" if low_dim_exact else "LSC-CP-MA"
-    lsc = preferred if preferred in in_data else (
-        "LSC-CP-RA" if "LSC-CP-RA" in in_data else None)
     raw = "CP" if "CP" in in_data else ("CP-RA" if "CP-RA" in in_data else None)
     methods = [m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
                if m in in_data]
@@ -54,10 +52,13 @@ def _plot_policy(experiment: str,
     if raw:
         methods.append(raw)
         label_overrides[raw] = "Raw-CP"
-    if lsc:
-        methods.append(lsc)
-        label_overrides[lsc] = (
-            "LSC-CP-RA (secondary)" if lsc == "LSC-CP-RA" else "LSC-CP")
+    if "LSC-CP" in in_data:
+        methods.append("LSC-CP")
+        label_overrides["LSC-CP"] = "LSC-CP"
+    for ra in ("LSC-CP-RA", "LSC-CP-MA"):
+        if ra in in_data:
+            methods.append(ra)
+            label_overrides[ra] = _RA_LABEL.get(experiment, "LSC-CP-RA")
     return methods, label_overrides
 
 
@@ -143,11 +144,47 @@ def replot(experiment: str, artifacts_dir: Path, output_dir: Path) -> dict:
         emc_target=float(emc), methods=methods, show=False,
         label_overrides=label_overrides,
     )
+    # Sample-space figures come from positions.csv alone. Older artifact
+    # directories predate that file; skip rather than fail, and say so.
+    from src.plotting import (load_positions_csv, density_overlay, fes_ceiling,
+                              fes_profile_1d, fes_map_2d, REFERENCE_KEY)
+    positions_path = artifacts_dir / "positions.csv"
+    sample_figures = 0
+    if not positions_path.is_file():
+        print(f"note: {positions_path.name} absent -- skipping density/FES "
+              "figures (artifacts predate sample persistence)")
+    else:
+        beta = ((manifest.get("config") or {}).get("beta"))
+        if beta is None:
+            raise ValueError("manifest.config.beta is required for FES figures")
+        pos = load_positions_csv(str(positions_path))
+        if REFERENCE_KEY not in pos:
+            raise ValueError(f"{positions_path} has no '{REFERENCE_KEY}' block")
+        plot_pos = [m for m in methods if m in pos]
+        for method in plot_pos:
+            density_overlay(pos, method,
+                            str(output_dir / f"{experiment}_density_{method}"),
+                            label_overrides=label_overrides, show=False)
+            sample_figures += 1
+        if pos[REFERENCE_KEY].shape[1] == 1:
+            fes_profile_1d(pos, str(output_dir / f"{experiment}_FES_profile"),
+                           beta=float(beta), methods=plot_pos,
+                           label_overrides=label_overrides, show=False)
+            sample_figures += 1
+        else:
+            fmax = fes_ceiling(pos, beta=float(beta))
+            for method in [REFERENCE_KEY] + plot_pos:
+                fes_map_2d(pos, method,
+                           str(output_dir / f"{experiment}_FES_{method}"),
+                           beta=float(beta), fmax=fmax,
+                           label_overrides=label_overrides, show=False)
+                sample_figures += 1
     return {
         "experiment": experiment,
         "artifacts_dir": str(artifacts_dir),
         "output_dir": str(output_dir),
         "single_metric_count": len(single),
+        "sample_figure_count": sample_figures,
         "methods": methods,
     }
 
@@ -157,7 +194,8 @@ def main(argv: list[str] | None = None) -> int:
     result = replot(args.experiment, args.artifacts_dir, args.output_dir)
     print(
         f"replotted {result['experiment']}: "
-        f"{result['single_metric_count']} metrics x 3 axes + grid into "
+        f"{result['single_metric_count']} metrics x 3 axes + grid "
+        f"+ {result['sample_figure_count']} sample-space figures into "
         f"{result['output_dir']} (methods={result['methods']})"
     )
     return 0

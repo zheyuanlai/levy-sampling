@@ -25,17 +25,24 @@ METHOD_STYLE: dict[str, dict] = {
     "BAOAB":  dict(color="#E69F00", ls=":",  marker="v"),
     "PT":     dict(color="#CC79A7", ls=(0, (3, 1, 1, 1, 1, 1)), marker="D"),
     "CP":     dict(color="#D55E00", ls=(0, (5, 2)), marker="X"),
+    # Every experiment now plots TWO LSC arms, so they must be visually
+    # distinct: BLACK is always the exact deterministic-quadrature score, PURPLE
+    # is always the realised-displacement estimator (single-atom RA on E1/E2,
+    # atom-stratified MA on E3/E4). Before both arms shared a figure, LSC-CP-MA
+    # was styled identically to LSC-CP and the two curves would now coincide.
     "LSC-CP": dict(color="#000000", ls="-",  marker="*"),
-    # random-atomic estimator variants
+    # realised-displacement estimator variants
     "CP-RA":     dict(color="#D55E00", ls=(0, (1, 1)), marker="P"),
     "LSC-CP-RA": dict(color="#7030A0", ls="-",  marker="*"),
-    "LSC-CP-MA": dict(color="#000000", ls="-",  marker="*"),  # multi-atom = the practical LSC-CP
+    "LSC-CP-MA": dict(color="#7030A0", ls=(0, (4, 1, 1, 1)), marker="p"),
 }
 
 SIMPLE_LABELS: dict[str, str] = {
     "ULA": "ULA", "MALA": "MALA", "FLA": "FLA", "BAOAB": "BAOAB",
     "PT": "PT", "CP": "Raw-CP", "LSC-CP": "LSC-CP",
-    "CP-RA": "Raw-CP (RA)", "LSC-CP-RA": "LSC-CP (RA)", "LSC-CP-MA": "LSC-CP",
+    # MA is the A-atom generalisation of RA, so it reads as "LSC-CP-RA"; each
+    # experiment appends its atom count via label_overrides, e.g. E3 -> (4).
+    "CP-RA": "Raw-CP (RA)", "LSC-CP-RA": "LSC-CP-RA", "LSC-CP-MA": "LSC-CP-RA",
 }
 
 METRIC_LABEL = {
@@ -65,6 +72,11 @@ X_AXIS = {
     "nfe": ("nfe", "NFE"),
     "wallclock": ("wallclock_s", "wall-clock (s)"),
 }
+
+# Terminal-cost ratio (slowest / fastest method) above which a cost axis is
+# drawn on a log scale. Measured spreads on the delivered runs reach 104x
+# (E2 wall-clock) and 32x (E1 NFE), so 10x is comfortably below the real cases.
+LOGX_SPREAD = 10.0
 
 
 def apply_style() -> None:
@@ -167,10 +179,16 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
                   emc_target: float = 1.0, methods=METHODS,
                   figsize=(4.4, 3.2), show: bool = True, smooth: int = 9,
                   label_overrides: dict | None = None,
-                  xmax_mode: str | None = "baselines"):
+                  xmax_mode: str | None = "baselines",
+                  logx: str | bool = "auto"):
     """One metric, one figure (saved individually as png+pdf). Global log-y
-    (except EMC, which is in [0,1]); linear x so the shared t=0 / NFE=0 start
-    point is representable. `xaxis` in {'t','nfe','wallclock'}.
+    (except EMC, which is in [0,1]). `xaxis` in {'t','nfe','wallclock'}.
+
+    `logx="auto"` puts the cost axes (nfe / wallclock) on a log scale whenever
+    the terminal cost spans more than LOGX_SPREAD across methods, which is the
+    normal case once the exact LSC-CP arm is plotted alongside a local baseline.
+    The t-axis stays linear (shared physical time, and x=0 is meaningful).
+    Pass True/False to force it. On a log x-axis the x=0 frame is dropped.
 
     `smooth` (default 9) applies a centered stationary running-average to each
     method's seed-mean curve and its band, suppressing the checkpoint-to-
@@ -190,19 +208,36 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
     lov = label_overrides or {}
     xkey, xlabel = X_AXIS[xaxis]
     fig, ax = plt.subplots(figsize=figsize)
-    plotted = False
-    xmax_by_method: dict[str, float] = {}
+
+    series = {}
     for method in methods:
         x, y, sd = _series_x(rows, method, metric, xkey)
         if len(x) == 0:
             continue
-        plotted = True
-        xmax_by_method[method] = float(x.max())
-        y = _running_mean(y, smooth)
-        sd = _running_mean(sd, smooth)
-        # a method relabeled to a canonical name (e.g. LSC-CP-RA -> "LSC-CP")
-        # adopts that name's style, so "LSC-CP" is black in every figure
-        # regardless of which estimator produced the curve
+        series[method] = (x, _running_mean(y, smooth), _running_mean(sd, smooth))
+    plotted = bool(series)
+    xmax_by_method = {m: float(v[0].max()) for m, v in series.items()}
+
+    # Cost axes: the exact LSC-CP arm can cost orders of magnitude more per step
+    # than a local baseline, so a linear axis squeezes every baseline onto the
+    # y-axis. Truncating at the slowest baseline (the old behaviour) hid the
+    # LSC-CP tail instead. Use a log x-axis whenever the terminal-cost spread is
+    # wide; it shows every curve in full.
+    use_logx = bool(logx) if isinstance(logx, bool) else False
+    if logx == "auto" and xaxis in ("nfe", "wallclock") and len(xmax_by_method) > 1:
+        finite = [v for v in xmax_by_method.values() if v > 0]
+        use_logx = bool(finite) and (max(finite) / min(finite)) > LOGX_SPREAD
+
+    for method, (x, y, sd) in series.items():
+        if use_logx:
+            # x = 0 is the shared pre-run origin and has no place on a log axis
+            keep = x > 0
+            x, y, sd = x[keep], y[keep], sd[keep]
+            if len(x) == 0:
+                continue
+        # a method relabeled to a canonical name adopts that name's style, so
+        # the exact arm is black and the realised-displacement arm purple in
+        # every figure regardless of which estimator produced the curve
         style_key = lov.get(method) if lov.get(method) in METHOD_STYLE else method
         st = METHOD_STYLE.get(style_key, dict(color="#444444", ls="-", marker="."))
         ax.fill_between(x, y - sd, y + sd,
@@ -211,7 +246,9 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
                 markevery=max(1, len(x) // 8), markerfacecolor="white",
                 markeredgecolor=st["color"], markeredgewidth=0.6,
                 label=lov.get(method, SIMPLE_LABELS.get(method, method)), zorder=3)
-    if (xmax_mode == "baselines" and xaxis in ("nfe", "wallclock")
+    if use_logx:
+        ax.set_xscale("log")
+    elif (xmax_mode == "baselines" and xaxis in ("nfe", "wallclock")
             and len(xmax_by_method) > 1):
         base_max = max((v for m, v in xmax_by_method.items()
                         if not m.startswith("LSC-CP")), default=0.0)
@@ -351,6 +388,176 @@ def metric_grid(rows: list[dict], out_base: str,
     fig.legend(handles, labels, ncol=len(labels), loc="lower center",
                bbox_to_anchor=(0.5, 1.005), frameon=False,
                handlelength=1.9, columnspacing=1.1)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(out_base), exist_ok=True)
+    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
+    fig.savefig(out_base + ".pdf", bbox_inches="tight")
+    if show:
+        _display_inline(fig)
+    plt.close(fig)
+    return fig
+
+
+# ======================================================== CSV-only sample figures
+REFERENCE_KEY = "reference"
+
+
+def load_positions_csv(path: str) -> dict[str, np.ndarray]:
+    """method -> (n, k) array, as written by runner.write_positions_csv.
+
+    This is the only input the density-overlay and free-energy figures need, so
+    they regenerate from the run's CSVs with no in-memory state.
+    """
+    import csv as _csv
+    blocks: dict[str, list] = {}
+    with open(path, newline="", encoding="utf-8") as handle:
+        reader = _csv.DictReader(handle)
+        cvs = [c for c in reader.fieldnames or [] if c.startswith("cv")]
+        if not cvs:
+            raise ValueError(f"{path} has no cv columns")
+        for row in reader:
+            vals = [row[c] for c in cvs]
+            blocks.setdefault(row["method"], []).append(
+                [float(v) for v in vals if v != ""])
+    return {m: np.asarray(v, dtype=float) for m, v in blocks.items()}
+
+
+def _shared_extent(positions: dict, pad: float = 0.04):
+    ref = positions[REFERENCE_KEY]
+    lo, hi = ref.min(axis=0), ref.max(axis=0)
+    span = np.maximum(hi - lo, 1e-12)
+    return lo - pad * span, hi + pad * span
+
+
+def density_overlay(positions: dict, method: str, out_base: str, *,
+                    bins: int = 110, figsize=(4.0, 3.4), show: bool = True,
+                    label_overrides: dict | None = None):
+    """One method's terminal sample against the reference -- one method, one
+    figure (no grid). 1-D draws both densities as step histograms; 2-D draws the
+    reference as filled contours with the sample scattered on top, so a sampler
+    that misses a mode or leaks off-support is visible directly."""
+    apply_style()
+    lov = label_overrides or {}
+    name = lov.get(method, SIMPLE_LABELS.get(method, method))
+    ref, emp = positions[REFERENCE_KEY], positions[method]
+    lo, hi = _shared_extent(positions)
+    fig, ax = plt.subplots(figsize=figsize)
+    if ref.shape[1] == 1:
+        edges = np.linspace(lo[0], hi[0], bins + 1)
+        for data, color, lab, lw in ((ref, "#666666", "reference", 1.0),
+                                     (emp, "#000000", name, 1.4)):
+            h, _ = np.histogram(data[:, 0], bins=edges, density=True)
+            ax.step(0.5 * (edges[1:] + edges[:-1]), h, where="mid",
+                    color=color, lw=lw, label=lab)
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel("density")
+        ax.legend(frameon=False, fontsize=8)
+    else:
+        hr, xe, ye = np.histogram2d(
+            ref[:, 0], ref[:, 1], bins=bins,
+            range=[[lo[0], hi[0]], [lo[1], hi[1]]], density=True)
+        ax.contourf(0.5 * (xe[1:] + xe[:-1]), 0.5 * (ye[1:] + ye[:-1]), hr.T,
+                    levels=10, cmap="Greys", zorder=1)
+        ax.scatter(emp[:, 0], emp[:, 1], s=1.4, lw=0, alpha=0.28,
+                   color="#D55E00", zorder=2, rasterized=True)
+        ax.set_xlim(lo[0], hi[0])
+        ax.set_ylim(lo[1], hi[1])
+        ax.set_xlabel(r"$s_1$")
+        ax.set_ylabel(r"$s_2$")
+        ax.set_title(f"{name}  vs reference (shaded)", fontsize=9)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(out_base), exist_ok=True)
+    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
+    fig.savefig(out_base + ".pdf", bbox_inches="tight")
+    if show:
+        _display_inline(fig)
+    plt.close(fig)
+    return fig
+
+
+def _fes_from_samples(data, edges, beta, floor_counts=0.5):
+    """beta*F = -log p, shifted so min = 0. Empty cells get a pseudocount so an
+    unvisited basin has a finite (large) free energy rather than +inf."""
+    if len(edges) == 1:
+        counts, _ = np.histogram(data[:, 0], bins=edges[0])
+    else:
+        counts, _, _ = np.histogram2d(data[:, 0], data[:, 1], bins=edges)
+    p = (counts + floor_counts) / (counts + floor_counts).sum()
+    f = -np.log(p) / float(beta)
+    return f - np.nanmin(f)
+
+
+def fes_profile_1d(positions: dict, out_base: str, *, beta: float,
+                   methods=None, bins: int = 60, figsize=(4.6, 3.3),
+                   show: bool = True, label_overrides: dict | None = None):
+    """True free-energy profile plus the profile each sampler produces."""
+    apply_style()
+    lov = label_overrides or {}
+    lo, hi = _shared_extent(positions)
+    edges = [np.linspace(lo[0], hi[0], bins + 1)]
+    centres = 0.5 * (edges[0][1:] + edges[0][:-1])
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(centres, _fes_from_samples(positions[REFERENCE_KEY], edges, beta),
+            color="#666666", lw=2.2, ls="-", label="true FES", zorder=2)
+    for method in (methods if methods is not None else
+                   [m for m in positions if m != REFERENCE_KEY]):
+        if method not in positions:
+            continue
+        st = METHOD_STYLE.get(method, dict(color="#444444", ls="-", marker="."))
+        ax.plot(centres, _fes_from_samples(positions[method], edges, beta),
+                color=st["color"], ls=st["ls"], lw=1.1, zorder=3,
+                label=lov.get(method, SIMPLE_LABELS.get(method, method)))
+    ax.set_xlabel(r"$x$")
+    ax.set_ylabel(r"$F(x)\ [k_BT]$")
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, ncol=min(4, len(labels)), loc="lower center",
+               bbox_to_anchor=(0.5, 1.005), frameon=False, handlelength=1.9,
+               columnspacing=1.0)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(out_base), exist_ok=True)
+    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
+    fig.savefig(out_base + ".pdf", bbox_inches="tight")
+    if show:
+        _display_inline(fig)
+    plt.close(fig)
+    return fig
+
+
+def fes_ceiling(positions: dict, *, beta: float, bins: int = 90,
+                percentile: float = 99.0) -> float:
+    """Shared colour ceiling for a set of 2-D free-energy maps.
+
+    Taken from the REFERENCE surface so every method's figure is drawn on the
+    same scale and the maps are visually comparable; a per-figure autoscale
+    would make a sampler that missed a basin look like it matched the target.
+    """
+    lo, hi = _shared_extent(positions)
+    edges = [np.linspace(lo[j], hi[j], bins + 1) for j in range(2)]
+    return float(np.nanpercentile(
+        _fes_from_samples(positions[REFERENCE_KEY], edges, beta), percentile))
+
+
+def fes_map_2d(positions: dict, method: str, out_base: str, *, beta: float,
+               bins: int = 90, fmax: float | None = None, figsize=(4.2, 3.4),
+               show: bool = True, label_overrides: dict | None = None):
+    """One free-energy surface per figure. `method` may be REFERENCE_KEY to draw
+    the true surface. `fmax` clips the colour range so every method shares one
+    scale -- pass the same value for all figures of an experiment."""
+    apply_style()
+    lov = label_overrides or {}
+    name = ("true FES" if method == REFERENCE_KEY
+            else lov.get(method, SIMPLE_LABELS.get(method, method)))
+    lo, hi = _shared_extent(positions)
+    edges = [np.linspace(lo[0], hi[0], bins + 1),
+             np.linspace(lo[1], hi[1], bins + 1)]
+    f = _fes_from_samples(positions[method], edges, beta)
+    fig, ax = plt.subplots(figsize=figsize)
+    mesh = ax.pcolormesh(edges[0], edges[1], f.T, cmap="viridis",
+                         vmin=0.0, vmax=fmax, shading="auto", rasterized=True)
+    fig.colorbar(mesh, ax=ax, label=r"$F\ [k_BT]$")
+    ax.set_xlabel(r"$s_1$")
+    ax.set_ylabel(r"$s_2$")
+    ax.set_title(name, fontsize=9)
     fig.tight_layout()
     os.makedirs(os.path.dirname(out_base), exist_ok=True)
     fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")

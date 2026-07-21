@@ -470,6 +470,51 @@ def write_timeseries_csv(rows: list[dict], path: str | os.PathLike,
     return cols
 
 
+def write_positions_csv(positions_by_method: dict, path: str | os.PathLike, *,
+                        n_max: int = 20_000, seed: int = 0,
+                        overwrite: bool = False) -> int:
+    """Terminal sample positions in CV space, one row per particle.
+
+    Columns: method, particle, n_total, cv0[, cv1, ...]. The reference sample is
+    written as a `method` block named "reference", so density-overlay and
+    free-energy figures regenerate from this one file with no in-memory state.
+    Blocks longer than n_max are deterministically subsampled (fixed generator,
+    so a re-run reproduces the same rows) and the drawn count is kept per row.
+    """
+    output = Path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    blocks: list[tuple[str, np.ndarray, int]] = []
+    width = 0
+    for method, pos in positions_by_method.items():
+        arr = pos.detach().cpu().numpy() if hasattr(pos, "detach") else np.asarray(pos)
+        arr = np.atleast_2d(arr)
+        if arr.shape[0] == 0:
+            continue
+        if arr.ndim == 1:
+            arr = arr[:, None]
+        total = int(arr.shape[0])
+        if total > n_max:
+            rng = np.random.default_rng(seed)
+            arr = arr[rng.choice(total, size=n_max, replace=False)]
+        blocks.append((method, arr, total))
+        width = max(width, int(arr.shape[1]))
+    if not blocks:
+        raise ValueError("no positions to write")
+    cols = ["method", "particle", "n_total"] + [f"cv{j}" for j in range(width)]
+    mode = "w" if overwrite else "x"
+    written = 0
+    with output.open(mode, newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(cols)
+        for method, arr, total in blocks:
+            for i, row in enumerate(arr):
+                writer.writerow([method, i, total]
+                                + [f"{v:.10g}" for v in row]
+                                + [""] * (width - len(row)))
+                written += 1
+    return written
+
+
 def _terminal_stats(rows, methods, seeds, metric_keys):
     out = {}
     for method in methods:

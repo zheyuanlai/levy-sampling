@@ -99,15 +99,21 @@ class ShellScore:
     """
 
     def __init__(self, potential, law: ShellJumpLaw, lam: float, beta: float,
-                 q_theta: int, q_rho: int, m_max: float = M_MAX) -> None:
+                 q_theta: int, q_rho: int, m_max: float = M_MAX,
+                 chunk: int | None = None,
+                 max_block_elems: int = 1 << 23, **law_quad_kwargs) -> None:
         self.potential = potential
         self.law = law
         self.lam = float(lam)
         self.beta = float(beta)
         self.m_max = float(m_max)
-        dev = law.atoms.device
+        # Shell laws carry .atoms; the E2 annulus law is atom-free and exposes
+        # .device directly (the same fallback RandomAtomicShellScore uses).
+        dev = (law.atoms.device if hasattr(law, "atoms")
+               else getattr(law, "device", torch.device("cpu")))
         theta, w_theta = gauss_legendre_01(q_theta, dev)     # (Qt,), sum(w)=1
-        shifts, logw = law.quadrature_shifts(q_rho)          # (J, d), (J,)
+        # law_quad_kwargs carries law-specific orders (the annulus needs m_phi).
+        shifts, logw = law.quadrature_shifts(q_rho, **law_quad_kwargs)  # (J,d), (J,)
         self.r_aq = shifts                                   # (J, d)
         self.logw_aq = logw                                  # (J,)
         self.log_w_theta = torch.log(w_theta)                # (Qt,)
@@ -116,15 +122,36 @@ class ShellScore:
         self.R_flat = self.R_all.reshape(-1, shifts.shape[1])
         self.q_theta = q_theta
         self.J = shifts.shape[0]
+        # V_delta materialises (n, q_theta*J, d) and each potential expands that
+        # further (MoG40 to (n, q_theta*J, 40, 2)), so the block is capped in
+        # (particle x chord) units; bytes per unit are potential-specific.
+        per_particle = max(1, self.q_theta * self.J)
+        self.chunk = (int(chunk) if chunk is not None
+                      else max(1, int(max_block_elems) // per_particle))
 
-    def log_parts(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        """(M, v) with S = -exp(M) v exactly (no cap applied here)."""
+    def _log_parts_block(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         n = x.shape[0]
         dV = self.potential.V_delta(x, self.R_flat).reshape(n, self.q_theta, self.J)
         # log I_j = LSE_p [ log w_hat_p + beta (V(x) - V(x - theta_p r_j)) ]
         log_I = torch.logsumexp(self.log_w_theta.view(1, -1, 1) - self.beta * dV, dim=1)
         log_terms = self.logw_aq.unsqueeze(0) + log_I        # (N, J)
         return _log_parts(log_terms, self.r_aq, math.log(self.lam))
+
+    def log_parts(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """(M, v) with S = -exp(M) v exactly (no cap applied here).
+
+        Blocked over particles. `_log_parts` is row-wise, so concatenating the
+        per-block (M, v) is bit-identical to the unblocked result.
+        """
+        n = x.shape[0]
+        if n <= self.chunk:
+            return self._log_parts_block(x)
+        Ms, vs = [], []
+        for s in range(0, n, self.chunk):
+            M, v = self._log_parts_block(x[s:s + self.chunk])
+            Ms.append(M)
+            vs.append(v)
+        return torch.cat(Ms, dim=0), torch.cat(vs, dim=0)
 
     def __call__(self, x: torch.Tensor) -> tuple[torch.Tensor, dict]:
         M, v = self.log_parts(x)

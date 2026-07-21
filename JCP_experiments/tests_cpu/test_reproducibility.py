@@ -373,12 +373,23 @@ def test_smoke_config_must_match_full_method_matrix():
         smoke._validate_args(args)
 
 
-def test_smoke_recognizes_analytic_mog40_score_without_skipping_score_gate():
+def test_every_deployed_lsc_arm_charges_score_quadrature():
+    """No deployed LSC arm may integrate the Levy score in closed form."""
     smoke = _load_script_module("smoke_experiment.py", "jcp_smoke_analytic")
-    assert smoke._requires_score_quadrature("mog40", "LSC-CP") is False
-    assert smoke._requires_score_quadrature("mog40", "LSC-CP-RA") is True
-    assert smoke._requires_score_quadrature("double_well", "LSC-CP") is True
-    assert smoke._requires_score_quadrature("double_well", "ULA") is False
+    for experiment in smoke.EXPERIMENT_NOTEBOOK_METHODS:
+        for method in smoke.EXPERIMENT_NOTEBOOK_METHODS[experiment].split(","):
+            expected = method.startswith("LSC-CP")
+            assert smoke._requires_score_quadrature(experiment, method) is expected, (
+                f"{experiment}/{method}")
+
+
+def test_production_method_matrix_carries_two_lsc_arms_everywhere():
+    """Each experiment reports an exact arm and one realised-displacement arm."""
+    for name, (_notebook, methods) in launcher.EXPERIMENTS.items():
+        arms = [m for m in methods.split(",") if m.startswith("LSC-CP")]
+        assert "LSC-CP" in arms, f"{name} is missing the exact arm: {arms}"
+        assert len(arms) == 2, f"{name} must carry exactly two LSC arms: {arms}"
+        assert arms[1] in ("LSC-CP-RA", "LSC-CP-MA"), arms
 
 
 def test_smoke_builders_receive_coarse_settings_and_run_local_cache(tmp_path,
@@ -432,7 +443,7 @@ def test_smoke_job_requires_success_artifacts_and_records_real_command(tmp_path,
     command, kwargs = commands[0]
     assert Path(command[1]).name == "smoke_experiment.py"
     assert command[command.index("--experiment") + 1] == "double_well"
-    assert command[command.index("--methods") + 1] == launcher.DUAL
+    assert command[command.index("--methods") + 1] == launcher.DUAL_RA
     assert kwargs["phase"] == "dynamics_smoke"
     status = json.loads(
         (tmp_path / "run" / "smoke" / "double_well" / "status.json").read_text())
@@ -587,16 +598,32 @@ def test_e4_energy_reference_is_declared_direct_snis():
 
 
 
-def test_replot_plot_policy_prefers_exact_or_paired_ma_and_labels_ra():
+def test_replot_plot_policy_shows_both_lsc_arms_and_labels_the_atom_count():
+    """Every experiment plots the exact arm AND the realised-displacement arm."""
     module = _load_script_module("replot_figures.py", "jcp_replot_policy")
-    common = {"ULA", "CP", "LSC-CP", "LSC-CP-RA", "LSC-CP-MA"}
-    low, low_labels = module._plot_policy("double_well", common)
-    assert "LSC-CP" in low and "LSC-CP-RA" not in low
+
+    low, low_labels = module._plot_policy(
+        "double_well", {"ULA", "CP", "LSC-CP", "LSC-CP-RA"})
+    assert low == ["ULA", "CP", "LSC-CP", "LSC-CP-RA"]
     assert low_labels["LSC-CP"] == "LSC-CP"
-    high, high_labels = module._plot_policy("coupled_phi4", common)
-    assert "LSC-CP-MA" in high and "LSC-CP-RA" not in high
-    assert high_labels["LSC-CP-MA"] == "LSC-CP"
-    fallback, fallback_labels = module._plot_policy(
-        "double_well", {"CP", "LSC-CP-RA"})
-    assert fallback == ["CP", "LSC-CP-RA"]
-    assert fallback_labels["LSC-CP-RA"] == "LSC-CP-RA (secondary)"
+    assert low_labels["LSC-CP-RA"] == "LSC-CP-RA"
+
+    for experiment, atoms in (("mb3well_10d", 4), ("coupled_phi4", 8)):
+        high, high_labels = module._plot_policy(
+            experiment, {"ULA", "CP", "LSC-CP", "LSC-CP-MA"})
+        assert high == ["ULA", "CP", "LSC-CP", "LSC-CP-MA"]
+        assert high_labels["LSC-CP"] == "LSC-CP"
+        assert high_labels["LSC-CP-MA"] == f"LSC-CP-RA ({atoms})"
+
+    both, _ = module._plot_policy(
+        "double_well", {"LSC-CP", "LSC-CP-RA", "LSC-CP-MA"})
+    assert {"LSC-CP", "LSC-CP-RA", "LSC-CP-MA"} <= set(both)
+
+
+def test_notebook_and_replot_plot_policies_agree_on_labels():
+    """Generator and CSV-only replot duplicate the policy; drift breaks replots."""
+    module = _load_script_module("replot_figures.py", "jcp_replot_policy")
+    generator = (ROOT / "notebooks" / "build_notebooks.py").read_text()
+    for experiment, label in module._RA_LABEL.items():
+        assert f'"{experiment}": "{label}"' in generator, (
+            f"{experiment} -> {label} missing from the notebook generator")
