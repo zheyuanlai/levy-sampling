@@ -694,6 +694,150 @@ def _mog40_committed_exit(pot):
     return fn
 
 
+# ===================================================================== E5
+def _torus_dist(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Pairwise torus distance between (N,2) and (K,2) angle pairs -> (N,K)."""
+    d = (a.unsqueeze(-2) - b).abs()
+    d = torch.minimum(d, 2.0 * math.pi - d)
+    return torch.sqrt((d * d).sum(-1))
+
+
+def build_e5_alanine(device="cuda", *, reference_cache: str | None = None,
+                     n_particles: int = 1000, T: float = 40.0,
+                     dt: float = 1.0e-3, seeds=tuple(range(16)),
+                     jump_frac_tol: float = 1e-3, jump_n_states: int = 128,
+                     jump_q_theta: int = Q_THETA,
+                     island_core_rad: float = 0.4) -> Experiment:
+    """E5: alanine dipeptide (Ac-Ala-NHMe, vacuum, 22 atoms), a real force field.
+
+    The sampler runs in whitened BAT internal coordinates q_tilde (d = 60), whose
+    torsion slots include phi and psi directly, so the jump atoms are pure-torsion
+    rotations between Ramachandran basins and the Levy-score chord is Jacobian
+    free (S1.6, machine-zero in P3).  The target is the Cartesian Boltzmann
+    measure at 300 K: mapping q_tilde -> q -> x pushes mu_q ∝ e^{-beta U_eff}
+    forward to mu_x ∝ e^{-beta U}, the same measure the OpenMM metadynamics
+    reference samples, so F(phi,psi) is an apples-to-apples comparison (S1.7).
+
+    beta is threaded locally (config.BETA stays 8 for E1/E2/E4); here
+    beta = 1/(kB T) at 300 K = 0.40091 mol/kJ (kT = 2.4943 kJ/mol).
+
+    The reference (FES, basins, p_star, reweighted conformer pool) is the cached
+    well-tempered metadynamics run; regenerate with
+    ``python -m src.e5_alanine.build_reference --seeds 0 1``.
+    """
+    from .e5_alanine.potential import AlanineDipeptideBAT, E5_TEMPERATURE, e5_beta
+    from .e5_alanine.reference import E5Reference
+    from .e5_alanine.box import TorusBox
+    from .e5_alanine.jump_design import design_jump_law
+
+    E5_BETA = e5_beta(E5_TEMPERATURE)      # <-- E5 temperature (300 K)
+    pot = AlanineDipeptideBAT(beta=E5_BETA, device=device)
+    cfg = RunConfig(name="alanine_dipeptide", d=pot.d, n_particles=n_particles,
+                    T=T, dt=dt, beta=E5_BETA, seeds=tuple(seeds))
+
+    ref = E5Reference(reference_cache, device=device)
+    law, jump_record = design_jump_law(
+        pot, ref, n_states=jump_n_states, q_theta=jump_q_theta,
+        frac_tol=jump_frac_tol)
+    drift_cap = float(jump_record["cp_drift_cap"])
+    box = TorusBox(pot)
+    p_star = ref.p_star
+
+    # ---- init in C7eq (the global FES minimum) ----------------------------
+    init_basin = ref.deepest_basin()
+    q0 = ref.representative_state(init_basin)
+
+    def init_fn(n, gen):
+        return q0.unsqueeze(0) + 0.05 * torch.randn(
+            n, pot.d, generator=gen, device=device, dtype=torch.float64)
+
+    def metric_space(qt):
+        return pot.to_cv(qt)
+
+    def labels_fn(qt):
+        return ref.assign(pot.to_cv(qt))
+
+    def make_score(q_theta=Q_THETA, q_rho=Q_RHO):
+        # Exact deterministic quadrature. Correct but costly here
+        # (q_theta * A * q_rho BAT reconstructions per particle per step); the
+        # deployed estimators are RA / paired-MA, which need only chord energies.
+        return ShellScore(pot, law, cfg.lam, cfg.beta, q_theta, q_rho)
+
+    # ---- the slow event: reaching the sparse C7ax/alpha_L island ----------
+    # The barrier is the island basin's own escape barrier, NOT the minimum of F
+    # along a phi cut: the phi = +-pi line passes through a basin, so the value
+    # there is a basin depth rather than a saddle.
+    b_phi_zero = ref.phi_cut_min_kJ(0.0)             # dividing line at phi ~ 0
+    b_phi_seam = ref.phi_cut_min_kJ(math.pi)         # NOT a dividing line here
+    b_phi = max(ref.island_barrier_kJ(), 1e-6)
+    kramers = 2.0 * math.pi * math.exp(min(E5_BETA * b_phi, 700.0))
+    pos_basins = ref.island_basins()
+    pos_minima = ref.minima[pos_basins] if pos_basins else ref.minima[:0]
+
+    def exit_committed(qt):
+        cv = pot.to_cv(qt)
+        if pos_minima.shape[0] == 0:
+            return torch.zeros(cv.shape[0], dtype=torch.bool, device=cv.device)
+        return _torus_dist(cv, pos_minima).min(dim=1).values < island_core_rad
+
+    # ---- weighted (direct-SNIS style) reference quantities ----------------
+    w = ref.weights
+    cv_mean = (w.unsqueeze(1) * ref.cvs).sum(0)
+    e_mean = float((w * ref.U_eff).sum().item())
+    e_var = float((w * (ref.U_eff - e_mean) ** 2).sum().item())
+
+    return Experiment(
+        name="alanine_dipeptide", cfg=cfg, pot=pot, law=law, box=box,
+        init_fn=init_fn, ref_sample=lambda n, g: ref.sample(n, g),
+        make_score=make_score, labels_fn=labels_fn, p_star=p_star,
+        metric_space=metric_space,
+        # hot replica must clear the phi barrier: beta_min * b ~ 2
+        pt_beta_min=2.0 / b_phi,
+        exit_committed=exit_committed,
+        kramers_tau=kramers,
+        cp_drift_cap=drift_cap,
+        extras={
+            "reference": ref, "jump_design": jump_record,
+            "whitening_provenance": pot.whitening_provenance,
+            "temperature_K": E5_TEMPERATURE, "beta": E5_BETA,
+            "kT_kJ_per_mol": 1.0 / E5_BETA,
+            "phi_cut_min_kJ_at_zero": b_phi_zero,
+            "phi_cut_min_kJ_at_seam": b_phi_seam,
+            "island_barrier_kJ": b_phi, "island_barrier_kT": E5_BETA * b_phi,
+            "basin_escape_kT": ref.basin_escape_kT.cpu().tolist(),
+            "init_basin": int(init_basin),
+            "island_basins": [int(k) for k in pos_basins],
+            "positive_phi_basins": [int(k) for k in pos_basins],
+            "island_core_rad": island_core_rad,
+            "minima_deg": np.degrees(ref.minima.cpu().numpy()).round(1).tolist(),
+            "basin_free_energies_kT": ref.basin_free_energies_kT().cpu().tolist(),
+            "reference_ess": ref.ess, "reference_ess_fraction": ref.ess_fraction,
+            "reference_seam_mass": ref.seam_mass(),
+            "reference_provenance": ref.provenance,
+            "h": float(jump_record["h"]),
+            # E4-style weighted reference: FES/energy use the importance weights
+            # directly; the unweighted cloud W2/MMD need comes from SIR draws.
+            "reference_metric_points": ref.cvs.detach(),
+            "reference_metric_weights": w.detach(),
+            "reference_energy_values": ref.U_eff.detach(),
+            "reference_energy_weights": w.detach(),
+            "reference_cv_means": cv_mean.detach().cpu().tolist(),
+            "reference_energy_mean": e_mean, "reference_energy_var": e_var,
+            "reference_sample_method": "wt_metadynamics_reweighted_sir",
+            "reference_scalar_method": "direct_snis",
+            "builder_reference_parameters": {
+                "reference_cache": ref.cache_path,
+                "jump_frac_tol": jump_frac_tol,
+                "jump_n_states": jump_n_states,
+                "jump_q_theta": jump_q_theta,
+            },
+            # NOTE: no "basin_map_metric_bounds" -- the partition is a torus
+            # Voronoi over the whole (-pi, pi]^2 fundamental domain, so unlike
+            # E4's grid basin map there is no out-of-domain clamping to guard.
+        },
+    )
+
+
 # ============================================================ sampler wiring
 def make_sampler_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
                          n_particles: int | None = None,
