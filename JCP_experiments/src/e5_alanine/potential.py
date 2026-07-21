@@ -69,7 +69,7 @@ class AlanineDipeptideBAT(Potential):
         self.q_ref = self.bat.to_bat(ref)       # (60,)
 
         if whitening is None:
-            whitening, self.whitening_provenance = self._compute_whitening()
+            whitening, self.whitening_provenance = self._cached_whitening()
         else:
             whitening = torch.as_tensor(whitening, dtype=torch.float64,
                                         device=self.device)
@@ -78,24 +78,112 @@ class AlanineDipeptideBAT(Potential):
         self.Dinv = 1.0 / self.D
 
     # -- whitening -----------------------------------------------------------
+    # -- whitening cache -----------------------------------------------------
+    def _cached_whitening(self):
+        """Load the whitening from disk, else compute (basin minimisation +
+        Hessian, ~45 s) and cache it. Keyed on beta so a temperature change
+        invalidates the cache."""
+        import json
+        import os
+
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__)))), "cache", "e5_alanine",
+            "whitening.npz")
+        # signature guards against a stale cache after a coordinate-convention
+        # change (the D vector is meaningless in a different BAT layout)
+        sig = np.array([self.d, int(self.phi_slot), int(self.psi_slot),
+                        len(self.bat.leader_torsion_slots),
+                        len(self.bat.offset_torsion_slots)], dtype=np.int64)
+        if os.path.exists(path):
+            try:
+                with np.load(path, allow_pickle=False) as data:
+                    if (abs(float(data["beta"]) - self.beta) < 1e-12
+                            and "signature" in data
+                            and np.array_equal(data["signature"], sig)):
+                        self.q_min = torch.as_tensor(
+                            data["q_min"], dtype=torch.float64, device=self.device)
+                        return (torch.as_tensor(data["D"], dtype=torch.float64,
+                                                device=self.device),
+                                json.loads(str(data["provenance"])))
+            except Exception:
+                pass                      # fall through and recompute
+        D, prov = self._compute_whitening()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        np.savez(path, D=D.cpu().numpy(), q_min=self.q_min.cpu().numpy(),
+                 beta=np.float64(self.beta), signature=sig,
+                 provenance=np.array(json.dumps(prov)))
+        return D, prov
+
+    # -- basin minimisation --------------------------------------------------
+    def _minimise(self, q_start: torch.Tensor, D0: torch.Tensor,
+                  n_steps: int = 1500, lr: float = 0.05) -> torch.Tensor:
+        """Deterministic descent to the nearest U_eff minimum, in D0-whitened
+        coordinates (well conditioned, so plain Adam converges quickly)."""
+        x = (q_start * (1.0 / D0)).clone().requires_grad_(True)
+        opt = torch.optim.Adam([x], lr=lr)
+        sched = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=0.999)
+        for _ in range(n_steps):
+            opt.zero_grad()
+            E = self._U_eff_from_q(x * D0)
+            E.backward()
+            opt.step()
+            sched.step()
+        return (x.detach() * D0)
+
     def _compute_whitening(self):
-        """Fixed diagonal D from the U_eff Hessian at the reference conformer."""
+        """Fixed diagonal D from the U_eff Hessian at the reference conformer.
+
+        phi and psi keep D = 1 so they stay affine, unit-scale coordinates of
+        q_tilde (the jump atoms are pure phi/psi shifts and must read directly as
+        rotations).  EVERY other coordinate -- bonds, angles, the stiff sibling
+        torsion offsets and the remaining proper torsions -- is scaled to the
+        common thermal curvature, which is what makes a single dt comfortable.
+        The cap at 1 prevents amplifying a coordinate that is already softer
+        than the phi/psi scale.
+        """
+        keep = {int(self.phi_slot), int(self.psi_slot)}
+        idx = torch.tensor([i for i in range(self.d) if i not in keep],
+                           dtype=torch.long, device=self.device)
+
+        def _diag_to_D(Hdiag):
+            D = torch.ones(self.d, dtype=torch.float64, device=self.device)
+            D[idx] = torch.sqrt(
+                1.0 / (self.beta * Hdiag[idx].clamp(min=1e-8))).clamp(max=1.0)
+            return D
+
+        # bootstrap D0 at the (unminimised) reference conformer, descend to the
+        # basin minimum, then take the Hessian THERE: the supplied conformer is
+        # not a stationary point (|grad U_eff| ~ 105, almost all of it in phi),
+        # which inflates the raw diagonal curvature ~7x.
+        H0 = torch.autograd.functional.hessian(
+            lambda q: self._U_eff_from_q(q), self.q_ref)
+        D0 = _diag_to_D(torch.diagonal(H0))
+        self.q_min = self._minimise(self.q_ref, D0)
         H = torch.autograd.functional.hessian(
-            lambda q: self._U_eff_from_q(q), self.q_ref)     # (60, 60)
-        Hdiag = torch.diagonal(H).clamp(min=1e-8)
-        D = torch.ones(self.d, dtype=torch.float64, device=self.device)
-        ba = torch.cat([self.bond_slots_t, self.angle_slots_t])
-        std = torch.sqrt(1.0 / (self.beta * Hdiag[ba]))
-        # torsions stay at 1; bonds/angles cannot be scaled above the torsion
-        D[ba] = std.clamp(max=1.0)
+            lambda q: self._U_eff_from_q(q), self.q_min)     # (60, 60)
+        Hdiag = torch.diagonal(H)
+        D = _diag_to_D(Hdiag)
+        with torch.no_grad():
+            gmin = torch.autograd.functional.jacobian(
+                lambda q: self._U_eff_from_q(q), self.q_min)
         prov = {
-            "method": "hessian_diag_at_reference_conformer",
+            "method": "hessian_diag_at_minimised_basin_conformer",
+            "grad_norm_at_minimum": float(gmin.norm()),
+            "U_eff_at_minimum": float(self._U_eff_from_q(self.q_min)),
+            "max_curvature_at_minimum": float(Hdiag.max()),
+            "curvature_phi": float(Hdiag[self.phi_slot]),
+            "curvature_psi": float(Hdiag[self.psi_slot]),
             "temperature_K": E5_TEMPERATURE, "beta": self.beta,
+            "unwhitened_slots": {"phi": int(self.phi_slot),
+                                 "psi": int(self.psi_slot)},
             "D_bond_min": float(D[self.bond_slots_t].min()),
             "D_bond_max": float(D[self.bond_slots_t].max()),
             "D_angle_min": float(D[self.angle_slots_t].min()),
             "D_angle_max": float(D[self.angle_slots_t].max()),
-            "D_torsion": 1.0,
+            "D_torsion_min": float(D[self.torsion_slots_t].min()),
+            "D_torsion_max": float(D[self.torsion_slots_t].max()),
+            "D_phi": 1.0, "D_psi": 1.0,
         }
         return D, prov
 

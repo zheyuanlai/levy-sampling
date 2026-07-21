@@ -37,10 +37,32 @@ def test_beta_and_whitening():
     assert abs(pot.beta - e5_beta(300.0)) < 1e-15
     assert abs(1.0 / pot.beta - 2.4943388) < 1e-4
     assert pot.d == 60
-    # torsions unwhitened, bonds/angles scaled down (stiff)
-    assert bool((pot.D[pot.torsion_slots_t] == 1.0).all())
+    # phi/psi stay affine unit-scale coordinates; every other slot (bonds,
+    # angles, sibling torsion offsets, other proper torsions) is scaled to the
+    # common thermal curvature so a single dt is comfortable.
+    assert float(pot.D[pot.phi_slot]) == 1.0
+    assert float(pot.D[pot.psi_slot]) == 1.0
     assert float(pot.D[pot.bond_slots_t].max()) < 0.02
     assert float(pot.D[pot.angle_slots_t].max()) < 0.2
+    others = [i for i in range(pot.d)
+              if i not in (int(pot.phi_slot), int(pot.psi_slot))]
+    assert float(pot.D[others].max()) <= 1.0
+
+
+def test_whitened_curvature_is_conditioned():
+    """The whitening must equalise timescales: after scaling, the largest
+    curvature is set by phi/psi (the deliberately unwhitened CVs), not by a
+    stiff bond, angle or sibling-torsion offset."""
+    pot = _pot()
+    H = torch.autograd.functional.hessian(
+        lambda q: pot._V_raw(q), pot.q_min * pot.Dinv)
+    hd = torch.diagonal(H)
+    others = [i for i in range(pot.d)
+              if i not in (int(pot.phi_slot), int(pot.psi_slot))]
+    # every whitened slot sits at the common curvature eps = 1/beta
+    assert float(hd[others].max()) < 5.0 / pot.beta
+    # and the global stiffness is modest enough for a practical dt
+    assert float(hd.max()) < 200.0
 
 
 def test_grad_matches_finite_differences():

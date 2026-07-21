@@ -111,7 +111,27 @@ def build_zmatrix(bond_idx: np.ndarray, n_atoms: int,
     refA_a = np.array([refA[d] for d in nonroot], dtype=np.int64)
     refB_a = np.array([refB[d] for d in nonroot], dtype=np.int64)
     refC_a = np.array([refC[d] for d in nonroot], dtype=np.int64)
-    return (np.array(order, dtype=np.int64), refA_a, refB_a, refC_a)
+
+    # -- correlated (leader/offset) torsions ------------------------------
+    # Atoms sharing a bond/angle parent pair (C, B) rotate about the SAME axis.
+    # If each kept an absolute torsion, moving one while holding its siblings
+    # fixed would distort the local (e.g. tetrahedral) geometry instead of
+    # rotating the fragment: measured curvature of such a coordinate is ~800-1300
+    # kJ/mol/rad^2, versus ~50 for the true soft rotation. So the first atom
+    # placed about each axis is the LEADER and carries the proper torsion; its
+    # siblings carry the (near-constant, stiff) OFFSET from the leader. Moving a
+    # leader torsion then rotates the whole fragment, which is the physical
+    # phi/psi motion. The reparametrisation is unit-triangular in the torsion
+    # block, so the Jacobian of S1.5 is unchanged.
+    leader_of = np.full(len(nonroot), -1, dtype=np.int64)
+    first_of_axis: dict = {}
+    for k, d in enumerate(nonroot):
+        key = (int(refC[d]), int(refB[d]))
+        if key in first_of_axis:
+            leader_of[k] = first_of_axis[key]
+        else:
+            first_of_axis[key] = k
+    return (np.array(order, dtype=np.int64), refA_a, refB_a, refC_a, leader_of)
 
 
 class BATTransform:
@@ -130,7 +150,7 @@ class BATTransform:
             params = load_params()
         self.device = torch.device(device)
         self.n_atoms = int(params["n_atoms"])
-        order, refA, refB, refC = build_zmatrix(
+        order, refA, refB, refC, leader_of = build_zmatrix(
             np.asarray(params["bond_idx"]), self.n_atoms)
         self.order = order                       # (22,) placement order
         self.nonroot = order[3:]                 # (19,) atoms with (b,a,tau)
@@ -141,6 +161,20 @@ class BATTransform:
         self.refA, self.refB, self.refC = lt(refA), lt(refB), lt(refC)
         self.order_t = lt(order)
         self.nonroot_t = lt(self.nonroot)
+        # Python-int reference lists for the sequential NeRF loop. Indexing the
+        # position list with a CUDA tensor element (int(self.refA[k])) would force
+        # a device synchronisation on every atom placement -- 66 syncs per
+        # to_cartesian call, which dominated the step cost.
+        self.refA_i = [int(v) for v in refA]
+        self.refB_i = [int(v) for v in refB]
+        self.refC_i = [int(v) for v in refC]
+        self.nonroot_i = [int(v) for v in self.nonroot]
+        # torsion leader/offset bookkeeping (see build_zmatrix)
+        self.leader_of = leader_of                      # (19,) -1 if leader
+        self.leader_of_i = [int(v) for v in leader_of]
+        self.is_sibling_t = torch.as_tensor(leader_of >= 0, device=self.device)
+        self.leader_idx_t = lt(np.where(leader_of >= 0, leader_of,
+                                        np.arange(len(leader_of))))
 
         # q layout indices
         self.i_r12, self.i_r23, self.i_a123 = 0, 1, 2
@@ -150,6 +184,14 @@ class BATTransform:
         # phi = tau of the 1st non-root atom (14); psi = tau of the 2nd (16)
         self.phi_slot = self.torsion_slots[0]
         self.psi_slot = self.torsion_slots[1]
+        # proper (leader) vs offset (sibling) torsion slots
+        self.leader_torsion_slots = [5 + 3 * k for k in range(len(self.nonroot))
+                                     if leader_of[k] < 0]
+        self.offset_torsion_slots = [5 + 3 * k for k in range(len(self.nonroot))
+                                     if leader_of[k] >= 0]
+        if (self.phi_slot not in self.leader_torsion_slots
+                or self.psi_slot not in self.leader_torsion_slots):
+            raise RuntimeError("phi/psi must be proper (leader) torsions")
         self.bond_slots_t = lt(np.array(self.bond_slots))
         self.angle_slots_t = lt(np.array(self.angle_slots))
         self.torsion_slots_t = lt(np.array(self.torsion_slots))
@@ -175,7 +217,11 @@ class BATTransform:
         pD = pos[..., self.nonroot_t, :]
         b = (pD - pC).norm(dim=-1)                                  # (..., 19)
         a = _angle(pB, pC, pD)
-        tau = _dihedral(pA, pB, pC, pD)
+        tau_abs = _dihedral(pA, pB, pC, pD)                         # (..., 19)
+        # siblings store the offset from their axis leader (unit-triangular map)
+        tau = torch.where(self.is_sibling_t,
+                          _wrap(tau_abs - tau_abs[..., self.leader_idx_t]),
+                          tau_abs)
         # interleave (b, a, tau) per non-root atom into q[3:]
         bat = torch.stack([b, a, tau], dim=-1)                      # (..., 19, 3)
         bat = bat.reshape(*bat.shape[:-2], 3 * bat.shape[-2])       # (..., 57)
@@ -195,14 +241,17 @@ class BATTransform:
         # A3 in the xy-plane: A2 + r23*(-cos a123, sin a123, 0)
         pos[A3] = pos[A2] + torch.stack(
             [-r23 * torch.cos(a123), r23 * torch.sin(a123), zeros], dim=-1)
-        for k, d in enumerate(self.nonroot):
+        tau_abs = [None] * len(self.nonroot_i)
+        for k, d in enumerate(self.nonroot_i):
             b = q[..., 3 + 3 * k]
             a = q[..., 4 + 3 * k]
             tau = q[..., 5 + 3 * k]
-            A = pos[int(self.refA[k])]
-            B = pos[int(self.refB[k])]
-            C = pos[int(self.refC[k])]
-            pos[d] = _nerf(A, B, C, b, a, tau)
+            lead = self.leader_of_i[k]
+            # a sibling's stored coordinate is its offset from the axis leader,
+            # which is always placed earlier in the build order
+            tau_abs[k] = tau if lead < 0 else tau_abs[lead] + tau
+            pos[d] = _nerf(pos[self.refA_i[k]], pos[self.refB_i[k]],
+                           pos[self.refC_i[k]], b, a, tau_abs[k])
         return torch.stack(pos, dim=-2).reshape(*batch, 3 * self.n_atoms)
 
     # -- analytic log|Jacobian| ---------------------------------------------
