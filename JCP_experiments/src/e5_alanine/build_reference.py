@@ -520,9 +520,20 @@ def _convergence_metrics(runs, minima, axis, beta) -> dict:
         np.add.at(mass_end, lab_end, np.exp(-beta * F_end).ravel())
         mass_end = mass_end / mass_end.sum()
         major = mass_end >= 0.01
+        # DRIFT (last - first over the aligned last-third snapshots) is the gated
+        # measure of "stable across the last checkpoints". The RANGE (max - min)
+        # is also recorded but NOT gated: a range statistic's expectation grows
+        # with the number of snapshots it spans, so it is not a consistent
+        # estimator -- a longer run supplies more snapshots and need never pass
+        # it. Drift is consistent (it tends to zero as the estimate settles) and
+        # is exactly the convention already used by fes_drift_last_third above.
+        bdrift = np.abs(basin_dF[-1] - basin_dF[0]) * beta
         out[f"seed{int(r['seed'])}"] = dict(
             fes_drift_last_third_kJ=drift_grid,
             fes_drift_last_third_mass_weighted_kJ=drift_weighted,
+            basin_dF_drift_kT=float(bdrift.max()),
+            basin_dF_drift_major_kT=float(bdrift[major].max()) if major.any() else 0.0,
+            basin_dF_drift_per_basin_kT=bdrift.round(3).tolist(),
             basin_dF_range_kT=float(rng.max()),
             basin_dF_range_major_kT=float(rng[major].max()) if major.any() else 0.0,
             basin_mass_end=mass_end.round(5).tolist(),

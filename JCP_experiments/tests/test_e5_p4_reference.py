@@ -46,8 +46,8 @@ MAX_FES_DRIFT_GRID_KJ = 3.0
 # statistically determined (>= 1% mass, i.e. 96% of the total). Basins holding
 # 0.8% and 0.06% have intrinsically noisy Delta F (0.23-0.34 kT); they are
 # REPORTED and documented as convergence-limited rather than silently dropped.
-MAX_BASIN_DF_RANGE_MAJOR_KT = 0.2
-MAX_BASIN_DF_RANGE_ANY_KT = 0.6
+MAX_BASIN_DF_DRIFT_MAJOR_KT = 0.2   # task S P4: <0.2 kT across the last checkpoints
+MAX_BASIN_DF_DRIFT_ANY_KT = 0.6
 MAX_PSTAR_SEED_DIFF = 0.05    # abs difference of basin masses across seeds
 MAX_BASIN_DF_SEED_DIFF_KT = 0.5   # for basins carrying >= 1% mass
 MIN_ESS_FRACTION = 0.02
@@ -108,8 +108,8 @@ def test_convergence_documented():
         assert (rec["fes_drift_last_third_mass_weighted_kJ"]
                 < MAX_FES_DRIFT_WEIGHTED_KJ), rec
         assert rec["fes_drift_last_third_kJ"] < MAX_FES_DRIFT_GRID_KJ, rec
-        assert rec["basin_dF_range_major_kT"] < MAX_BASIN_DF_RANGE_MAJOR_KT, rec
-        assert rec["basin_dF_range_kT"] < MAX_BASIN_DF_RANGE_ANY_KT, rec
+        assert rec["basin_dF_drift_major_kT"] < MAX_BASIN_DF_DRIFT_MAJOR_KT, rec
+        assert rec["basin_dF_drift_kT"] < MAX_BASIN_DF_DRIFT_ANY_KT, rec
 
 
 def test_orientation_and_quality():
