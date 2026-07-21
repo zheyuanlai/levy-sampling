@@ -165,6 +165,13 @@ rather than split. Window centres live in `bat.py`
 cut at *c*+π). Basin assignment independently uses a **torus** Voronoi metric,
 and `TorusBox` wraps in physical units, so neither depends on the window.
 
+**Reading the plots.** Because ψ is reported on (−20°, 340°], an E5 Ramachandran
+plot is *not* the conventional (−180°, 180°] one: C5/β still sits near ψ = +160°,
+but α_R / C7ax appear near ψ ≈ +290° instead of −70°. Ensemble metrics are
+unaffected (W2/MMD compare static ensembles; basin labels use the torus metric),
+but a ψ *time series* shows an apparent jump at the cut whenever a trajectory
+passes continuously between C7eq and α_R — wrap for display, never for metrics.
+
 **Deviation from §1.9.** The task assumed the lower-barrier φ path runs through
 φ ≈ 0. For this force field it does not: the φ = 0 dividing line sits at
 **32.8 kJ/mol**, while the C7ax island's own escape barrier is only
@@ -234,6 +241,19 @@ under 1 kT. This matters twice over: it de-fragments `p_star`, and it makes
 | C5/β | (−145.8°, 160.2°) | 0.5766 | 2.54 kT (global minimum) |
 | C7eq | (−73.8°, 77.4°) | 0.4152 | 2.35 kT |
 | **C7ax** | (63.0°, −66.6°) | **0.0082** | **4.67 kT (11.7 kJ/mol)** ← the slow event |
+
+The 1 kT criterion is **not tuned**: sweeping it leaves the partition unchanged
+over a 40× range, and the structure only changes where a *real* barrier is met.
+
+| merge threshold | resulting partition |
+|---|---|
+| 0.05 – 2.0 kT | **K = 3** (C5/β, C7eq, C7ax) — unchanged |
+| ≥ 2.4 kT | K = 2 (C7eq absorbed into C5/β, whose true separation is 2.53 kT) |
+
+Both spurious shoulders are already gone at the smallest threshold tried, i.e.
+they would be dropped by *any* positive criterion, and the deployed 1 kT sits in
+the interior of the plateau rather than on an edge. Reproduce by sweeping
+`merge_shallow_minima(F, axis, minima, beta, min_barrier_kT=x)`.
 
 Measured convergence (2 seeds × 8 ns equilibration + 10 ns production):
 p_star reproduces across seeds to **0.0008** (basin ΔF to 0.001 kT); p_star vs

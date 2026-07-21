@@ -77,6 +77,27 @@ class E5Reference:
     def ess_fraction(self) -> float:
         return self.ess / float(self.qt.shape[0])
 
+    def basin_ess(self) -> dict:
+        """Kish effective sample size of the importance weights WITHIN each basin.
+
+        The global ESS is dominated by the two heavy basins; what actually sets
+        the uncertainty on the rare island's p_star is the effective number of
+        reweighted frames landing in it, which the global figure hides.
+        """
+        out = {}
+        for k in range(self.K):
+            m = self.labels == k
+            w = self.weights[m]
+            if w.numel() == 0 or float(w.sum()) <= 0.0:
+                out[int(k)] = {"n_frames": 0, "weight": 0.0, "ess": 0.0}
+                continue
+            out[int(k)] = {
+                "n_frames": int(m.sum().item()),
+                "weight": float(w.sum().item()),
+                "ess": float((w.sum() ** 2 / (w * w).sum()).item()),
+            }
+        return out
+
     # -- draws ---------------------------------------------------------------
     def sample(self, n: int, gen: torch.Generator) -> torch.Tensor:
         """SIR draw of n reference conformers in whitened internal coords."""
