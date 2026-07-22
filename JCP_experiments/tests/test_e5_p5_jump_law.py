@@ -116,30 +116,61 @@ def test_certificate_generous_vs_tight_domain():
 
 
 def test_score_direction_across_the_phi_barrier():
+    """The correction must push the sparse positive-phi island back toward the
+    dominant cluster, ALONG THE TORUS-SHORT PATH (through +-180 at 11.7 kJ/mol,
+    not through phi ~ 0 at 32.8 kJ/mol).
+
+    The statistic has to be the MAGNITUDE-WEIGHTED MEAN of the exact score, not a
+    per-state sign tally. Two measured reasons:
+
+    (1) A per-draw sign tally has NO power here. The random-atomic score is
+        S_R(x) = -lambda R exp(M(R)), so sign(S_phi) = -sign(R_phi) is fixed by
+        WHICH atom was drawn, and the bank is 3 +- pairs with uniform weights --
+        exactly 3 of 6 atoms have R_phi > 0. So the tally is 0.5 by construction,
+        independent of the state and of any physics. Measured over 8 generator
+        seeds: 0.4885 +- 0.0156, against the coin-flip prediction 0.5 +- 0.0221,
+        with 6 of 8 below 0.5.
+    (2) It is not a sampling artefact either: evaluating the DETERMINISTIC exact
+        score gives a per-state tally of 0.457-0.520 on the island. The score
+        magnitude is heavy-tailed in exp(M), so a minority of states that are
+        poised to cross carry an enormous correctly-directed |S| and dominate the
+        mean, while the majority sit at small |S| pointing either way. That is
+        the correction acting where it is needed rather than uniformly.
+
+    The mean of the deterministic score is robust: positive on the island for
+    every generator seed tried (+1.8 to +18.5), whereas a 512-sample random-atomic
+    mean can flip sign (one seed gave -0.01).
+    """
     exp = _exp()
     pot, ref = exp.pot, exp.extras["reference"]
-    from src.e5_alanine.jump_design import score_direction_sanity
-    score = RandomAtomicShellScore(pot, exp.law, exp.cfg.lam, exp.cfg.beta, Q_THETA)
-    gen = torch.Generator(device=DEV)
-    gen.manual_seed(7)
-    out = score_direction_sanity(pot, ref, exp.law, score, gen, n=512)
-    for k, v in out.items():
-        print(f"  {k}: mean S_phi = {v['mean_score_phi']:+.4f}, "
-              f"mean torus displacement to the deepest basin = "
-              f"{v['mean_disp_to_deepest']:+.4f}, "
-              f"sign agreement = {v['sign_agreement']:.3f}")
-    assert out["pos_phi"] is not None and out["neg_phi"] is not None
-    # From the sparsely populated positive-phi island the correction must point
-    # back toward the dominant cluster ALONG THE TORUS-SHORT PATH. For this force
-    # field that path runs through +-180 (10.9 kJ/mol) not through phi ~ 0
-    # (32.8 kJ/mol), so the correct statement is agreement of signs with the
-    # torus displacement, not a fixed sign.
-    pos = out["pos_phi"]
-    assert np.sign(pos["mean_score_phi"]) == np.sign(pos["mean_disp_to_deepest"]), pos
-    assert pos["sign_agreement"] > 0.5, pos
-    # and the correction is much stronger from the sparse island than from the
-    # dominant cluster, where the jump flux is already near balance
-    assert abs(pos["mean_score_phi"]) > abs(out["neg_phi"]["mean_score_phi"]), out
+    exact = exp.make_score()                      # deterministic: no MC noise
+    deepest = ref.deepest_basin()
+
+    def _mean_score_phi(mask, seed):
+        g = torch.Generator(device=DEV)
+        g.manual_seed(seed)
+        w = ref.weights.clone()
+        w[~mask] = 0.0
+        idx = torch.multinomial(w / w.sum(), 256, replacement=True, generator=g)
+        S, _ = exact(ref.qt[idx])
+        disp = ref.minima[deepest, 0] - ref.cvs[idx, 0]
+        disp = (disp + np.pi) % (2 * np.pi) - np.pi      # torus-short displacement
+        return float(S[:, pot.phi_slot].mean()), float(disp.mean())
+
+    island = ref.cvs[:, 0] > 0
+    cluster = ref.cvs[:, 0] < 0
+    for seed in (0, 1, 2):
+        s_isl, d_isl = _mean_score_phi(island, seed)
+        s_clu, _ = _mean_score_phi(cluster, seed)
+        print(f"  seed {seed}: island mean S_phi = {s_isl:+8.2f} "
+              f"(torus displacement to deepest {d_isl:+.2f}); "
+              f"cluster mean S_phi = {s_clu:+8.2f}")
+        # the correction points from the island toward the dominant cluster,
+        # along the torus-short direction
+        assert np.sign(s_isl) == np.sign(d_isl), (seed, s_isl, d_isl)
+        # and it is far stronger from the sparse island than from the dominant
+        # cluster, where the jump flux is already near balance
+        assert abs(s_isl) > abs(s_clu), (seed, s_isl, s_clu)
 
 
 def test_multiatom_score_constructs_against_the_law():
