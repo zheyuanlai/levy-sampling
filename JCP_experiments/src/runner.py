@@ -645,8 +645,15 @@ def write_summary_csv(rows, methods, seeds, metric_keys, method_info,
     return out_rows
 
 
-def _json_safe(value):
-    """Convert scientific values to strict, portable JSON recursively."""
+def json_safe(value):
+    """Convert scientific values to strict, portable JSON recursively.
+
+    Non-finite floats become the sentinels "inf"/"-inf"/"nan" so that a payload
+    can be written with ``allow_nan=False`` and still record values that are
+    legitimately infinite -- e.g. the box bounds of a periodic coordinate, which
+    has no boundary by construction (``src/e5_alanine/box.py``). Public because
+    generated notebooks and scripts/ serialise experiment configs too.
+    """
     if isinstance(value, torch.Tensor):
         return _json_safe(value.detach().cpu().tolist())
     if isinstance(value, (np.floating, np.integer)):
@@ -664,6 +671,9 @@ def _json_safe(value):
     if value is None or isinstance(value, (str, int, bool)):
         return value
     return str(value)
+
+
+_json_safe = json_safe          # pre-existing internal name, kept for callers
 
 
 def write_manifest(path: str | os.PathLike, *, overwrite: bool = False,

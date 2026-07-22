@@ -224,7 +224,7 @@ def run_smoke(args: argparse.Namespace) -> dict:
         raise RuntimeError("smoke requires exactly one visible CUDA GPU")
 
     from src.experiments import make_sampler_factory
-    from src.runner import hardware_manifest
+    from src.runner import hardware_manifest, json_safe
     from src.samplers import geometric_ladder
 
     exp = _build_experiment(
@@ -268,9 +268,14 @@ def run_smoke(args: argparse.Namespace) -> dict:
         },
         "builder_reference_parameters": exp.extras.get(
             "builder_reference_parameters", {}),
+        # A periodic coordinate has no box boundary, so its limits are +-inf by
+        # construction (src/e5_alanine/box.py). That is a legitimate value, not
+        # a numerical failure, but it is not JSON -- serialise it through the
+        # repo's "inf"/"-inf" sentinel convention rather than relaxing
+        # allow_nan, which would also let a genuine NaN through unnoticed.
         "sampling_box": {
-            "lower": exp.box.lo.detach().cpu().tolist(),
-            "upper": exp.box.hi.detach().cpu().tolist(),
+            "lower": json_safe(exp.box.lo),
+            "upper": json_safe(exp.box.hi),
         },
         "sampling_box_design": exp.extras.get("sampling_box_design"),
         "basin_cache_provenance": exp.extras.get(

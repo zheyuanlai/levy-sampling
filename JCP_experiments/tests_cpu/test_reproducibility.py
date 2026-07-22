@@ -395,6 +395,34 @@ def test_launcher_and_smoke_method_tables_agree():
         assert methods == smoke.EXPERIMENT_NOTEBOOK_METHODS[name], name
 
 
+def test_infinite_box_bounds_survive_strict_json():
+    """An unbounded coordinate serialises as a sentinel, not a crash.
+
+    A periodic coordinate has no box boundary, so TorusBox sets its limits to
+    +-inf by construction. Writing that with allow_nan=False raises, which took
+    down two launched E5 production runs at the smoke gate. json_safe maps the
+    non-finite values onto the repo's "inf"/"-inf" sentinels while NaN, which is
+    never legitimate here, stays visible as "nan" rather than being silently
+    dropped.
+    """
+    import json
+    import math
+
+    from src.runner import json_safe
+
+    lo = torch.tensor([-math.inf, -1.5, 0.0])
+    hi = torch.tensor([math.inf, 1.5, math.inf])
+    payload = {"lower": json_safe(lo), "upper": json_safe(hi)}
+    text = json.dumps(payload, allow_nan=False)          # must not raise
+    assert json.loads(text) == {"lower": ["-inf", -1.5, 0.0],
+                                "upper": ["inf", 1.5, "inf"]}
+    assert json_safe(float("nan")) == "nan"
+    # the raw form the bug used is still rejected, so the sentinel is doing the
+    # work rather than allow_nan having been quietly relaxed somewhere
+    with pytest.raises(ValueError):
+        json.dumps({"lower": lo.tolist()}, allow_nan=False)
+
+
 def test_every_deployed_lsc_arm_charges_score_quadrature():
     """No deployed LSC arm may integrate the Levy score in closed form."""
     smoke = _load_script_module("smoke_experiment.py", "jcp_smoke_analytic")

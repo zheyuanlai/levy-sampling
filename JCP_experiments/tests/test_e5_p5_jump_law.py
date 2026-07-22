@@ -117,8 +117,8 @@ def test_certificate_generous_vs_tight_domain():
 
 def test_score_direction_across_the_phi_barrier():
     """The correction must push the sparse positive-phi island back toward the
-    dominant cluster, ALONG THE TORUS-SHORT PATH (through +-180 at 11.7 kJ/mol,
-    not through phi ~ 0 at 32.8 kJ/mol).
+    dominant cluster, ALONG THE TORUS-SHORT PATH (through +-180 at 12.0 kJ/mol,
+    not through phi ~ 0 at 32.5 kJ/mol; both against the 60 ns reference).
 
     The statistic has to be the MAGNITUDE-WEIGHTED MEAN of the exact score, not a
     per-state sign tally. Two measured reasons:
