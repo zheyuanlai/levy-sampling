@@ -1577,9 +1577,11 @@ ref = exp.extras["reference"]
 print("basins (deg):", exp.extras["minima_deg"])
 print("p_star:", np.round(exp.p_star.cpu().numpy(), 4))
 print("basin free energies (kT):", np.round(exp.extras["basin_free_energies_kT"], 3))
-print(f"phi barrier: through phi~0 {exp.extras['phi_barrier_kJ_through_zero']:.1f} kJ/mol, "
-      f"through the +-pi seam {exp.extras['phi_barrier_kJ_through_seam']:.1f}; "
-      f"used {exp.extras['phi_barrier_kJ']:.1f} = {exp.extras['phi_barrier_kT']:.2f} kT")
+print(f"phi cut minimum: through phi~0 {exp.extras['phi_cut_min_kJ_at_zero']:.1f} kJ/mol, "
+      f"through the +-pi seam {exp.extras['phi_cut_min_kJ_at_seam']:.1f} (a basin depth, "
+      f"not a saddle -- the seam line passes through a basin); "
+      f"island escape barrier used {exp.extras['island_barrier_kJ']:.1f} kJ/mol "
+      f"= {exp.extras['island_barrier_kT']:.2f} kT")
 print(f"Kramers tau {exp.kramers_tau:.3g} (T = {cfg.T}); pt_beta_min {exp.pt_beta_min:.4f}")
 print("whitening:", exp.extras["whitening_provenance"])
 print(f"reference ESS {ref.ess:.0f} ({100*ref.ess_fraction:.1f}%), "

@@ -27,12 +27,19 @@ HARD_MAX_CONCURRENT = 2
 # while a finite atom bank additionally admits the atom-stratified MA form.
 DUAL_RA = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA"
 DUAL_MA = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA"
+# Exact arm validated offline rather than deployed (E5 only).
+MA_VALIDATED = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA"
 EXPERIMENTS = {
     "double_well": ("01_double_well.ipynb", DUAL_RA),
     "mog40": ("02_mog40.ipynb", DUAL_RA),
     "mb3well_10d": ("03_mb3well_10d.ipynb", DUAL_MA),
     "coupled_phi4": ("04_coupled_phi4.ipynb", DUAL_MA),
-    "alanine_dipeptide": ("05_alanine_dipeptide.ipynb", DUAL_MA),
+    # E5 deploys the realised-measure arm only. The exact arm costs ~18.5 h at
+    # the production ensemble even at the best block size measured (1.67 s/step
+    # at 66 GiB; 2^18 gives 1.99 s/step, so the cost is FLOP/memory bound, not
+    # launch bound). It is validated offline instead -- see
+    # scripts/e5_exact_vs_ma.py and results/e5_exact_vs_ma.json.
+    "alanine_dipeptide": ("05_alanine_dipeptide.ipynb", MA_VALIDATED),
 }
 SMOKE_CONFIG = {
     "particles": 64,

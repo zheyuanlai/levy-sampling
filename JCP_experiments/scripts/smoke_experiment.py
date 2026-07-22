@@ -26,7 +26,7 @@ EXPERIMENT_NOTEBOOK_METHODS = {
     "mog40": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA",
     "mb3well_10d": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA",
     "coupled_phi4": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA",
-    "alanine_dipeptide": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA",
+    "alanine_dipeptide": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA",
 }
 
 
@@ -97,9 +97,9 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--max-jump-cap-hits must be non-negative")
     # The gate's contract is that every method a job will run has first passed a
     # bounded real-dynamics smoke. Requiring set EQUALITY additionally assumed
-    # that one job always runs the whole matrix -- true until E5, whose exact
-    # arm costs ~25 h at the production ensemble and therefore runs as its own
-    # method shard on its own GPU. A shard smokes exactly the methods it runs,
+    # that one job always runs the whole matrix -- true until E5, whose
+    # realised-measure arm dominates the remaining six methods combined and so
+    # runs as its own method shard. A shard smokes exactly the methods it runs,
     # so the safety property is intact; whole-matrix coverage is restored by the
     # union-of-shards check at merge time (scripts/merge_method_shards.py).
     # An unregistered method is still refused: a shard may only narrow.

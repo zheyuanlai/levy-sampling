@@ -433,13 +433,59 @@ def test_every_deployed_lsc_arm_charges_score_quadrature():
                 f"{experiment}/{method}")
 
 
+# An experiment may substitute an OFFLINE exact-vs-realised cross-validation for
+# a DEPLOYED exact arm only where deploying it at the production ensemble is
+# prohibitive. E5 is the sole case: the exact arm was measured at 1.67 s/step at
+# its best block size (66 GiB peak; 2^18 gives 1.99 s/step, so the cost is
+# FLOP/memory bound, not launch bound), i.e. ~18.5 h for 40k steps against ~3 h
+# for the realised-measure arm. This is not a weakening of the invariant: an
+# experiment on this list must instead ship cross-validation evidence, which
+# test_offline_validated_exact_arms_ship_cross_validation_evidence checks.
+EXACT_ARM_VALIDATED_OFFLINE = {"alanine_dipeptide": "results/e5_exact_vs_ma.json"}
+
+
 def test_production_method_matrix_carries_two_lsc_arms_everywhere():
-    """Each experiment reports an exact arm and one realised-displacement arm."""
+    """Each experiment reports an exact arm and one realised-displacement arm.
+
+    The exact arm may be validated offline instead of deployed, but only for an
+    experiment on EXACT_ARM_VALIDATED_OFFLINE, and never both ways at once.
+    """
     for name, (_notebook, methods) in launcher.EXPERIMENTS.items():
         arms = [m for m in methods.split(",") if m.startswith("LSC-CP")]
+        realised = [a for a in arms if a in ("LSC-CP-RA", "LSC-CP-MA")]
+        assert len(realised) == 1, f"{name} needs one realised arm: {arms}"
+        if name in EXACT_ARM_VALIDATED_OFFLINE:
+            assert "LSC-CP" not in arms, (
+                f"{name} both deploys the exact arm and claims offline "
+                f"validation; do one or the other: {arms}")
+            continue
         assert "LSC-CP" in arms, f"{name} is missing the exact arm: {arms}"
         assert len(arms) == 2, f"{name} must carry exactly two LSC arms: {arms}"
-        assert arms[1] in ("LSC-CP-RA", "LSC-CP-MA"), arms
+
+
+def test_offline_validated_exact_arms_ship_cross_validation_evidence():
+    """Trading a deployed exact arm for offline validation requires the evidence.
+
+    Two independent claims must be on file: that the realised-measure estimator
+    is pointwise unbiased for the exact score, and that substituting it does not
+    change the end-to-end answer. Without this artifact the substitution above is
+    an unsupported assertion, so its absence must fail the suite.
+    """
+    for name, rel in EXACT_ARM_VALIDATED_OFFLINE.items():
+        path = ROOT / rel
+        assert path.exists(), f"{name}: missing cross-validation artifact {rel}"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        # (A) pointwise: E_bank[S_MA] -> S_exact
+        pw = data["pointwise"]
+        assert pw["median_rel_err"] < 1e-2, pw
+        assert pw["p90_rel_err"] < 5e-2, pw
+        assert pw["corr_phi"] > 0.999, pw
+        # (B) end-to-end, run at the production step count and ensemble size
+        cfg = data["config"]
+        assert cfg["steps"] == 40_000 and cfg["n_particles"] == 1_000, cfg
+        for arm in ("ma", "exact"):
+            assert data[arm]["nonfinite"] == 0, (arm, data[arm])
+            assert data[arm]["basin_L1"] < 0.1, (arm, data[arm])
 
 
 def test_smoke_builders_receive_coarse_settings_and_run_local_cache(tmp_path,
