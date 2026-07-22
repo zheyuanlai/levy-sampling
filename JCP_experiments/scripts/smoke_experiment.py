@@ -95,12 +95,23 @@ def _validate_args(args: argparse.Namespace) -> None:
             raise ValueError(f"--{name.replace('_', '-')} must lie in [0, 1]")
     if args.max_jump_cap_hits < 0:
         raise ValueError("--max-jump-cap-hits must be non-negative")
-    expected = set(EXPERIMENT_NOTEBOOK_METHODS[args.experiment].split(","))
+    # The gate's contract is that every method a job will run has first passed a
+    # bounded real-dynamics smoke. Requiring set EQUALITY additionally assumed
+    # that one job always runs the whole matrix -- true until E5, whose exact
+    # arm costs ~25 h at the production ensemble and therefore runs as its own
+    # method shard on its own GPU. A shard smokes exactly the methods it runs,
+    # so the safety property is intact; whole-matrix coverage is restored by the
+    # union-of-shards check at merge time (scripts/merge_method_shards.py).
+    # An unregistered method is still refused: a shard may only narrow.
+    registered = set(EXPERIMENT_NOTEBOOK_METHODS[args.experiment].split(","))
     supplied = set(args.methods)
-    if supplied != expected:
+    if not supplied:
+        raise ValueError("smoke methods must name at least one method")
+    extra = supplied - registered
+    if extra:
         raise ValueError(
-            "smoke methods must exactly match the production method matrix; "
-            f"missing={sorted(expected - supplied)}, extra={sorted(supplied - expected)}"
+            "smoke methods must be a subset of the production method matrix; "
+            f"extra={sorted(extra)}, registered={sorted(registered)}"
         )
 
 

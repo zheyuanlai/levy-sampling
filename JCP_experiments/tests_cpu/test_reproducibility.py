@@ -352,7 +352,13 @@ def test_replot_rejects_incomplete_manifest_without_gpu_fallback(tmp_path):
         replot_module.replot("double_well", artifacts, tmp_path / "output")
 
 
-def test_smoke_config_must_match_full_method_matrix():
+def test_smoke_config_must_be_subset_of_full_method_matrix():
+    """A method shard may narrow the matrix but never widen it.
+
+    A shard smokes exactly the methods it runs, so "everything you run, you
+    smoked" still holds; whole-matrix coverage across shards is enforced
+    separately by scripts/merge_method_shards.py.
+    """
     smoke = _load_script_module("smoke_experiment.py", "jcp_smoke")
     methods = smoke._parse_methods(smoke.EXPERIMENT_NOTEBOOK_METHODS["double_well"])
     args = SimpleNamespace(
@@ -367,10 +373,26 @@ def test_smoke_config_must_match_full_method_matrix():
         max_jump_cap_hits=0,
         min_mala_acceptance=0.01, min_pt_swap_acceptance=0.01,
     )
-    smoke._validate_args(args)
+    smoke._validate_args(args)                 # the full matrix
     args.methods = methods[:-1]
-    with pytest.raises(ValueError, match="exactly match"):
+    smoke._validate_args(args)                 # a proper shard is allowed
+    args.methods = []
+    with pytest.raises(ValueError, match="at least one method"):
         smoke._validate_args(args)
+    args.methods = list(methods) + ["NOT-A-METHOD"]
+    with pytest.raises(ValueError, match="subset"):
+        smoke._validate_args(args)
+
+
+def test_launcher_and_smoke_method_tables_agree():
+    """The launcher and the smoke script keep independent copies of the
+    production method matrix. A divergence between them is invisible until it
+    aborts a launched production run at the smoke gate, so pin them together.
+    """
+    smoke = _load_script_module("smoke_experiment.py", "jcp_smoke_tables")
+    assert set(smoke.EXPERIMENT_NOTEBOOK_METHODS) == set(launcher.EXPERIMENTS)
+    for name, (_notebook, methods) in launcher.EXPERIMENTS.items():
+        assert methods == smoke.EXPERIMENT_NOTEBOOK_METHODS[name], name
 
 
 def test_every_deployed_lsc_arm_charges_score_quadrature():

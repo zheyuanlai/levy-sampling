@@ -580,6 +580,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _validate_args(args, parser)
+    # Registered matrix captured BEFORE any shard override, so the plan records
+    # what a complete run of this experiment means independently of what this
+    # job was asked to cover.
+    registered_methods = {name: EXPERIMENTS[name][1] for name in args.experiments}
     if args.methods:
         requested = [m.strip() for m in args.methods.split(",") if m.strip()]
         if not requested:
@@ -593,6 +597,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"--methods {unknown} not registered for {name}; "
                     f"choose from {sorted(allowed)}")
             EXPERIMENTS[name] = (notebook, ",".join(requested))
+    shard_methods = {name: EXPERIMENTS[name][1] for name in args.experiments}
+    is_partial = any(shard_methods[name] != registered_methods[name]
+                     for name in args.experiments)
     run_dir = args.output_root.resolve() / args.run_id
     run_dir.mkdir(parents=True, exist_ok=False)
 
@@ -606,6 +613,14 @@ def main(argv: list[str] | None = None) -> int:
         "max_concurrent_effective": min(args.max_concurrent, len(args.gpus)),
         "hard_max_concurrent": HARD_MAX_CONCURRENT,
         "experiments": list(args.experiments),
+        # Method-shard provenance. `registered_methods` is the complete matrix;
+        # `methods` is what THIS job covers. When they differ the run is a shard
+        # and its CSVs are not a complete experiment on their own -- merging is
+        # mandatory, and scripts/merge_method_shards.py refuses to emit a merged
+        # artifact until the union of shards equals the registered matrix.
+        "registered_methods": registered_methods,
+        "methods": shard_methods,
+        "partial_method_shard": is_partial,
         "regenerate_notebooks": not args.no_regen,
         "run_tests": not args.skip_tests,
         "smoke_required_before_full": True,
