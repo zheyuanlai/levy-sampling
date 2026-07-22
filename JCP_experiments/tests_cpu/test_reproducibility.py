@@ -723,3 +723,56 @@ def test_notebook_and_replot_plot_policies_agree_on_labels():
     for experiment, label in module._RA_LABEL.items():
         assert f'"{experiment}": "{label}"' in generator, (
             f"{experiment} -> {label} missing from the notebook generator")
+
+
+def test_mirror_into_repo_refreshes_results_and_figures(tmp_path):
+    """The in-repo mirror must track the latest run, including deletions.
+
+    JCP_experiments/results/ and figures/ were previously copied across by hand
+    and silently went several runs stale; a method dropped from the matrix must
+    not leave its old per-method stationarity file behind either.
+    """
+    from src.runner import mirror_into_repo
+
+    src = tmp_path / "run" / "artifacts"
+    (src / "stationarity").mkdir(parents=True)
+    (src / "figures").mkdir()
+    (src / "summary.csv").write_text("method\nLSC-CP\n")
+    (src / "manifest.json").write_text("{}")
+    (src / "positions.csv").write_text("method,cv0\nreference,0.0\n")
+    (src / "stationarity" / "LSC-CP_summary.csv").write_text("x\n1\n")
+    (src / "figures" / "e_LSC-CP.png").write_bytes(b"png")
+    (src / "figures" / "e_LSC-CP.pdf").write_bytes(b"pdf")
+
+    repo = tmp_path / "repo"
+    # pre-existing stale mirror content that must be replaced, not merged
+    (repo / "results" / "e" / "stationarity").mkdir(parents=True)
+    (repo / "results" / "e" / "stationarity" / "DROPPED_summary.csv").write_text("old\n")
+    (repo / "figures" / "e").mkdir(parents=True)
+    (repo / "figures" / "e" / "stale.png").write_bytes(b"old")
+
+    report = mirror_into_repo(src, "e", repo)
+
+    results = repo / "results" / "e"
+    figures = repo / "figures" / "e"
+    assert (results / "summary.csv").read_text() == "method\nLSC-CP\n"
+    assert (results / "positions.csv").is_file()
+    assert (results / "stationarity" / "LSC-CP_summary.csv").is_file()
+    # the dropped method's stale file is gone, not merged in
+    assert not (results / "stationarity" / "DROPPED_summary.csv").exists()
+    # stale figures are cleared before the new ones land
+    assert not (figures / "stale.png").exists()
+    assert (figures / "e_LSC-CP.png").is_file() and (figures / "e_LSC-CP.pdf").is_file()
+    assert report["figure_files"] == 2
+    assert "summary.csv" in report["files"]
+    # absent optional inputs are skipped rather than erroring
+    assert "modes.csv" not in report["files"]
+
+
+def test_every_notebook_mirrors_into_the_repo_tree():
+    """Each generated notebook ends by refreshing the in-repo mirror."""
+    for name in ("01_double_well", "02_mog40", "03_mb3well_10d",
+                 "04_coupled_phi4", "05_alanine_dipeptide"):
+        nb = nbformat.read(ROOT / "notebooks" / f"{name}.ipynb", as_version=4)
+        sources = ["".join(c["source"]) for c in nb.cells]
+        assert any("mirror_into_repo(RESULTS, EXPERIMENT" in s for s in sources), name

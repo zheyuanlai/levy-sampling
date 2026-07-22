@@ -515,6 +515,61 @@ def write_positions_csv(positions_by_method: dict, path: str | os.PathLike, *,
     return written
 
 
+MIRROR_CSV_NAMES = ("summary.csv", "metrics_timeseries.csv", "manifest.json",
+                    "positions.csv", "modes.csv")
+
+
+def mirror_into_repo(artifacts_dir: str | os.PathLike,
+                     experiment: str,
+                     repo_root: str | os.PathLike) -> dict:
+    """Copy a finished run's evidence and figures into the in-repo mirror.
+
+    The immutable run directory under results/jcp_sampling/<run-id>/ stays the
+    source of truth; this keeps JCP_experiments/results/<exp>/ and
+    JCP_experiments/figures/<exp>/ pointing at the latest run so the tree a
+    reader clones is never several runs stale. Called at the end of every
+    notebook, after the immutable artifacts are already written, so a failure
+    here cannot cost a run.
+    """
+    import shutil
+
+    src = Path(artifacts_dir)
+    repo = Path(repo_root)
+    out_results = repo / "results" / experiment
+    out_figures = repo / "figures" / experiment
+    out_results.mkdir(parents=True, exist_ok=True)
+    out_figures.mkdir(parents=True, exist_ok=True)
+
+    copied: list[str] = []
+    for name in MIRROR_CSV_NAMES:
+        if (src / name).is_file():
+            shutil.copy2(src / name, out_results / name)
+            copied.append(name)
+
+    stationarity = out_results / "stationarity"
+    if (src / "stationarity").is_dir():
+        # replace wholesale: a method dropped from the matrix must not leave a
+        # stale per-method file behind, which would misreport the method set
+        if stationarity.exists():
+            shutil.rmtree(stationarity)
+        stationarity.mkdir(parents=True)
+        for path in sorted((src / "stationarity").glob("*.csv")):
+            shutil.copy2(path, stationarity / path.name)
+            copied.append(f"stationarity/{path.name}")
+
+    n_figures = 0
+    if (src / "figures").is_dir():
+        for old in list(out_figures.glob("*.png")) + list(out_figures.glob("*.pdf")):
+            old.unlink()
+        for pattern in ("*.png", "*.pdf"):
+            for path in sorted((src / "figures").glob(pattern)):
+                shutil.copy2(path, out_figures / path.name)
+                n_figures += 1
+
+    return {"results_dir": str(out_results), "figures_dir": str(out_figures),
+            "files": copied, "figure_files": n_figures}
+
+
 def _terminal_stats(rows, methods, seeds, metric_keys):
     out = {}
     for method in methods:

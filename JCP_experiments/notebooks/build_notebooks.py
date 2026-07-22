@@ -38,6 +38,7 @@ from src.experiments import ({builder}, make_sampler_factory,
 from src.runner import (run_experiment_batched, run_one, refine_dt,
                         quadrature_refinement, write_timeseries_csv,
                         write_summary_csv, write_manifest, write_positions_csv,
+                        mirror_into_repo,
                         ula_first_passage, hardware_manifest)
 from src.samplers import tune_ladder
 from src.certificate import make_phi_family, certificate_grid, certificate_importance
@@ -778,6 +779,15 @@ manifest = dict(
 )
 write_manifest(os.path.join(RESULTS, "manifest.json"), **manifest)
 print("wrote", ts_path)
+
+# Mirror the evidence and figures into the repository tree. The immutable run
+# directory stays the source of truth; this keeps JCP_experiments/results/ and
+# JCP_experiments/figures/ on the latest run instead of silently going stale,
+# which previously required copying every artifact across by hand.
+_mirror = mirror_into_repo(RESULTS, EXPERIMENT, os.path.abspath(".."))
+print(f"mirrored -> {{_mirror['results_dir']}} ({{len(_mirror['files'])}} files), "
+      f"{{_mirror['figures_dir']}} ({{_mirror['figure_files']}} figures)")
+
 from IPython.display import display
 display(pd.read_csv(os.path.join(RESULTS, "summary.csv")).round(5))'''
 
