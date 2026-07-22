@@ -46,6 +46,13 @@ sys.path.insert(0, str(JCP_ROOT))
 RESULTS_ROOT = JCP_ROOT.parent / "results" / "jcp_sampling"
 # Row-level CSVs: concatenated across shards, keyed by the "method" column.
 MERGED_CSVS = ("metrics_timeseries.csv", "summary.csv", "positions.csv")
+# Blocks in the "method" column that belong to no shard. positions.csv carries
+# the reference draw as a pseudo-method block, so every shard writes its own
+# copy: concatenating blindly would triplicate it AND make each shard look like
+# it covered a method it never ran. The copies must be identical -- they come
+# from the same fixed reference seed -- and a divergence means the shards were
+# not comparing against the same reference, which invalidates the merge.
+SHARED_BLOCKS = frozenset({"reference"})
 # Shard-level agreement: these must be identical across shards or the merge is
 # comparing runs that are not actually comparable.
 PINNED_PLAN_KEYS = ("registered_methods", "experiments", "smoke_config")
@@ -146,6 +153,7 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
     out_dir = _artifacts_dir(results_root / out_run_id, experiment)
     out_dir.mkdir(parents=True, exist_ok=False)
     merged_counts: dict[str, dict] = {}
+    shared_rows: dict[str, list[dict]] = {}
 
     for csv_name in MERGED_CSVS:
         fieldnames: list[str] | None = None
@@ -162,20 +170,35 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
                 raise ValueError(
                     f"{csv_name}: shards disagree on columns; "
                     f"{shard_ids[0]}={fieldnames} vs {rid}={names}")
-            # a shard's CSV must contain exactly the methods it declared
-            present = _methods_in(rows)
+            # a shard's CSV must contain exactly the methods it declared, once
+            # the shard-independent blocks are set aside
+            shared = [r for r in rows if r.get("method") in SHARED_BLOCKS]
+            owned = [r for r in rows if r.get("method") not in SHARED_BLOCKS]
+            present = _methods_in(owned)
             if present != shard_methods[rid]:
                 raise ValueError(
                     f"{rid}/{csv_name}: rows cover {sorted(present)} but the "
                     f"shard declared {sorted(shard_methods[rid])}")
-            rows_out.extend(rows)
-            per_shard[rid] = len(rows)
+            if shared:
+                if rid == shard_ids[0]:
+                    shared_rows[csv_name] = shared      # keep exactly one copy
+                elif shared != shared_rows.get(csv_name):
+                    raise ValueError(
+                        f"{csv_name}: shard {rid} disagrees with {shard_ids[0]} "
+                        f"on the {sorted(SHARED_BLOCKS)} block; the shards did "
+                        "not compare against the same reference")
+            rows_out.extend(owned)
+            per_shard[rid] = len(owned)
+        rows_out.extend(shared_rows.get(csv_name, []))
 
         with (out_dir / csv_name).open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows_out)
-        merged_counts[csv_name] = {"rows": len(rows_out), "per_shard": per_shard}
+        merged_counts[csv_name] = {
+            "rows": len(rows_out), "per_shard": per_shard,
+            "shared_block_rows": len(shared_rows.get(csv_name, [])),
+        }
 
     # --- non-row artifacts: copied per shard, never silently collapsed -----
     for rid in shard_ids:

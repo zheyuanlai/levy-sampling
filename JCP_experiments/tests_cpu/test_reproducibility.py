@@ -463,6 +463,74 @@ def test_production_method_matrix_carries_two_lsc_arms_everywhere():
         assert len(arms) == 2, f"{name} must carry exactly two LSC arms: {arms}"
 
 
+def _write_shard(root, rid, methods, registered, experiment="alanine_dipeptide",
+                 commit="abc123"):
+    art = root / rid / experiment / "artifacts"
+    (art / "stationarity").mkdir(parents=True)
+    (root / rid / "launch_plan.json").write_text(json.dumps({
+        "registered_methods": {experiment: registered},
+        "methods": {experiment: ",".join(methods)},
+        "experiments": [experiment], "smoke_config": {"particles": 64},
+        "git": {"commit": commit}}))
+    (root / rid / "status.json").write_text(json.dumps({"status": "ok"}))
+    import csv as _csv
+    for name, cols in (("summary.csv", ["method", "TV_mean"]),
+                       ("metrics_timeseries.csv", ["method", "step", "TV"]),
+                       ("positions.csv", ["method", "particle", "cv0", "cv1"])):
+        with (art / name).open("w", newline="") as handle:
+            writer = _csv.DictWriter(handle, fieldnames=cols)
+            writer.writeheader()
+            for m in methods:
+                writer.writerow({c: (m if c == "method" else "1") for c in cols})
+            if name == "positions.csv":            # shard-independent block
+                writer.writerow({c: ("reference" if c == "method" else "9")
+                                 for c in cols})
+    (art / "stationarity" / "all_methods_summary.csv").write_text(
+        "method,worst_basin_ess\nX,1\n")
+
+
+def test_method_shard_merge_is_complete_and_deduplicates_shared_blocks(tmp_path):
+    """The merge is what turns gated shards back into one experiment.
+
+    Two things it must get right, both of which bit in practice: positions.csv
+    carries a `reference` pseudo-method block that every shard writes, so naive
+    concatenation triplicates the reference AND makes each shard look like it
+    covered a method it never ran; and a shard set that does not cover the
+    registered matrix must abort rather than emit a table with a hole in it.
+    """
+    merge = _load_script_module("merge_method_shards.py", "jcp_merge")
+    registered = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA"
+    shards = {"r-A": ["LSC-CP-MA"], "r-B": ["PT", "MALA", "FLA"],
+              "r-C": ["CP", "BAOAB", "ULA"]}
+    for rid, methods in shards.items():
+        _write_shard(tmp_path, rid, methods, registered)
+
+    prov = merge.merge("alanine_dipeptide", list(shards), "merged", tmp_path)
+    assert prov["coverage_complete"] is True
+    assert prov["source_run_ids"] == list(shards)
+
+    import csv as _csv
+    from collections import Counter
+    out = tmp_path / "merged" / "alanine_dipeptide" / "artifacts"
+    counts = Counter(r["method"] for r in
+                     _csv.DictReader((out / "positions.csv").open()))
+    assert counts["reference"] == 1, counts          # not once per shard
+    assert set(counts) == set(registered.split(",")) | {"reference"}
+    # every shard's non-CSV artifacts survive, attributed to their shard
+    assert {p.parent.parent.name for p in
+            out.glob("per_shard/*/stationarity/*.csv")} == set(shards)
+
+    # incomplete coverage must abort
+    with pytest.raises(ValueError, match="union of shards"):
+        merge.merge("alanine_dipeptide", ["r-A", "r-B"], "merged2", tmp_path)
+    # so must a shard set built from different code
+    _write_shard(tmp_path, "r-D", ["CP", "BAOAB", "ULA"], registered,
+                 commit="deadbeef")
+    with pytest.raises(ValueError, match="different commits"):
+        merge.merge("alanine_dipeptide", ["r-A", "r-B", "r-D"], "merged3",
+                    tmp_path)
+
+
 def test_offline_validated_exact_arms_ship_cross_validation_evidence():
     """Trading a deployed exact arm for offline validation requires the evidence.
 
