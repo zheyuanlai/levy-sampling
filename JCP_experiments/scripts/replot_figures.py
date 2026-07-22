@@ -73,10 +73,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--output-dir", required=True, type=Path,
         help="new directory for regenerated PNG/PDF figures (must not exist)",
     )
+    parser.add_argument(
+        "--use-current-policy", action="store_true",
+        help=("ignore the manifest's recorded plot policy and apply the current "
+              "one. Needed for runs that predate the two-LSC-arm policy: their "
+              "CSVs contain both arms but their manifest names only one."),
+    )
     return parser
 
 
-def replot(experiment: str, artifacts_dir: Path, output_dir: Path) -> dict:
+def replot(experiment: str, artifacts_dir: Path, output_dir: Path, *,
+           use_current_policy: bool = False) -> dict:
     """Replot from CSV+manifest only and return a small result manifest."""
     artifacts_dir = artifacts_dir.expanduser().resolve()
     output_dir = output_dir.expanduser().resolve()
@@ -114,8 +121,16 @@ def replot(experiment: str, artifacts_dir: Path, output_dir: Path) -> dict:
     plot = manifest.get("plot") or {}
     methods = [method for method in plot.get("methods", []) if method in in_data]
     label_overrides = plot.get("label_overrides") or {}
+    if use_current_policy:
+        methods, label_overrides = _plot_policy(experiment, in_data)
     if not methods:
         methods, label_overrides = _plot_policy(experiment, in_data)
+    # A run predating the two-arm policy recorded only one LSC arm in its
+    # manifest, but its CSVs hold both. Say so rather than silently dropping one.
+    missing = sorted({m for m in in_data if m.startswith("LSC-CP")} - set(methods))
+    if missing:
+        print(f"note: {missing} present in the CSV but absent from the plot "
+              "policy; pass --use-current-policy to plot both LSC arms")
     if not methods:
         raise ValueError("no plottable methods found in metrics CSV")
 
@@ -191,7 +206,8 @@ def replot(experiment: str, artifacts_dir: Path, output_dir: Path) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    result = replot(args.experiment, args.artifacts_dir, args.output_dir)
+    result = replot(args.experiment, args.artifacts_dir, args.output_dir,
+                    use_current_policy=args.use_current_policy)
     print(
         f"replotted {result['experiment']}: "
         f"{result['single_metric_count']} metrics x 3 axes + grid "
