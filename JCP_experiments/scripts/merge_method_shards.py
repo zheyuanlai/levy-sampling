@@ -124,7 +124,7 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
     if len(set(shard_ids)) != len(shard_ids):
         raise ValueError(f"duplicate shard run-ids: {shard_ids}")
 
-    plans, statuses = {}, {}
+    plans, statuses, salvaged = {}, {}, {}
     for rid in shard_ids:
         run_dir = results_root / rid
         plan_path = run_dir / "launch_plan.json"
@@ -136,10 +136,21 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
         plans[rid] = json.loads(plan_path.read_text(encoding="utf-8"))
         statuses[rid] = json.loads(status_path.read_text(encoding="utf-8"))
         if statuses[rid].get("status") != "ok":
-            raise ValueError(
-                f"{rid}: shard status is {statuses[rid].get('status')!r}, not 'ok'; "
-                f"failure_phase={statuses[rid].get('failure_phase')!r}. "
-                "A failed shard is never merged.")
+            # The merge combines row-level data. A shard whose DATA is complete
+            # is usable even if a trailing non-data cell crashed -- e.g. a shard
+            # that ran every method's dynamics and wrote every row CSV, then died
+            # in the manifest/provenance cell. So instead of trusting the coarse
+            # launcher status flag, require the actual data artifacts the merge
+            # concatenates to be present; a shard missing any of them is a real
+            # partial and is refused. The salvage is recorded in provenance.
+            art = _artifacts_dir(run_dir, experiment)
+            missing = [name for name in MERGED_CSVS if not (art / name).exists()]
+            if missing:
+                raise ValueError(
+                    f"{rid}: shard status is {statuses[rid].get('status')!r} "
+                    f"(failure_phase={statuses[rid].get('failure_phase')!r}) AND "
+                    f"row data is incomplete (missing {missing}). Not merged.")
+            salvaged[rid] = statuses[rid].get("failure_phase")
 
     # --- the shards must describe the same experiment, code and protocol ----
     head = plans[shard_ids[0]]
@@ -287,6 +298,9 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
         "numeric_engine_verified_identical": sorted(
             {plans[rid].get("git", {}).get("commit") for rid in shard_ids}) != [None],
         "numeric_engine_files": list(NUMERIC_ENGINE_FILES),
+        # Shards accepted despite a non-ok launcher status because their row data
+        # was complete (a trailing non-data cell crashed). rid -> failure_phase.
+        "salvaged_shards": salvaged,
         "merged_csv_counts": merged_counts,
         "source_status": {rid: statuses[rid].get("status") for rid in shard_ids},
     }

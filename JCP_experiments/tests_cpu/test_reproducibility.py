@@ -525,6 +525,31 @@ def test_method_shard_merge_is_complete_and_deduplicates_shared_blocks(tmp_path)
         merge.merge("alanine_dipeptide", ["r-A", "r-B"], "merged2", tmp_path)
 
 
+def test_method_shard_merge_salvages_data_complete_but_status_failed(tmp_path):
+    """A shard whose row data is complete is merged even if a trailing non-data
+    cell crashed (status 'failed'); one actually missing row data is refused.
+    """
+    merge = _load_script_module("merge_method_shards.py", "jcp_merge_salvage")
+    registered = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA"
+    shards = {"r-A": ["LSC-CP-MA"], "r-B": ["PT", "MALA", "FLA"],
+              "r-C": ["CP", "BAOAB", "ULA"]}
+    for rid, methods in shards.items():
+        _write_shard(tmp_path, rid, methods, registered)
+    # r-B mimics the real salvage: all data written, but the manifest cell died
+    (tmp_path / "r-B" / "status.json").write_text(json.dumps(
+        {"status": "failed", "failure_phase": "notebook"}))
+    prov = merge.merge("alanine_dipeptide", list(shards), "m_salv", tmp_path)
+    assert prov["salvaged_shards"] == {"r-B": "notebook"}
+    assert prov["coverage_complete"] is True
+
+    # but a failed shard that is ALSO missing row data must still be refused
+    (tmp_path / "r-C" / "alanine_dipeptide" / "artifacts" / "positions.csv").unlink()
+    (tmp_path / "r-C" / "status.json").write_text(json.dumps(
+        {"status": "failed", "failure_phase": "notebook"}))
+    with pytest.raises(ValueError, match="row data is incomplete"):
+        merge.merge("alanine_dipeptide", list(shards), "m_refuse", tmp_path)
+
+
 def test_method_shard_merge_across_commits_gated_on_numeric_engine(tmp_path,
                                                                    monkeypatch):
     """A shard at a different commit is mergeable iff the numerical engine is
