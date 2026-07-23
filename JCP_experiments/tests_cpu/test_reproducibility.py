@@ -523,12 +523,36 @@ def test_method_shard_merge_is_complete_and_deduplicates_shared_blocks(tmp_path)
     # incomplete coverage must abort
     with pytest.raises(ValueError, match="union of shards"):
         merge.merge("alanine_dipeptide", ["r-A", "r-B"], "merged2", tmp_path)
-    # so must a shard set built from different code
-    _write_shard(tmp_path, "r-D", ["CP", "BAOAB", "ULA"], registered,
-                 commit="deadbeef")
-    with pytest.raises(ValueError, match="different commits"):
-        merge.merge("alanine_dipeptide", ["r-A", "r-B", "r-D"], "merged3",
-                    tmp_path)
+
+
+def test_method_shard_merge_across_commits_gated_on_numeric_engine(tmp_path,
+                                                                   monkeypatch):
+    """A shard at a different commit is mergeable iff the numerical engine is
+    byte-identical across the commits -- this is what lets a shard survive a
+    later notebook/launcher/doc fix without a full recompute, while still
+    refusing a merge whose rows came from different numerics.
+    """
+    merge = _load_script_module("merge_method_shards.py", "jcp_merge_commits")
+    registered = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA"
+    _write_shard(tmp_path, "r-A", ["LSC-CP-MA"], registered, commit="c_new")
+    _write_shard(tmp_path, "r-B", ["PT", "MALA", "FLA"], registered, commit="c_new")
+    _write_shard(tmp_path, "r-C", ["CP", "BAOAB", "ULA"], registered, commit="c_old")
+
+    # engine byte-identical at both commits -> different commits are allowed
+    monkeypatch.setattr(merge, "_git_blob",
+                        lambda commit, path: b"identical-engine-bytes")
+    prov = merge.merge("alanine_dipeptide", ["r-A", "r-B", "r-C"], "m_ok", tmp_path)
+    assert prov["coverage_complete"] is True
+    assert prov["shard_commits"]["r-C"] == "c_old"
+
+    # one engine file differs between the commits -> refuse
+    def _blob(commit, path):
+        if path.endswith("samplers.py"):
+            return b"A" if commit == "c_old" else b"B"
+        return b"same"
+    monkeypatch.setattr(merge, "_git_blob", _blob)
+    with pytest.raises(ValueError, match="numerical engine differs"):
+        merge.merge("alanine_dipeptide", ["r-A", "r-B", "r-C"], "m_bad", tmp_path)
 
 
 def test_offline_validated_exact_arms_ship_cross_validation_evidence():

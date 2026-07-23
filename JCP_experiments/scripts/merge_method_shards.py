@@ -35,6 +35,7 @@ import argparse
 import csv
 import json
 import shutil
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,6 +57,46 @@ SHARED_BLOCKS = frozenset({"reference"})
 # Shard-level agreement: these must be identical across shards or the merge is
 # comparing runs that are not actually comparable.
 PINNED_PLAN_KEYS = ("registered_methods", "experiments", "smoke_config")
+# The numerical engine: every file whose bytes determine a method's produced
+# rows (sampler dynamics, Levy score, jump law, energy, metrics, experiment
+# wiring, run config). Two shards at different commits are mergeable iff these
+# are byte-identical at both commits -- see the commit check in merge().
+NUMERIC_ENGINE_FILES = (
+    "JCP_experiments/src/samplers.py",
+    "JCP_experiments/src/score.py",
+    "JCP_experiments/src/jumps.py",
+    "JCP_experiments/src/potentials.py",
+    "JCP_experiments/src/metrics.py",
+    "JCP_experiments/src/experiments.py",
+    "JCP_experiments/src/config.py",
+)
+
+
+def _git_blob(commit: str, repo_path: str) -> bytes | None:
+    """Bytes of ``repo_path`` at ``commit``; None if absent at that commit."""
+    result = subprocess.run(
+        ["git", "-C", str(JCP_ROOT.parent), "show", f"{commit}:{repo_path}"],
+        capture_output=True, check=False)
+    return result.stdout if result.returncode == 0 else None
+
+
+def _numeric_engine_diff(commit_a: str, commit_b: str) -> set[str]:
+    """Engine files whose bytes differ between the two commits (empty == same).
+
+    A file missing at one commit but present at the other counts as differing.
+    Raises if git cannot resolve a commit, since silently treating an
+    unresolvable commit as 'identical' would defeat the check.
+    """
+    differing = set()
+    for path in NUMERIC_ENGINE_FILES:
+        a, b = _git_blob(commit_a, path), _git_blob(commit_b, path)
+        if a is None and b is None:
+            raise ValueError(
+                f"{path} is absent at both {commit_a} and {commit_b}; cannot "
+                "verify numerical-engine equality")
+        if a != b:
+            differing.add(path)
+    return differing
 
 
 def _utc_now() -> str:
@@ -111,9 +152,22 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
         commits = (head.get("git", {}).get("commit"),
                    plans[rid].get("git", {}).get("commit"))
         if commits[0] != commits[1]:
-            raise ValueError(
-                f"shards were run at different commits {commits}; a merged CSV "
-                "whose rows came from different code is not a comparison")
+            # Different commits are allowed ONLY when the numerical engine is
+            # byte-identical across them. Every method's dynamics, score, jumps,
+            # energy, metrics and run config live in NUMERIC_ENGINE_FILES; if
+            # those are identical at both commits, the two shards computed their
+            # rows with the same numbers and only differ in orchestration
+            # (notebook cells, launcher, docs), so the merge is a real
+            # comparison. This is what lets a shard survive a later
+            # notebook/launcher fix without a full recompute. A difference in
+            # ANY engine file falls through to the hard error.
+            differing = _numeric_engine_diff(commits[0], commits[1])
+            if differing:
+                raise ValueError(
+                    f"shards were run at different commits {commits} AND the "
+                    f"numerical engine differs between them ({sorted(differing)}); "
+                    "a merged CSV whose rows came from different numerics is not "
+                    "a comparison")
 
     registered = head.get("registered_methods", {}).get(experiment)
     if not registered:
@@ -225,6 +279,14 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
         "registered_methods": sorted(registered_set),
         "coverage_complete": True,
         "git": head.get("git"),
+        # Per-shard commits, and the basis on which shards at different commits
+        # were judged comparable (numerical engine byte-identical). With a single
+        # commit this is trivially satisfied; with several it is the audit trail.
+        "shard_commits": {rid: plans[rid].get("git", {}).get("commit")
+                          for rid in shard_ids},
+        "numeric_engine_verified_identical": sorted(
+            {plans[rid].get("git", {}).get("commit") for rid in shard_ids}) != [None],
+        "numeric_engine_files": list(NUMERIC_ENGINE_FILES),
         "merged_csv_counts": merged_counts,
         "source_status": {rid: statuses[rid].get("status") for rid in shard_ids},
     }

@@ -440,9 +440,18 @@ for observed_name, threshold_name in (
     if observed > threshold:
         raise RuntimeError("%s=%g exceeds declared %s=%g" %
                            (observed_name, observed, threshold_name, threshold))
-for observed_name, threshold_name in (
-        ("mala_acceptance_mean", "min_mala_acceptance"),
-        ("pt_swap_acceptance_mean", "min_pt_swap_acceptance")):
+# Acceptance floors gate a method's own mixing, so they apply only when that
+# method is in this run's matrix. The -1.0 sentinel means "method absent"; when
+# the production method set is sharded across GPUs (e.g. E5's LSC-CP-MA runs on
+# its own GPU, MALA and PT on another) a shard legitimately lacks MALA or PT,
+# and its acceptance floor must be skipped rather than fail on the sentinel. A
+# method that IS present but produced no acceptance statistic still fails, since
+# then the value is a real (nonnegative) ratio below the floor rather than -1.
+for observed_name, threshold_name, guard_method in (
+        ("mala_acceptance_mean", "min_mala_acceptance", "MALA"),
+        ("pt_swap_acceptance_mean", "min_pt_swap_acceptance", "PT")):
+    if guard_method not in RUN_METHODS:
+        continue
     observed = observed_failure_diagnostics[observed_name]
     threshold = FAIL_THRESHOLDS[threshold_name]
     if observed < threshold:
@@ -1673,7 +1682,51 @@ with open(os.path.join(RESULTS, "certificate.json"), "w") as _f:
     json.dump(certificate, _f, indent=2)
 print(json.dumps(certificate, indent=2))
 assert certificate["R_shifted_generous"] < 1e-6, certificate
-assert certificate["max_log_magnitude"] < C.M_MAX'''
+assert certificate["max_log_magnitude"] < C.M_MAX
+
+# E5 PINS the deployed quadrature instead of refining it. E1-E4 call
+# quadrature_refinement, which picks the smallest setting meeting BOTH R < 1e-6
+# and terminal-metric convergence against the finest setting. Two reasons that
+# procedure does not transfer here, and one caveat that the appendix states
+# rather than hides:
+#   * the residual at the default setting is ~5e-14, eight orders below the
+#     1e-6 gate, so the first criterion is not close to binding;
+#   * the DEPLOYED estimator is MultiAtomShellScore, which consumes only
+#     q_theta -- q_rho is not one of its parameters at all, so two of the three
+#     sweep axes E1-E4 use do not exist for E5;
+#   * CAVEAT: the second criterion (terminal metrics converged against the
+#     finest quadrature) is therefore NOT tested for E5.
+CHOSEN_QUAD = dict(q_theta=C.Q_THETA, q_rho=C.Q_RHO)
+quad_table = [dict(**CHOSEN_QUAD, R=certificate["R_shifted_generous"],
+                   source="pinned at the default; not refined (see appendix)")]
+certificate_result = persist_certificate_result(
+    dict(certificate, max_residual=certificate["R_shifted_generous"]),
+    CHOSEN_QUAD)
+print("final certificate result:", certificate_result)
+assert certificate_result["passed"], certificate_result
+# The shared manifest template records `certificate=cert_report`; E1-E4 name
+# their certificate dict `cert_report`, E5 names it `certificate`. Alias it so
+# the manifest resolves without E5 having to pass a second `certificate=` kwarg
+# (which duplicated the keyword and was a SyntaxError in the final cell).
+cert_report = certificate'''
+
+
+CELL_E5_BARRIER = '''# ULA first-passage barrier verification: how often plain overdamped Langevin
+# COMMITS to the sparse positive-phi island (arrival in the C7ax core), the slow
+# event this system is built around. exit_committed and kramers_tau come from
+# build_e5_alanine; ula_first_passage runs its own ULA trajectory independent of
+# RUN_METHODS, so every method shard computes it identically. The manifest
+# records it as barrier_verification (same field as E1-E4).
+g = torch.Generator(device=DEV); g.manual_seed(0)
+barrier_report = ula_first_passage(exp.pot, exp.box, exp.init_fn(cfg.n_particles, g),
+                                   exp.exit_committed, cfg.dt, int(cfg.T/cfg.dt),
+                                   cfg.eps, g)
+barrier_report["kramers_tau"] = exp.kramers_tau
+print(f"ULA committed arrivals in the C7ax island "
+      f"{barrier_report['event_count']}/{barrier_report['n_particles']}; "
+      f"exponential waiting-time MLE {barrier_report['exponential_waiting_time_mle']:.0f}, "
+      f"KM RMST@T {barrier_report['kaplan_meier_rmst_at_horizon']:.0f}, "
+      f"Kramers time {exp.kramers_tau:.0f}")'''
 
 
 def build_e5_nb() -> nbf.NotebookNode:
@@ -1685,12 +1738,13 @@ def build_e5_nb() -> nbf.NotebookNode:
         code(CELL_E5_TARGET_VIZ),
         md(MD_E5_JUMP),
         code(CELL_E5_CERT),
+        code(CELL_E5_BARRIER),
         code(CELL_LADDER),
         code(CELL_REFERENCE),
         code(cell_dt_production('["W2", "TV", "MMD", "EMC", "FES_RMSE_kBT"]')),
         code(CELL_STATIONARITY),
         code(CELL_FIGURES),
-        code(cell_csv("certificate=certificate,")),
+        code(cell_csv()),
     ]
     nb = nbf.v4.new_notebook()
     nb.cells = cells
