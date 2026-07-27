@@ -472,9 +472,18 @@ def _write_shard(root, rid, methods, registered, experiment="alanine_dipeptide",
         "methods": {experiment: ",".join(methods)},
         "experiments": [experiment], "smoke_config": {"particles": 64},
         "git": {"commit": commit}}))
-    (root / rid / "status.json").write_text(json.dumps({"status": "ok"}))
+    (root / rid / "status.json").write_text(json.dumps({"status": "success"}))
     import csv as _csv
-    for name, cols in (("summary.csv", ["method", "TV_mean"]),
+    # Method-family-specific summary columns, as write_summary_csv really emits:
+    # acceptance columns only when MALA/PT ran, jump columns only for CP-family.
+    # This makes shards' headers legitimately differ so the merge's column-union
+    # path is exercised.
+    summary_cols = ["method", "TV_mean"]
+    if {"MALA", "PT"} & set(methods):
+        summary_cols.append("mala_accept")
+    if {"CP", "CP-RA"} & set(methods):
+        summary_cols.append("jump_cap_k")
+    for name, cols in (("summary.csv", summary_cols),
                        ("metrics_timeseries.csv", ["method", "step", "TV"]),
                        ("positions.csv", ["method", "particle", "cv0", "cv1"])):
         with (art / name).open("w", newline="") as handle:
@@ -516,6 +525,13 @@ def test_method_shard_merge_is_complete_and_deduplicates_shared_blocks(tmp_path)
                      _csv.DictReader((out / "positions.csv").open()))
     assert counts["reference"] == 1, counts          # not once per shard
     assert set(counts) == set(registered.split(",")) | {"reference"}
+    # merged summary header is the UNION of the shards' differing columns, and
+    # each row keeps its own family's value while padding the others
+    reader = _csv.DictReader((out / "summary.csv").open())
+    assert {"mala_accept", "jump_cap_k"} <= set(reader.fieldnames), reader.fieldnames
+    srows = {r["method"]: r for r in reader}
+    assert srows["PT"]["mala_accept"] == "1" and srows["PT"]["jump_cap_k"] == ""
+    assert srows["CP"]["jump_cap_k"] == "1" and srows["CP"]["mala_accept"] == ""
     # every shard's non-CSV artifacts survive, attributed to their shard
     assert {p.parent.parent.name for p in
             out.glob("per_shard/*/stationarity/*.csv")} == set(shards)

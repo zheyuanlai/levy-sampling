@@ -1198,4 +1198,789 @@ replicates.  Source code, complete immutable run artifacts, resolved
 configurations, and analysis-ready numerical data should be deposited together
 in the publication archive.
 
+\section{Alanine dipeptide under a real force field (E5)}
+\label{app:alanine}
+
+This appendix documents a fifth, \emph{supplementary} experiment.  The four
+systems of Section~\ref{sec:systems} remain the reported benchmark; E5 is a
+single demonstration that the construction can be driven by a real molecular
+force field rather than an analytic model potential, and it is deliberately
+placed here rather than in the main text.  Nothing in Sections
+\ref{sec:recovery}--\ref{sec:efficiency} depends on it.  The purpose of the
+appendix is completeness of the setup: the description below is intended to be
+sufficient to reproduce the construction.  The vocabulary of molecular
+simulation is defined as it appears; no prior background is assumed.
+
+\subsection{The system and the sampling target}
+\label{app:e5-system}
+
+\paragraph{The molecule.}
+Alanine dipeptide (Ac-Ala-NHMe) is a $22$-atom molecule consisting of a single
+alanine residue capped at both ends.  A \emph{residue} is one repeating unit of
+a protein chain; alanine dipeptide is the smallest fragment that still contains
+a complete protein backbone segment, and it is the standard minimal test system
+of the molecular-simulation literature.  We use
+\texttt{openmmtools.testsystems.AlanineDipeptideVacuum} with
+\texttt{constraints=None}, i.e.\ the \emph{fully flexible} molecule: every
+chemical bond is an ordinary spring and no degree of freedom is rigidly
+constrained.  The molecule sits in vacuum (no solvent, no periodic box, no
+electrostatic cutoff).  The configuration space is therefore all $3N=66$
+Cartesian atom coordinates and the potential energy is a smooth function on
+$\R^{66}$.
+
+\paragraph{What a force field is.}
+A \emph{force field} is an explicit, closed-form formula for the potential
+energy of a molecule as a function of its atom positions, with parameters
+fitted once and for all to quantum-chemical and experimental data.  It replaces
+an electronic-structure calculation by a sum of simple mechanical terms.  In
+AMBER convention, and in OpenMM units (energy kJ/mol, length nm, charge $e$,
+angles rad), the terms present in this system are
+\begin{align}
+ U_{\rm bond}   &=\sum_{\rm bonds}\tfrac12k(r-r_0)^2, &&\text{$21$ terms},\\
+ U_{\rm angle}  &=\sum_{\rm angles}\tfrac12k(\vartheta-\vartheta_0)^2,
+   &&\text{$36$ terms},\\
+ U_{\rm tors}   &=\sum_{\rm torsions}k\bigl[1+\cos(n\varphi-\varphi_{\rm ph})\bigr],
+   &&\text{$52$ terms},\\
+ U_{\rm nb}     &=\sum_{i<j\ \rm not\ excepted}
+   \Bigl[\frac{k_e\,q_iq_j}{r_{ij}}
+   +4\epsilon_{ij}\Bigl(\frac{\sigma_{ij}^{12}}{r_{ij}^{12}}
+   -\frac{\sigma_{ij}^{6}}{r_{ij}^{6}}\Bigr)\Bigr].
+\end{align}
+Here $r$ is a bond length (distance between two bonded atoms), $\vartheta$ a
+bond angle (the angle at the central atom of three consecutively bonded atoms),
+and $\varphi$ a torsion angle, defined below.  The nonbonded term combines
+Coulomb attraction/repulsion between partial atomic charges $q_i$ with a
+Lennard-Jones term describing short-range repulsion and dispersion; the mixing
+rule is Lorentz--Berthelot,
+$\sigma_{ij}=\tfrac12(\sigma_i+\sigma_j)$,
+$\epsilon_{ij}=\sqrt{\epsilon_i\epsilon_j}$.  The Coulomb constant
+$k_{e}=138.93545764438\ \mathrm{kJ\,nm\,mol^{-1}e^{-2}}$ is probed from OpenMM
+at run time rather than hard-coded.  Ninety-eight pair \emph{exceptions}
+override the nonbonded formula for pairs that are already described by bonded
+terms: pairs separated by one or two bonds are excluded entirely
+($q_iq_j=\epsilon_{ij}=0$) and pairs separated by three bonds use scaled
+parameters.  The total energy is
+$U=U_{\rm bond}+U_{\rm angle}+U_{\rm tors}+U_{\rm nb}$.  This is the first
+system in the note whose $V$ is not an analytic model surface.
+
+\paragraph{The target.}
+The temperature is $T=300\,$K.  Writing $k_{\rm B}$ for Boltzmann's constant,
+the thermal energy scale is $k_{\rm B}T=2.4943\ \mathrm{kJ/mol}$ and
+$\beta=1/(k_{\rm B}T)=0.40091\ \mathrm{mol/kJ}$, derived from the molar gas
+constant rather than assigned.  Energies quoted in units of $k_{\rm B}T$ are
+\emph{dimensionless} energies; a barrier of $1\,k_{\rm B}T$ is comparable to
+the ambient thermal fluctuation, while a barrier of several $k_{\rm B}T$ is
+crossed only rarely.  The target is the Cartesian Boltzmann law
+\begin{equation}
+ \mu(\dd x)\propto e^{-\beta U(x)}\dd x,\qquad x\in\R^{66},
+ \label{eq:e5-target}
+\end{equation}
+with $U$ the full force field: nothing is coarse-grained and no degree of
+freedom is integrated out.  The suite-wide constant $\beta=8$ used elsewhere in
+this note is untouched; E5 threads its own physical $\beta$ through the run
+configuration exactly as the M\"uller--Brown system threads $\beta=24$.
+
+\paragraph{Torsion angles and the two collective variables.}
+Given four consecutively bonded atoms $p_1$--$p_2$--$p_3$--$p_4$, the
+\emph{dihedral} (equivalently \emph{torsion}) angle is the rotation angle about
+the central $p_2$--$p_3$ bond: the angle between the plane through $p_1p_2p_3$
+and the plane through $p_2p_3p_4$.  Rotating a torsion swings an entire
+molecular fragment rigidly about a bond axis.  The two backbone torsions of
+alanine dipeptide are
+\begin{equation}
+\begin{aligned}
+ \phi&=\mathrm{dihedral}(\mathrm{ACE\!:\!C},\ \mathrm{ALA\!:\!N},\
+ \mathrm{ALA\!:\!CA},\ \mathrm{ALA\!:\!C}),\\
+ \psi&=\mathrm{dihedral}(\mathrm{ALA\!:\!N},\ \mathrm{ALA\!:\!CA},\
+ \mathrm{ALA\!:\!C},\ \mathrm{NME\!:\!N}),
+\end{aligned}
+\end{equation}
+i.e.\ atom index sets $(4,6,8,14)$ and $(6,8,14,16)$.  Both were selected by
+residue and atom \emph{name} and then verified to reproduce, index for index,
+the sets returned by \texttt{mdtraj}'s \texttt{compute\_phi}/\allowbreak\texttt{compute\_psi},
+with angle values agreeing to below $10^{-6}\,$rad.  Each of $\phi,\psi$ is
+$2\pi$-periodic, so $(\phi,\psi)$ lives on a two-dimensional torus; a plot of
+the free energy over that torus is called a \emph{Ramachandran plot} and is the
+standard description of backbone conformation.  Bond lengths and bond angles
+are stiff and vibrate rapidly about fixed values; the backbone torsions are the
+soft, slow coordinates.  They are therefore the natural \emph{collective
+variables} (low-dimensional functions of the configuration used to describe and
+to measure the slow motion) for this system, and they play the same role that
+the latent plane plays for M\"uller--Brown and the spatial mean $\bar q$ plays
+for $\phi^4$.
+
+\subsection{Why the system is a meaningful test}
+\label{app:e5-difficulty}
+
+A \emph{metastable state} is a region of configuration space in which the
+dynamics remains trapped for a long time relative to the local relaxation time,
+because leaving it requires passing a free-energy barrier.  The \emph{free
+energy} of a collective variable value $s$ is
+$F(s)=-\beta^{-1}\log\int\delta(s(x)-s)\,e^{-\beta U(x)}\dd x$ up to an
+additive constant; $F(\phi,\psi)$ is what a Ramachandran plot displays, and a
+\emph{free-energy surface} (FES) is this function on a grid.
+
+Alanine dipeptide in vacuum has three metastable states, denoted C5/$\beta$,
+C7eq and C7ax.  Two of them, C5/$\beta$ and C7eq, sit at negative $\phi$ and
+together carry approximately $99\%$ of the equilibrium probability.  The third,
+C7ax, sits at \emph{positive} $\phi$ and carries under $1\%$.  Reaching and
+correctly weighting this island is the slow event of the system: its escape
+barrier is about $4.8\,k_{\rm B}T$, i.e.\ $12.0\ \mathrm{kJ/mol}$.  This is the
+same qualitative challenge as the low-mass phases of the $\phi^4$ chain, but
+here the landscape is not designed---it is whatever the force field produces.
+
+One feature is not obvious and is important for the construction of the jump
+bank.  The cheap route between the negative-$\phi$ states and the positive-$\phi$
+island does \emph{not} pass through $\phi=0$.  Crossing the $\phi=0$ dividing
+line costs $32.5\ \mathrm{kJ/mol}$, whereas the island's own escape barrier is
+only $12.0\ \mathrm{kJ/mol}$ and is reached near $\phi=\pm180^\circ$, i.e.\
+around the far side of the torus.  A jump geometry that measures displacements
+with the torus-minimal (periodic) convention takes the cheap route
+automatically; a jump geometry that treats $\phi$ as a coordinate on the line
+would not.
+
+\subsection{Why a straight-line Cartesian jump must fail}
+\label{app:e5-chord}
+
+Every estimator in this note evaluates the L\'evy score
+\eqref{eq:finite-bank-score} along the straight \emph{chord}
+$\theta\mapsto x-\theta r$, $\theta\in[0,1]$.  In Cartesian atom coordinates
+this is fatal for a molecular transition, for a purely geometric reason.
+
+A basin-to-basin transition of alanine dipeptide is, physically, a
+\emph{rotation} of a molecular fragment by an angle $\Delta$ about a backbone
+bond axis.  Consider an atom of the rotating fragment at perpendicular distance
+$\rho$ from that axis.  Under the true motion it travels along a circular arc
+of radius $\rho$; its distance to the axis is $\rho$ throughout.  A jump
+$x\mapsto x+r$ that is a straight line in $\R^{66}$ instead follows the
+\emph{chord} of that arc.  Identifying the plane perpendicular to the axis with
+$\mathbb{C}$, the chord point at fraction $\theta$ has distance to the axis
+\begin{equation}
+ \rho\bigl|(1-\theta)+\theta e^{i\Delta}\bigr|
+ =\rho\sqrt{(1-\theta)^2+\theta^2+2\theta(1-\theta)\cos\Delta},
+\end{equation}
+which is minimized at $\theta=\tfrac12$ with value $\rho\cos(\Delta/2)$.  The
+chord therefore contracts the atom towards the axis by a radial deficit
+\begin{equation}
+ \rho\bigl[1-\cos(\Delta/2)\bigr]=\tfrac18\rho\,\Delta^2+O(\Delta^4).
+ \label{eq:chord-deficit}
+\end{equation}
+For a realistic backbone transition, $\Delta\approx140^\circ$ and
+$1-\cos70^\circ\approx0.66$: at the midpoint of the chord the atom is pulled
+$66\%$ of the way to the axis.  Bonds and bond angles that cross the rotation
+boundary are stiff springs, and they must absorb the entire contraction.  The
+chord is consequently driven hundreds of $k_{\rm B}T$ above both basins, the
+score integrand $e^{\beta[U(x)-U(x-\theta r)]}$ in
+\eqref{eq:finite-bank-score} saturates the exponent cap $M_{\max}=600$ of
+Appendix~\ref{app:construction}, and the score is no longer an evaluation of
+the intended quantity.  This is a structural obstruction, not a tuning
+difficulty: it is present for \emph{every} conformational jump of \emph{every}
+flexible molecule expressed in Cartesian coordinates.
+
+Equation~\eqref{eq:chord-deficit} also contains the escape route.  The deficit
+is $O(\Delta^2)$ in the \emph{rotation angle}, not in the Cartesian
+displacement.  A coordinate system in which a conformational transition is an
+affine displacement---so that the chord is the rotation itself, at $\Delta=0$
+deficit---removes the obstruction entirely.  That is why E5 is run in internal
+coordinates.
+
+\subsection{Internal (BAT) coordinates}
+\label{app:e5-bat}
+
+\paragraph{Construction.}
+BAT stands for bond/angle/torsion.  Instead of three Cartesian numbers per
+atom, each atom after the first three is placed relative to three
+already-placed reference atoms by a triple $(b,a,\tau)$: a bond length $b$ to
+its bond parent, a bond angle $a$ at that parent, and a torsion $\tau$ about
+the parent--grandparent axis.  The resulting table is a \emph{Z-matrix}, and
+the reconstruction $q\mapsto x$ is performed by the standard NeRF (natural
+extension reference frame) recursion.  Three root atoms fix the six external
+degrees of freedom (three translations and three rotations) on which $U$ does
+not depend.  The internal dimension is therefore
+\begin{equation}
+ d=3N-6=60=\underbrace{21}_{\rm bonds}+\underbrace{20}_{\rm angles}
+ +\underbrace{19}_{\rm torsions}.
+\end{equation}
+The root is $(\mathrm{ACE\!:\!C}=4,\ \mathrm{ALA\!:\!N}=6,\
+\mathrm{ALA\!:\!CA}=8)$, and the first two non-root atoms are forced to be
+$\mathrm{ALA\!:\!C}=14$ and $\mathrm{NME\!:\!N}=16$ so that their torsions
+\emph{are} the collective variables: $\phi=q_5$ and $\psi=q_8$ in
+zero-based slot indexing.
+
+\paragraph{Jacobian.}
+Changing coordinates changes the volume element, and the \emph{Jacobian
+determinant} $|\det(\partial x_{\rm free}/\partial q)|$ is the local volume
+ratio.  Placing one atom by $(b,a,\tau)$ is exactly a spherical-coordinate
+parametrization about its reference atom, whose Cartesian element is
+$b^2\sin a\dd b\dd a\dd\tau$.  Composing over atoms gives
+\begin{equation}
+ \log\bigl|\det(\partial x_{\rm free}/\partial q)\bigr|
+ =\log r_{23}+\sum_{\text{non-root }i}\bigl[2\log b_i+\log\sin a_i\bigr],
+ \label{eq:e5-logJ}
+\end{equation}
+where the frame boundary term $\log r_{23}$ comes from the third root atom,
+which contributes a two-dimensional polar element (one power of the bond, no
+sine).  Equation~\eqref{eq:e5-logJ} was checked against the numerical
+log-determinant of the full $60\times60$ Jacobian and agrees to
+$1.4\times10^{-14}$.  The target in internal coordinates is
+\begin{equation}
+ \mu_q(\dd q)\propto e^{-\beta U_{\rm eff}(q)}\dd q,
+ \qquad
+ U_{\rm eff}(q)=U(x(q))-\beta^{-1}\log|\det(\partial x_{\rm free}/\partial q)| .
+ \label{eq:e5-ueff}
+\end{equation}
+The pushforward of $\mu_q$ under $q\mapsto x$ is exactly the Cartesian
+Boltzmann law \eqref{eq:e5-target}, so this is the \emph{same} target and the
+same measure the reference of Appendix~\ref{app:e5-reference} samples.  We
+emphasize what this is not: it is a change of sampling variables, not a model
+of curved-space kinetics.  The dynamics is identity-metric Langevin on
+$U_{\rm eff}$; there is no position-dependent mass metric and no Fixman
+correction.  Because the object of study is the invariant measure, this is
+correct and is the simplest choice, and it is applied identically to every
+compared method.
+
+\paragraph{Torsion independence and the Jacobian-free chord.}
+No term of \eqref{eq:e5-logJ} contains a torsion: the azimuth enters the
+spherical element only through $\dd\tau$ and never as a multiplicative weight.
+The measured maximum torsion derivative of $\log|\det J|$ is exactly $0.0$.  The
+consequence is the property that makes the whole experiment possible.  If a
+jump displacement $r$ is nonzero \emph{only} in torsion slots, then every bond
+and every angle is unchanged along the entire chord $q-\theta r$, so
+$\log|\det J|$ is constant along it and cancels in the score integrand:
+\begin{equation}
+ U_{\rm eff}(q-\theta r)-U_{\rm eff}(q)
+ =U\bigl(x(q-\theta r)\bigr)-U\bigl(x(q)\bigr).
+ \label{eq:e5-jacfree}
+\end{equation}
+The L\'evy score therefore needs only \emph{physical energy differences} along
+the chord---precisely what a black-box force-field evaluator returns---and
+never the Jacobian, its gradient, or its second derivatives.  The measured
+residual of \eqref{eq:e5-jacfree} is $4.6\times10^{-13}$, i.e.\ machine zero.
+
+\paragraph{Leader and offset torsions.}
+A naive Z-matrix is not yet adequate, and the failure mode is quantitative.
+Several atoms can share the same bond parent and the same angle parent, so they
+rotate about the \emph{same} axis.  If each such atom carries an absolute
+torsion, then moving one of them while holding its siblings fixed does not
+rotate a fragment---it distorts the local geometry.  Moving $\phi$ would carry
+$\mathrm{ALA\!:\!C}$ and its subtree while leaving HA and CB behind, breaking
+the tetrahedral centre at CA.  The measured curvature of $U_{\rm eff}$ in
+$\phi$ under that parametrization is $822\ \mathrm{kJ\,mol^{-1}rad^{-2}}$
+against roughly $80$ for the true soft rotation: the Cartesian chord pathology
+of Appendix~\ref{app:e5-chord} reappearing inside internal coordinates.  The
+fix is to designate the first atom placed about each axis the \emph{leader},
+carrying the proper torsion, and to let its siblings carry the \emph{offset}
+from the leader, which is stiff and nearly constant.  There are $8$ leader and
+$11$ offset torsions.  The reparametrization is unit triangular in the torsion
+block, so $\log|\det J|$ is unchanged and \eqref{eq:e5-logJ}--\eqref{eq:e5-jacfree}
+continue to hold verbatim.
+
+\paragraph{Whitening.}
+Bond and angle modes are stiff (force constants from hundreds to hundreds of
+thousands in the above units), so a single global timestep in raw $q$ would be
+hostage to the fastest mode.  We absorb a \emph{fixed diagonal} whitening into
+the coordinates, exactly as the M\"uller--Brown and $\phi^4$ systems absorb
+their fixed embedding: the sampler coordinate is $\tilde q=D^{-1}q$ and the
+sampler potential is $V(\tilde q)=U_{\rm eff}(D\tilde q)$.  Isotropic Langevin
+in $\tilde q$ is preconditioned Langevin in $q$ and preserves the same target,
+since $D$ is a constant linear change of variables.  The entries are
+\begin{equation}
+ D_{ii}=1\ \text{for the $\phi$ and $\psi$ slots},\qquad
+ D_{ii}=\min\Bigl\{1,\ \sqrt{1/(\beta H_{ii})}\Bigr\}\ \text{otherwise},
+\end{equation}
+with $H$ the diagonal of the $U_{\rm eff}$ Hessian.  Keeping $D_{ii}=1$ on
+$\phi$ and $\psi$ means those two coordinates remain affine and unit scale, so
+a jump atom reads directly as a rotation in radians.  Provenance matters here:
+the supplied conformer is \emph{not} a stationary point (gradient norm about
+$105$, almost all of it in $\phi$), which inflates the raw curvature by roughly
+a factor of seven, so the code first descends to the basin minimum and takes
+the Hessian there.  The measured scales are $0.0023$--$0.0030$ for bonds and
+$0.032$--$0.071$ for angles.  With this whitening the maximum curvature is
+about $80$, so $\Delta t=10^{-3}$ gives $\Delta t\,H\approx0.08$ and a single
+timestep is comfortable for all $60$ modes.
+
+\paragraph{The computational box.}
+The box of \eqref{eq:euler-paired} is replaced by a torus-aware variant.
+Torsion slots \emph{wrap} to $(-\pi,\pi]$ rather than clip, which is exact
+because $U_{\rm eff}$ is $2\pi$-periodic in every torsion.  Wrapping is applied
+in physical units, because in whitened units a torsion period is $2\pi/D_{ii}$
+and only $\phi,\psi$ have $D_{ii}=1$.  The containment diagnostic reports
+torsions as always inside, so ordinary wrapping is never miscounted as a
+boundary projection in Table~\ref{tab:stability}-style accounting.  Bonds and
+angles do carry a genuine boundary, and it is physical rather than an overflow
+guard: \eqref{eq:e5-logJ} contains $\log b$ and $\log\sin a$, so the box must
+enforce $b>0$ and $a\in(0,\pi)$.  The limits are
+$b\in[0.3,3]\times b_{\rm ref}$ and $a\in[0.10,\pi-0.10]\,$rad.  They lie many
+thermal standard deviations from the sampled region and do not bind in normal
+sampling.
+
+\paragraph{Reporting windows and the branch cut.}
+$\phi$ is reported on the conventional window $(-180^\circ,180^\circ]$: only
+$0.47\%$ of the reference mass lies within $0.15\,$rad of that seam, so
+Euclidean metrics on $\phi$ are not materially distorted.  $\psi$ is not.  The
+C5/$\beta$ region genuinely wraps around $\psi=\pm180^\circ$ and carries $8.2\%$
+of the mass there, which would make Euclidean $W_2$, MMD and FES treat
+$\psi=+179^\circ$ and $\psi=-179^\circ$ as maximally distant.  We therefore
+report $\psi$ on a window whose branch cut was \emph{searched} for the
+lowest-density angle: the cut sits at $\psi=-20^\circ$ (measured mass within
+$0.15\,$rad: $1.7\times10^{-4}$), giving the fundamental domain
+$(-20^\circ,340^\circ]$.  This is a choice of fundamental domain internal to
+E5; the shared metric code of Appendix~\ref{app:metrics} is untouched and
+Euclidean distance remains valid on the chosen domain, while basin labels use a
+torus metric independently.  The caveat must be stated: an E5 Ramachandran plot
+is consequently \emph{not} the conventional one---the $\alpha_R$ and C7ax
+features appear near $\psi\approx+290^\circ$---and a $\psi$ time series shows an
+apparent discontinuity at the cut.  Ensemble metrics and basin labels are
+unaffected.
+
+\subsection{The reference}
+\label{app:e5-reference}
+
+\paragraph{Well-tempered metadynamics.}
+Unlike the four main systems, this target admits no grid, no exact mixture
+draw, and no reliable Laplace-mixture importance proposal, so the reference is
+itself a simulation.  \emph{Metadynamics} works as follows: one runs ordinary
+molecular dynamics while progressively adding to the potential a bias
+$V_{\rm bias}$ built as a sum of Gaussian ``hills'' deposited at the currently
+visited value of the collective variables.  The accumulating bias fills in the
+free-energy wells that the trajectory has already visited, and the trajectory
+is thereby pushed out of them and explores the remaining ones.  In the
+\emph{well-tempered} variant the hill height decays with the bias already
+present, so the bias converges rather than diverging, and at convergence
+$V_{\rm bias}=-\frac{\gamma-1}{\gamma}F$ with bias factor $\gamma$.
+
+The settings are: two \texttt{CustomTorsionForce} collective variables
+($\phi,\psi$); \texttt{LangevinMiddle} integrator at $300\,$K with a $2\,$fs
+timestep; bias factor $\gamma=8$; initial hill height $1.2\ \mathrm{kJ/mol}$;
+hill width $0.35\,$rad; a $100\times100$ grid; deposition every $1000$ steps.
+The protocol has two phases.  In the first, the bias is grown.  In the second,
+the bias is \emph{frozen} and a production trajectory samples the biased
+ensemble.
+
+\paragraph{The frozen-bias reweighting identity.}
+Each production frame at collective-variable value $s$ is reweighted back to
+the unbiased Boltzmann measure by
+\begin{equation}
+ w(s)=e^{+\beta V_{\rm bias}(s)}
+ =\exp\Bigl[-\beta\tfrac{\gamma-1}{\gamma}F(s)\Bigr].
+ \label{eq:e5-reweight}
+\end{equation}
+Because OpenMM returns exactly $F=-\frac{\gamma}{\gamma-1}V_{\rm bias}$, the
+weight in \eqref{eq:e5-reweight} \emph{is} the applied bias, and reweighting a
+static bias is unbiased regardless of whether the bias has converged.
+Metadynamics convergence therefore controls the \emph{variance} of the
+reference, not its bias.  Reweighted frames are mapped into whitened internal
+coordinates and form the reference conformer pool; where unweighted clouds are
+required ($W_2$, MMD) they are produced by sampling-importance resampling, and
+are labelled approximate exactly as in Appendix~\ref{app:references}.
+
+\paragraph{Two silent traps.}
+Both are recorded here because they are the kind of error that produces a
+plausible but wrong reference, and both are now guarded fail-closed.
+\emph{(i)} OpenMM allocates the metadynamics grid with the collective variables
+\emph{reversed}, so \texttt{getFreeEnergy()} is indexed $[\psi,\phi]$.  When the
+two grid widths are equal the transpose is invisible dimensionally and silently
+mirrors the free-energy surface through the origin.  An orientation check now
+correlates the empirical collective-variable histogram against
+$\exp(-\beta F/\gamma)$ for $F$ and for $F^{\sf T}$ and aborts on
+disagreement.  \emph{(ii)} $1\ \mathrm{ns}=10^{6}\ \mathrm{fs}$.  An earlier
+steps-per-nanosecond expression computed as $1000/\Delta t_{\rm fs}$ ran the
+reference silently $1000\times$ short.
+
+\paragraph{Basins are defined by barriers, not by minima.}
+A local minimum of a \emph{numerically estimated} free-energy surface is not
+automatically a metastable state, and treating it as one corrupts every
+occupancy statistic.  Raw minimum finding on $\widehat F(\phi,\psi)$ returned
+\emph{five} candidates.  Two of them had escape barriers of about $0.00$ and
+$0.19\ k_{\rm B}T$; one of these lay at $\phi=+178^\circ$, a shoulder of the
+$\beta$/C5 region seen across the $\phi$ seam.  Keeping them would make basin
+occupancy meaningless---the Voronoi boundary between two minima with no barrier
+between them is arbitrary---and in fact it corrupted two separate diagnostics:
+the per-basin free energies became convergence-noisy, and the
+positive-$\phi$ island occupancy counted ordinary $\beta$-region
+configurations, so that even plain \textsc{ula} appeared to cross the barrier.
+Merging any pair of candidates not separated by at least $1\,k_{\rm B}T$
+restores the classical three-state picture C5/$\beta$, C7eq, C7ax.  The
+$1\,k_{\rm B}T$ criterion is not tuned: the resulting partition is unchanged
+for every threshold from $0.05$ to $2.0\,k_{\rm B}T$, a $40\times$ plateau, and
+first changes at $2.4\,k_{\rm B}T$, which is the physical C7eq--C5/$\beta$
+separation of $2.53\,k_{\rm B}T$.
+
+\subsection{Construction of the jump bank}
+\label{app:e5-bank}
+
+This subsection is the operational core of E5.  It states, in order, which
+displacements are proposed, in what space they live, how they are screened, and
+what survives.
+
+\paragraph{Step 1: candidates.}
+For every \emph{ordered} pair of distinct basins $(i,j)$ we take the
+torus-minimal displacement of the collective variables between the two basin
+minima,
+\begin{equation}
+ (\Delta\phi,\Delta\psi)_{i\to j}
+ =\operatorname{wrap}\bigl(m_j-m_i\bigr),
+ \qquad
+ \operatorname{wrap}(u)\in(-\pi,\pi]^2 ,
+\end{equation}
+where $m_i$ is the minimum of basin $i$.  With three basins this gives
+$3\times2=6$ candidates, and both homotopy directions are present \emph{by
+construction} as the $\pm$ pairs.  Using the wrapped difference is what makes
+the bank take the cheap route of Appendix~\ref{app:e5-difficulty}: the
+C7ax$\leftrightarrow$C5/$\beta$ candidates move $\phi$ by $\pm151^\circ$,
+i.e.\ around $\phi=\pm180^\circ$, and not through $\phi=0$.
+
+\paragraph{Step 2: the atoms are pure torsion displacements.}
+Each candidate is promoted to a vector $r_a$ in the full $60$-dimensional
+whitened internal space that is nonzero \emph{only} in the $\phi$ and $\psi$
+slots and \emph{exactly} zero in the other $58$ slots.  This was verified
+numerically, including after the shell jitter of Step~4 is added.  Purity is
+not cosmetic: it is exactly the hypothesis of \eqref{eq:e5-jacfree}, and hence
+the reason the score can be evaluated from force-field energies alone.  Because
+$D_{ii}=1$ on those two slots, $\lVert r_a\rVert$ is a genuine rotation
+magnitude in radians.
+
+\paragraph{Step 3: screening, or the forbidden-chord drop rule.}
+A candidate is admissible only if its chord stays in energetically reachable
+territory.  For each candidate we draw states from its \emph{source} basin
+(weighted by the reference pool) and evaluate the actual score exponent
+$\beta[U(q)-U(q-\theta r_a)]$ on the Gauss--Legendre $\theta$ nodes.  A
+candidate is rejected if that exponent exceeds the cap $M_{\max}=600$ of
+Appendix~\ref{app:construction} for more than $10^{-3}$ of the
+(state,~$\theta$) samples---i.e.\ if its chord crosses a forbidden region of
+the Ramachandran surface.  Every retained and every dropped atom is logged with
+its geography and the reason.  Any pair of basins left unconnected would then
+be reached by relay through an intermediate basin, as in the M\"uller--Brown
+bank.
+
+The measured outcome is itself the main methodological finding of E5: \emph{six
+of six candidates are retained, none is dropped, and the maximum exponent
+encountered is about $4$ against a cap of $600$.}  The obstruction that forced
+relay-only atoms for M\"uller--Brown and excluded the diagonals for $\phi^4$
+simply does not arise once the coordinates are internal---which is the
+quantitative counterpart of Appendix~\ref{app:e5-chord}.
+
+\paragraph{Step 4: shell, weights and drift cap.}
+Weights are uniform, $w_a=1/6$; the lesson from the two higher-dimensional
+model systems is that skewing weights by target mass ratios backfires.  The
+shell half-width follows the same rule as those systems,
+$h=0.1\min_a\lVert r_a\rVert=0.1868$, and a draw from atom $a$ is
+$r=r_a+\varrho\,u_a$ with $\varrho\sim\mathrm{Unif}(-h,h)$ and $u_a=r_a/\lVert
+r_a\rVert$, so the jitter stays inside the same $(\phi,\psi)$ plane and
+preserves torsion purity.  The taming scale in \eqref{eq:euler-paired} is
+$c=2h=0.3736$.
+
+\paragraph{Step 5: which space the jumps live in.}
+Stated explicitly, because it is easy to misread.  The jumps are \emph{not}
+Cartesian atom-space moves, and they are \emph{not} a two-dimensional
+collective-variable model.  They are displacements of the full
+$60$-dimensional internal coordinate whose support happens to be confined to
+the two-dimensional $(\phi,\psi)$ subspace.  The sampled object is the complete
+molecular configuration, the energy is the real force field evaluated on the
+reconstructed $22$-atom geometry, and $(\phi,\psi)$ is only where we
+\emph{measure}.
+
+\paragraph{The retained bank.}
+
+\begin{table}[!ht]
+\centering
+\small
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{llrrr}
+\toprule
+From & To & $\Delta\phi$ (deg) & $\Delta\psi$ (deg) & $\lVert r_a\rVert$ (rad)\\
+\midrule
+C5/$\beta$ & C7eq      & $+72.0$  & $-79.2$  & 1.868\\
+C5/$\beta$ & C7ax      & $-154.8$ & $+136.8$ & 3.606\\
+C7eq       & C5/$\beta$ & $-72.0$  & $+79.2$  & 1.868\\
+C7eq       & C7ax      & $+133.2$ & $-144.0$ & 3.424\\
+C7ax       & C5/$\beta$ & $+154.8$ & $-136.8$ & 3.606\\
+C7ax       & C7eq      & $-133.2$ & $+144.0$ & 3.424\\
+\bottomrule
+\end{tabular}
+\caption{The six retained jump atoms, given by their nonzero
+$(\phi,\psi)$ components; all $58$ remaining internal components are exactly
+zero.  Weights are uniform ($1/6$).  Norms are in radians because $\phi$ and
+$\psi$ are unwhitened.  All six candidates passed the forbidden-chord screen of
+Step~3 with maximum score exponent about $4$ against the cap $M_{\max}=600$.}
+\label{tab:e5-bank}
+\end{table}
+
+\subsection{Estimator and residual certificate}
+\label{app:e5-certificate}
+
+\paragraph{Estimator.}
+E5 deploys the paired multi-atom estimator \textsc{lsc-cp-ma} of
+Appendix~\ref{app:paired} and validates the exact arm \emph{offline} instead of
+deploying it.  The exact arm integrates the score of the full six-atom bank by
+deterministic product quadrature, $q_\theta\times A\times q_\rho
+=16\times6\times8=768$ chord energies per particle per step.  Nothing about a
+black-box force field forbids this---the chord identity needs energies and
+nothing else---but each of those $768$ points expands into a full $22$-atom
+reconstruction.  Measured at the production ensemble, the exact arm runs at
+$1.67$ s/step at its most favourable block size, with a $66$ GiB peak; a
+sixteenfold smaller block costs only $16\%$ more, so the arm is bound by
+arithmetic and memory traffic rather than by kernel-launch overhead and cannot
+be tuned out of its cost.  That is about $18.5$ h over the $40{,}000$-step
+horizon against about $3$ h for the realized-measure arm.  This ratio is not an
+obstruction of principle but it is the practical point E5 exists to make: on a
+real force field the exact score is affordable as a \emph{check} and not as a
+sampler.
+
+Per particle and per step a
+bank $\{R_{n,a}\}$ is drawn from the shell laws; the score is the exact score
+of that realized finite measure, evaluated on Gauss--Legendre $\theta$ nodes;
+and the jump is $\sum_aN_{n,a}R_{n,a}$ with
+$N_{n,a}\sim\operatorname{Poisson}(\lambda w_a\Delta t)$ conditional on the
+same realized measure.  Score and jumps thus use one and the same measure, so
+the chord cancellation \eqref{eq:weak-cancel} holds atom by atom up to the
+chord quadrature.
+
+\paragraph{Certificate.}
+The weak-identity residual is evaluated in the \emph{shifted}, atomwise form,
+as for the $24$-dimensional $\phi^4$ system.  Substituting $q\mapsto q+\theta
+R_a$ in the score term of \eqref{eq:weak-cancel} converts the exponentially
+weighted integrand into a plain $\mu$-expectation, and the atomwise residual
+for a test function $f$ is
+\begin{equation}
+ \mathcal{R}_a(f)
+ =\Bigl|\int_0^1\E_{\mu}\bigl[R_a\cdot\nabla f(q+\theta R_a)\bigr]\dd\theta
+ -\E_{\mu}\bigl[f(q+R_a)-f(q)\bigr]\Bigr| ,
+ \label{eq:e5-residual}
+\end{equation}
+with the $\theta$ integral replaced by the same Gauss--Legendre rule used at
+run time and both expectations taken against the reweighted metadynamics pool.
+Two restrictions on $f$ are essential and are worth stating as design rules.
+First, test functions must be \emph{periodic} on the torus, so we use
+$f(q)=\sin(m\phi+n\psi+c)$; a tanh-ridge test function of the kind natural on
+$\R^d$ is inadmissible here because it is not a function on the state space.
+Second, they must be \emph{jump aligned}: a random ridge direction in $d=60$
+has overlap $O(d^{-1/2})$ with a jump atom and is therefore nearly blind to the
+quantity being certified.  Measured values are
+$\mathcal{R}=4.9\times10^{-14}$ on the generous full-torus domain and
+$3.6\times10^{-15}$ on a tight single-basin domain.
+
+The unshifted (direct) form, in which the exponentially weighted score field is
+integrated against $\mu$ directly, is computed and reported---its value is
+about $8.5\times10^{3}$ on the full torus and $1.4\times10^{1}$ on the tight
+domain---but it is \emph{not} used as a gate.  Its integrand
+$\mu\,S$ is $O(1)$ precisely where $\mu$ is exponentially small, so it is not
+$\mu$-estimable in this dimension, and a large value of it is a statement about
+estimator variance rather than about stationarity.  As in
+Appendix~\ref{app:stability}, neither form tests the exponent cap, drift
+taming, Euler splitting, or box projection, and neither is a certificate of the
+invariant law of the finite-step chain.
+
+\paragraph{Quadrature selection, and where E5 departs from E1--E4.}
+The four main systems choose $(q_\theta,q_\rho)$ by refinement: they sweep a
+grid and take the smallest setting whose certificate residual is below
+$10^{-6}$ \emph{and} whose terminal metrics agree with the finest setting's to
+within tolerance.  E5 does not run that sweep; it pins the quadrature at the
+common default $(q_\theta,q_\rho)=(16,8)$.  Two reasons and one caveat, stated
+here rather than left to be inferred from the tables.  First, the residual at
+the default is $\approx5\times10^{-14}$, eight orders below the gate, so the
+first criterion is nowhere near binding.  Second, the deployed estimator is the
+paired multi-atom score, which consumes $q_\theta$ only: $q_\rho$ parameterizes
+the $\rho$-quadrature of the \emph{continuous} shell law and is not a parameter
+of the realized-measure estimator at all, so two of the three axes E1--E4 sweep
+do not exist here.  The caveat is that refinement's second criterion---terminal
+metrics converged against a finer quadrature---is correspondingly \emph{not}
+tested for E5, and the reported quadrature is therefore justified by the
+certificate and by the estimator's structure rather than by a convergence
+sweep.
+
+\subsection{Cross-validation of the realized-measure estimator}
+\label{app:e5-xval}
+
+Because the exact arm is not deployed here, the substitution has to be paid for
+with evidence rather than asserted.  Two independent claims are checked, both at
+the production configuration ($40{,}000$ steps, $1000$ particles per seed).
+
+\paragraph{(A) Pointwise unbiasedness.}
+The sharp statement is that averaging the realized-measure score over its bank
+draw returns the exact score, $\E_{\rm bank}[S_{\rm MA}(x)]\to S_{\rm exact}(x)$
+at fixed $x$.  Over $4096$ bank draws at $256$ states sampled from the
+reweighted reference pool, the relative error against the exact score has median
+$2.3\times10^{-4}$ and ninetieth percentile $1.6\times10^{-3}$, and the
+$\phi$-components correlate at $1-4\times10^{-9}$.  This is a statement about the
+estimator alone and is independent of any dynamics.
+
+\paragraph{(B) End-to-end agreement.}
+Pointwise unbiasedness need not survive $40{,}000$ steps of feedback between
+score and state, so the two arms are also run as full samplers on a reduced
+two-seed set.  Against $p^\star=(0.5697,0.4220,0.0083)$ the exact arm reaches
+$\widehat p=(0.567,0.4195,0.0135)$ and the realized-measure arm
+$\widehat p=(0.5825,0.4065,0.0110)$, i.e.\ basin $L_1$ errors of $0.0104$ and
+$0.031$; neither produced a non-finite value.  Both recover the sparse island to
+the same order, with the exact arm the more accurate of the two, which is the
+expected direction: the realized-measure arm pays a variance price for not
+enumerating the bank.  The gap is the honest cost of the substitution, and it is
+small against the differences between method families reported below.
+
+\subsection{Setup summary and validation ladder}
+\label{app:e5-setup}
+
+\begin{table}[!ht]
+\centering
+\small
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{ll}
+\toprule
+Quantity & Value\\
+\midrule
+molecule                       & alanine dipeptide (Ac-Ala-NHMe), vacuum, $22$ atoms, fully flexible\\
+force-field terms              & $21$ bonds, $36$ angles, $52$ torsions, nonbonded with $98$ exceptions\\
+Cartesian dimension            & $3N=66$\\
+sampled dimension $d$          & $60$ ($21$ bonds, $20$ angles, $19$ torsions)\\
+temperature                    & $T=300\,$K; $k_{\rm B}T=2.4943\ \mathrm{kJ/mol}$; $\beta=0.40091\ \mathrm{mol/kJ}$\\
+collective variables           & $\phi=q_5$, $\psi=q_8$ (backbone torsions)\\
+whitening                      & diagonal, fixed; $D_{ii}=1$ on $\phi,\psi$; else $\min\{1,(\beta H_{ii})^{-1/2}\}$\\
+box                            & torsions wrap to $(-\pi,\pi]$; $b\in[0.3,3]b_{\rm ref}$;
+                                 $a\in[0.10,\pi-0.10]$\\
+methods                        & \textsc{ula}, \textsc{mala}, \textsc{fla}, \textsc{baoab},
+                                 \textsc{pt}, raw \textsc{cp}, \textsc{lsc-cp-ma}\\
+particles $N$ / seeds          & $1000$ / $16$\\
+horizon $T$ / $\Delta t$ / steps & $40$ / $10^{-3}$ / $40{,}000$\\
+initialization                 & C7eq\\
+jump rate $\lambda$            & $1$\\
+bank                           & $A=6$ pure-torsion atoms (Table~\ref{tab:e5-bank}), weights $1/6$\\
+shell half-width / drift cap   & $h=0.1\min_a\lVert r_a\rVert=0.1868$ / $c=2h=0.3736$\\
+score estimator                & \textsc{ma} (paired multi-atom); exact
+                                 ($768$ chords) cross-validated offline\\
+exponent cap                   & $M_{\max}=600$\\
+reference                      & well-tempered metadynamics, $\gamma=8$, frozen-bias reweighting\\
+\bottomrule
+\end{tabular}
+\caption{E5 configuration.  Metrics are the shared suite metrics of
+Appendix~\ref{app:metrics}, unchanged.}
+\label{tab:e5-config}
+\end{table}
+
+\begin{table}[!ht]
+\centering
+\small
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{lll}
+\toprule
+Check & Measured & Declared threshold\\
+\midrule
+torch force field vs.\ OpenMM energy ($1024$ configurations)
+  & $\approx10^{-15}$ rel. & $10^{-6}$\\
+torch force field vs.\ OpenMM force ($1024$ configurations)
+  & $\approx10^{-15}$ rel. & $10^{-5}$\\
+analytic gradient vs.\ central differences & $2.4\times10^{-9}$ & ---\\
+BAT round trip $x\to q\to x$              & $2\times10^{-15}$ & ---\\
+analytic $\log|\det J|$ vs.\ numerical log-determinant
+  & $1.4\times10^{-14}$ & ---\\
+torsion derivative of $\log|\det J|$      & exactly $0.0$ & ---\\
+Jacobian-free chord identity \eqref{eq:e5-jacfree}
+  & $4.6\times10^{-13}$ & ---\\
+shifted atomwise residual \eqref{eq:e5-residual}, full torus
+  & $4.9\times10^{-14}$ & ---\\
+shifted atomwise residual, single basin   & $3.6\times10^{-15}$ & ---\\
+\bottomrule
+\end{tabular}
+\caption{Validation ladder for E5.  Each row is a component check of the
+implementation; together they establish that the energy, the coordinate
+transform, its Jacobian, and the chord cancellation are correct to the stated
+accuracy.  They do not address the finite-step modifications listed in
+Appendix~\ref{app:paired}.}
+\label{tab:e5-validation}
+\end{table}
+
+\subsection{Results}
+\label{app:e5-results}
+
+Table~\ref{tab:e5-terminal} reports terminal metrics over sixteen seeds, and the
+picture is the same one the four synthetic systems draw, now on a real force
+field.  The slow event is reaching and correctly weighting the sparse
+positive-$\phi$ island C7ax, whose reference mass is only
+$\widehat p^\star_{\rm C7ax}=0.0083$.  Raw \textsc{cp}, which applies the jumps
+with no score correction, is badly biased there: it converges to its own
+stationary law and over-populates the island by more than forty-fold
+($\widehat p_{\rm C7ax}=0.39$), the largest basin error in the table.  The
+L\'evy-score correction removes exactly this bias: \textsc{lsc-cp-ma} recovers
+$\widehat p_{\rm C7ax}=0.0096$ against the target $0.0083$, a basin
+Kullback--Leibler of $1.1\times10^{-3}$, matching the gold-standard nonlocal
+method \textsc{pt} ($0.0088$, $6.5\times10^{-4}$) and improving on it in
+sampling efficiency: \textsc{lsc-cp-ma} attains the highest worst-basin
+effective sample size in the run, $1586$ against \textsc{pt}'s $1010$.
+
+The purely local integrators tell the complementary half of the story.
+\textsc{ula}, \textsc{mala} and \textsc{baoab} equilibrate the two dominant
+negative-$\phi$ basins (which are separated by a crossable $\sim2.4\,k_{\rm B}T$
+barrier) and so post small basin total variations, but they essentially never
+reach the island across the horizon ($\widehat p_{\rm C7ax}\le4\times10^{-4}$,
+and a worst-basin ESS of $0$ for \textsc{baoab}): their low aggregate error is
+carried entirely by the $99\%$ of mass in the two easy basins.  \textsc{fla},
+whose invariant law is not $\pi$, over-weights the positive-$\phi$ region
+($\widehat p_{\rm C7ax}=0.26$) and is recorded but not a $\pi$-targeting
+comparator.  The free-energy-surface RMSE is a weak discriminator here
+($1.2$--$1.4\,k_{\rm B}T$ for every $\pi$-targeting method, dominated by the
+sharp basin walls rather than the rare-island mass); the basin occupancy and its
+KL are what separate the methods.  The exact deterministic-quadrature arm is not
+deployed in this table; its offline cross-validation against \textsc{lsc-cp-ma}
+is reported in Appendix~\ref{app:e5-xval}.
+
+\begin{table}[!ht]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llllll}
+\toprule
+Method & $\mathrm{TV}_{\rm basin}$ & $\KL(p^\star\Vert\widetilde p)$
+ & $\mathrm{RMSE}_{F}/k_{\rm B}T$ & $\widehat p_{\rm C7ax}$ & $W_2$\\
+\midrule
+\textsc{ula}       & $0.0258$ ($0.013$) & $0.0133$ ($0.0047$) & $1.35$ ($0.039$) & $0.0004$ & $0.121$ ($0.02$)\\
+\textsc{mala}      & $0.0177$ ($0.011$) & $0.0146$ ($0.0033$) & $1.36$ ($0.031$) & $0.0002$ & $0.120$ ($0.016$)\\
+\textsc{fla}       & $0.250$ ($0.014$) & $0.261$ ($0.018$) & $1.59$ ($0.024$) & $0.2584$ & $1.32$ ($0.042$)\\
+\textsc{baoab}     & $0.0178$ ($0.0084$) & $0.0161$ ($5.3\times10^{-4}$) & $1.37$ ($0.018$) & $0.0000$ & $0.116$ ($0.013$)\\
+\textsc{pt}        & $0.0117$ ($0.0079$) & $6.5\times10^{-4}$ ($5.5\times10^{-4}$) & $1.23$ ($0.048$) & $0.0088$ & $0.153$ ($0.034$)\\
+raw \textsc{cp}    & $0.378$ ($0.012$) & $0.446$ ($0.020$) & $1.72$ ($0.038$) & $0.3866$ & $1.62$ ($0.033$)\\
+\textsc{lsc-cp-ma} & $0.0136$ ($0.010$) & $1.08\times10^{-3}$ ($9.9\times10^{-4}$) & $1.22$ ($0.046$) & $0.0096$ & $0.176$ ($0.041$)\\
+\bottomrule
+\end{tabular}
+\caption{Terminal E5 metrics at $t=T$, mean (std) over seeds, against the
+reweighted metadynamics reference.  $\mathrm{TV}_{\rm basin}$ and $\KL$ use the
+three barrier-merged basins C5/$\beta$, C7eq, C7ax;
+$\mathrm{RMSE}_F$ is the additive-aligned free-energy-surface RMSE on the
+$(\phi,\psi)$ grid in the reporting windows of
+Appendix~\ref{app:e5-bat}; $\widehat p_{\rm C7ax}$ is the recovered mass of the
+positive-$\phi$ island; $W_2$ is the sliced Wasserstein-2 distance in whitened
+internal coordinates.  Metric definitions in Appendix~\ref{app:metrics}.}
+\label{tab:e5-terminal}
+\end{table}
+
+\subsection{Limitations}
+\label{app:e5-limitations}
+
+Three limitations are specific to E5 and are stated before any numbers are
+read.
+
+\emph{The reference is an experimental input, not ground truth.}  Unlike the
+double well, MoG40 and M\"uller--Brown, whose references are grid or exact
+draws, the E5 reference is a finite metadynamics simulation.  The frozen-bias
+identity \eqref{eq:e5-reweight} makes reweighting unbiased for any static bias,
+so incomplete metadynamics convergence inflates the \emph{variance} of the
+reference rather than displacing it; but the reference remains
+convergence-limited, and, as with the $\phi^4$ importance reference of
+Appendix~\ref{app:references}, differences below its own uncertainty are
+reference sensitive.
+
+\emph{The island mass is the least precisely known quantity in the
+experiment.}  C7ax carries under $1\%$ of the target probability, so its
+reference mass is estimated from the smallest sub-population of the reweighted
+pool.  Its uncertainty must be quoted with it, and comparisons of
+$\widehat p_{\rm C7ax}$ across methods should be read against that uncertainty
+and not against the point value alone.
+
+\emph{Scope.}  E5 is a single molecule, in vacuum, at one temperature, with a
+bank built from three known basins of a two-dimensional collective-variable
+description.  It demonstrates that the construction survives contact with a
+real force field once the coordinates are chosen so that a conformational
+transition is an affine displacement.  It is not a molecular benchmark, it
+makes no claim about solvated systems, larger peptides, or unknown basin
+structure, and, as everywhere in this note, its passage statistics would be
+algorithmic mixing diagnostics rather than physical kinetics.
+
 \end{document}

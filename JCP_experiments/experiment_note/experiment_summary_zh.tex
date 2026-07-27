@@ -1608,4 +1608,555 @@ ESS，并明确计入 PT 的全部温度副本成本。 \\
 LSC-CP 是一种有前景的稳定化非局部平衡采样方法；其有限步偏差、跳跃几何贡献和
 真实分子体系适用性仍需进一步消融与验证。
 
+\appendix
+
+\section{附录：丙氨酸二肽（E5）——真实力场上的 LSC-CP 演示}
+
+本附录记录第五个实验 E5。它是补充材料，不属于正文的主实验：正文的四个体系
+（双阱、MoG40、MB 10D、耦合 $\phi^4$）仍然是本文的主要证据，E5 只用来回答一个
+单独的问题——当势能不再是解析构造的玩具曲面，而是一个真实分子力场时，
+LSC-CP 的跳跃设计和 score 校正是否还能被完整地构造出来并通过全部数值检验。
+本附录按“体系 $\to$ 难点 $\to$ 为什么必须换坐标 $\to$ 坐标构造 $\to$ 参考 $\to$
+跳跃设计 $\to$ 估计器与证书 $\to$ 配置与验证 $\to$ 结果 $\to$ 局限”的顺序展开，
+面向没有分子模拟背景的读者，所有专有名词在首次出现时给出定义。
+
+\subsection{体系与采样目标}
+
+\paragraph{分子。}
+体系是\textbf{丙氨酸二肽}（alanine dipeptide，化学式记号 Ac-Ala-NHMe）。
+它是一段极短的\textbf{肽}：肽就是若干氨基酸残基通过肽键连成的链，这里中间只有
+一个丙氨酸残基，两端各用一个化学基团封端（乙酰基 ACE 与 N-甲酰胺 NME），
+总共 22 个原子。体系置于\textbf{真空}中，即不包含溶剂分子，因此没有周期性边界，
+非键相互作用不做截断（NoCutoff）。
+
+构型由 22 个原子的笛卡尔坐标给出，因此完整位形空间维数为
+\begin{equation}
+ D=3N=3\times22=66 .
+\end{equation}
+分子由 \texttt{openmmtools.testsystems.AlanineDipeptideVacuum(constraints=None)}
+构造，其中 \texttt{constraints=None} 表示\textbf{完全柔性}：所有化学键都被建模为
+弹簧，没有任何被刚性约束固定的自由度。这一点很重要，因为它使势能成为全部 66 个
+笛卡尔坐标的光滑函数，无需处理约束流形上的测度。
+
+\paragraph{力场。}
+\textbf{力场}（force field）是一个经验解析式，它把一组原子坐标映射为一个势能数值，
+参数由量子化学计算和实验数据拟合得到。它不是本文其他体系那样人为设计的测试函数，
+而是分子模拟中实际使用的能量模型。E5 是本实验套件中第一个势能来自真实力场而非
+解析玩具曲面的例子。本体系的力场包含 21 个谐振键、36 个谐振键角、52 个周期性
+二面角项，以及一个带 98 个“例外对”（exception）的非键项。采用 AMBER 约定，
+OpenMM 单位制（能量 kJ/mol，长度 nm，电荷 $e$，角度 rad）下各项为
+\begin{align}
+ U_{\rm bond}&=\tfrac12 k\,(r-r_0)^2, &
+ U_{\rm angle}&=\tfrac12 k\,(\theta-\theta_0)^2,\\
+ U_{\rm tors}&=k\left[1+\cos(n\varphi-\delta)\right], &
+ U_{\rm nb}&=\frac{k_e q_iq_j}{r}
+ +4\epsilon_{ij}\left[\left(\frac{\sigma_{ij}}{r}\right)^{12}
+ -\left(\frac{\sigma_{ij}}{r}\right)^{6}\right],
+\end{align}
+其中键项作用于成键原子对，键角项作用于相邻的三原子，二面角项是关于扭转角
+$\varphi$ 的周期函数，非键项对每一对\emph{非例外}的原子 $i<j$ 求和。
+Lennard--Jones 参数用 Lorentz--Berthelot 组合规则
+$\sigma_{ij}=(\sigma_i+\sigma_j)/2$、$\epsilon_{ij}=\sqrt{\epsilon_i\epsilon_j}$。
+98 个例外对替换了成键近邻的相互作用：1--2 与 1--3 对被完全排除
+（$q_iq_j=\epsilon_{ij}=0$），1--4 对使用缩放后的参数。静电常数
+$k_e=\texttt{ONE\_4PI\_EPS0}=138.93545764438$ kJ$\cdot$nm/(mol$\cdot e^2$)
+是从 OpenMM 探测得到的，而非硬编码。
+
+\paragraph{温度与目标分布。}
+温度取 $T=300$ K。$k_{\rm B}T$ 是热能标度：势垒高度只有以 $k_{\rm B}T$ 为单位才
+有采样意义，因为跨越高度为 $\Delta U$ 的势垒的平衡概率比含有因子
+$e^{-\Delta U/k_{\rm B}T}$。由摩尔气体常数导出
+\begin{equation}
+ \beta=\frac{1}{k_{\rm B}T}=0.40091\ \text{mol/kJ},
+ \qquad k_{\rm B}T=2.4943\ \text{kJ/mol}.
+\end{equation}
+套件全局的 \texttt{config.BETA} $=8$ 保持不动；E5 与 E3 传递 $\beta=24$ 的方式
+完全一致，通过 \texttt{RunConfig} 传入自己的 $\beta$。采样目标是 66 维笛卡尔空间上的
+Boltzmann 测度
+\begin{equation}
+ \mu(\dd x)\propto\exp\!\left[-\beta U(x)\right]\dd x .
+\end{equation}
+没有任何粗粒化：$U$ 就是完整力场。
+
+\paragraph{集体变量 $\varphi$ 与 $\psi$。}
+\textbf{二面角}（dihedral / torsion angle）定义在四个依次成键的原子 $p_1$--$p_2$--$p_3$--$p_4$
+上，它度量绕中间键 $p_2$--$p_3$ 的旋转：取包含 $p_1,p_2,p_3$ 的平面与包含
+$p_2,p_3,p_4$ 的平面，两平面的夹角即为该二面角。主链的两个二面角为
+\begin{equation}
+ \varphi=\mathrm{dihedral}(\text{ACE:C},\text{ALA:N},\text{ALA:CA},\text{ALA:C}),
+ \qquad
+ \psi=\mathrm{dihedral}(\text{ALA:N},\text{ALA:CA},\text{ALA:C},\text{NME:N}),
+\end{equation}
+对应原子指标分别为 $(4,6,8,14)$ 与 $(6,8,14,16)$。这两组指标是按残基名/原子名
+识别的，并已验证与 \texttt{mdtraj} 的 \texttt{compute\_phi}/\texttt{compute\_psi}
+返回的指标集完全相同，数值一致到 $<10^{-6}$ rad。
+
+$(\varphi,\psi)$ 各自以 $2\pi$ 为周期，因此它们生活在一个\textbf{环面}（torus）上。
+以 $(\varphi,\psi)$ 为坐标画出的自由能图称为 \textbf{Ramachandran 图}，
+是描述肽主链构象的标准方式。物理上，转动 $\varphi$ 或 $\psi$ 相当于把一整块刚性
+分子片段绕主链某根键旋转；而键长与键角很“硬”（力常数大，围绕固定值快速振动）。
+因此二面角是这个体系里\emph{软而慢}的坐标，也正是有采样意义的坐标。
+在本套件的术语中，$(\varphi,\psi)$ 是用于平衡分析的\textbf{集体变量}
+（collective variable），不是经过 committor 验证的物理反应坐标。
+
+\subsection{为什么这是一个困难而有意义的测试}
+
+\textbf{亚稳态}（metastable state）指自由能面上的一个盆地：系统进入后会在其中停留
+很长时间，只有偶然获得足够涨落才能翻越势垒离开。\textbf{自由能面}
+（free-energy surface，FES）是把完整分布投影到集体变量上得到的边缘密度取负对数，
+$F(\varphi,\psi)=-\beta^{-1}\log p(\varphi,\psi)+C$，与正文第 5 节的定义一致。
+
+$F(\varphi,\psi)$ 有三个亚稳态。其中两个位于 $\varphi<0$ 一侧，合计承载约 $99\%$ 的
+概率质量；第三个称为 C7ax，位于 $\varphi>0$ 一侧，承载不到 $1\%$。到达 C7ax 是
+慢事件：它的逃逸势垒约为 $4.8\,k_{\rm B}T$（即 $12.0$ kJ/mol）。这正是本套件关心的情形——一个质量极小、
+被势垒隔开的“岛屿”，局部方法在有限时域内几乎不可能正确恢复其占比。
+
+\paragraph{一个并不显然但很重要的事实。}
+从 $\varphi<0$ 的两个盆地到 $\varphi>0$ 的岛屿，最便宜的路径\emph{不经过} $\varphi=0$。
+$\varphi=0$ 这条分界线的代价是 $32.5$ kJ/mol，而岛屿自身的逃逸势垒只有
+$12.0$ kJ/mol，其鞍点位于 $\varphi\approx\pm180^\circ$ 附近。也就是说，真正的通道
+绕过环面的“背面”。本实验的跳跃原子使用环面最短位移，因而\emph{自动}走了这条更
+便宜的路径；如果按欧氏直觉在 $(\varphi,\psi)$ 平面上取直线差值，就会撞上贵得多的
+$\varphi=0$ 屏障。
+
+\subsection{为什么笛卡尔空间中的直线跳跃必然失败}
+
+先给出结论：在 66 维笛卡尔坐标中，任何“把构型沿一个固定向量平移”的跳跃原子都
+无法用于本体系。原因是几何性的，可以严格推导。
+
+盆地之间的转变在几何上是一块分子片段绕某根主链轴\emph{旋转}角度 $\Delta$。
+设该片段中某原子到旋转轴的垂直距离为 $\rho$，则真实转变过程中它沿一段圆\emph{弧}
+运动。而笛卡尔直线跳跃 $x\mapsto x+r$ 让它沿该弧的\emph{弦}运动。把弦参数化为
+$\theta\in[0,1]$，在旋转平面内用复数表示，弦上一点到轴的距离为
+\begin{equation}
+ \rho_\theta=\rho\left|(1-\theta)+\theta\,e^{\mathrm{i}\Delta}\right|
+ =\rho\sqrt{(1-\theta)^2+\theta^2+2\theta(1-\theta)\cos\Delta}.
+\end{equation}
+对 $\theta$ 求极小，得到极小点 $\theta=1/2$ 与极小值
+\begin{equation}
+ \min_\theta\rho_\theta=\rho\cos\!\left(\frac{\Delta}{2}\right),
+ \qquad\text{径向亏损}\quad
+ \rho\left[1-\cos\!\left(\frac{\Delta}{2}\right)\right]=O(\Delta^2).
+\end{equation}
+对于 $\Delta\approx140^\circ$，$1-\cos70^\circ\approx0.66$：弦的中点被压缩了约
+$0.66\rho$。跨越旋转边界的那些刚硬的键与键角必须吸收这一压缩，于是弦被推高到
+比盆地高出数百 $k_{\rm B}T$ 的能量上，Lévy-score 的被积函数
+\begin{equation}
+ \exp\!\left\{-\beta\left[U(x-\theta r)-U(x)\right]\right\}
+\end{equation}
+在整段弦上饱和 $M_{\max}=600$ 的 taming cap，score 退化为无信息量的截断值。
+这就是结构性障碍，也是 E5 必须在\emph{内坐标}中运行的原因。同时，$O(\Delta^2)$ 的
+标度也指出了出路：只要跳跃直接作用在\emph{角度}上，弦与弧就重合，亏损为零。
+
+\subsection{内坐标（BAT）}
+
+\paragraph{构造。}
+BAT 即 Bond/Angle/Torsion（键长/键角/二面角），也就是化学中的 \textbf{Z-matrix}：
+不再给每个原子 3 个笛卡尔数，而是让第四个及以后的每个原子相对于三个\emph{已放置}
+的原子，用一组 $(b,a,\tau)$ 定位——$b$ 是到参考原子的键长，$a$ 是与前两个参考原子
+构成的键角，$\tau$ 是绕参考键的二面角。由这些内坐标重建笛卡尔坐标使用
+NeRF（Natural Extension Reference Frame）递推。
+
+三个根原子固定 6 个外部自由度（3 个平动 $+$ 3 个转动），势能与之无关。因此内坐标
+维数为
+\begin{equation}
+ d=3N-6=60=\underbrace{21}_{\text{键长}}+\underbrace{20}_{\text{键角}}
+ +\underbrace{19}_{\text{二面角}} .
+\end{equation}
+根原子取 $(\text{ACE:C}=4,\ \text{ALA:N}=6,\ \text{ALA:CA}=8)$，并强制前两个非根原子
+为 $\text{ALA:C}=14$ 与 $\text{NME:N}=16$，使得它们的二面角\emph{就是} $\varphi$ 与
+$\psi$：
+\begin{equation}
+ \varphi=q[5],\qquad \psi=q[8].
+\end{equation}
+
+\paragraph{Jacobian。}
+\textbf{Jacobian}（雅可比行列式）是换元时体积元的伸缩因子。用 $(b,a,\tau)$ 放置一个
+原子恰好是以参考原子为中心的球坐标，其笛卡尔体积元为 $b^2\sin a\,\dd b\,\dd a\,\dd\tau$。
+逐原子复合得到
+\begin{equation}
+ \log\left|\det\frac{\partial x_{\rm free}}{\partial q}\right|
+ =\ln r_{23}+\sum_{\text{非根原子}}\left[2\ln b+\ln\sin a\right].
+\end{equation}
+其中 $\ln r_{23}$ 是第三个根原子带来的坐标架边界项（二维极坐标体积元：只有一次
+键长、没有正弦因子）。该解析式已与 $60\times60$ 数值 Jacobian 的对数行列式核对，
+误差 $1.4\times10^{-14}$。
+
+\textbf{关键性质：没有任何一项包含二面角。}球坐标体积元中方位角只通过 $\dd\tau$
+出现，从不作为乘性权重。实测 $\log|J|$ 对二面角的最大导数\emph{精确为} $0.0$。
+
+内坐标下的目标分布为 $\mu_q\propto\exp[-\beta U_{\rm eff}(q)]$，其中
+\begin{equation}
+ U_{\rm eff}(q)=U\!\left(x(q)\right)-\frac1\beta\log|J|(q).
+\end{equation}
+映射 $q\mapsto x$ 把 $\mu_q$ 前推为笛卡尔 Boltzmann 测度，即\emph{同一个目标}，
+也正是 metadynamics 参考所采样的那个测度。需要明确：这是一个\emph{采样}构造，
+不是弯曲空间上的动力学——使用恒等度规的 Langevin 作用在 $U_{\rm eff}$ 上，
+没有位置依赖的质量度规，也没有 Fixman 项。由于研究对象是不变分布，这样做是正确
+且最简单的，并且对所有方法一视同仁地施加。
+
+\paragraph{无 Jacobian 的弦（Jacobian-free chord）。}
+若位移 $r$ 只在二面角分量上非零，则沿弦 $q-\theta r$ 的所有键长与键角都不变，
+$\log|J|$ 是常数并在 score 被积函数中\emph{相消}：
+\begin{equation}
+ U_{\rm eff}(q-\theta r)-U_{\rm eff}(q)
+ =U\!\left(x(q-\theta r)\right)-U\!\left(x(q)\right).
+\end{equation}
+于是 Lévy score 只需要沿弦的\emph{物理}能量差——这恰好是一个黑箱力场所能提供的
+唯一信息。实测残差 $4.6\times10^{-13}$（机器零）。
+
+\paragraph{一个必须修正的坐标细节：leader/offset 二面角。}
+共享同一个键父原子与角父原子的若干原子，绕的是\emph{同一根轴}。如果每个都携带
+绝对二面角，那么移动其中一个而固定其兄弟，就不是旋转整块片段，而是\emph{扭曲}局部
+几何：改变 $\varphi$ 会带着 ALA:C 及其子树转动，却把 HA 与 CB 留在原地，破坏 CA
+中心的四面体构型。这种参数化下实测 $\varphi$ 的曲率为 $822$ kJ/mol/rad$^2$，
+而真实软转动约为 $80$——正是笛卡尔弦病态在内坐标里的复现。修正方式：绕每根轴
+放置的第一个原子为 \textbf{leader}，携带真正的二面角；其兄弟携带相对 leader 的
+\textbf{offset}（刚硬、近似常数）。共 8 个 leader 与 11 个 offset 二面角。
+该重参数化在二面角块上是单位三角的，因此 $\log|J|$ \emph{不变}。
+
+\paragraph{白化（whitening）。}
+键长与键角模式很硬（力常数从数百到数十万），若直接在原始 $q$ 中用单一步长，
+则步长会被最快的模式绑架。为此把一个\emph{固定对角}白化吸收进坐标，做法与 E3/E4
+吸收其嵌入矩阵完全相同：采样器坐标为 $\tilde q=D^{-1}q$，采样器看到的势能是
+$V(\tilde q)=U_{\rm eff}(D\tilde q)$。$\tilde q$ 中的各向同性 Langevin 等价于 $q$ 中
+的预条件 Langevin，且由于 $D$ 是常数线性换元，目标分布不变。取
+\begin{equation}
+ D_{ii}=1\ \ (\varphi,\psi\ \text{两个分量}),\qquad
+ D_{ii}=\min\!\left\{1,\ \sqrt{\frac{1}{\beta H_{ii}}}\right\}\ \ (\text{其余分量}),
+\end{equation}
+其中 $H$ 是 $U_{\rm eff}$ 的 Hessian 对角元。让 $\varphi,\psi$ 保持 $D=1$ 是刻意的：
+它们因此仍是仿射的、单位尺度的坐标，一个跳跃原子可以直接读作一次转动。
+关于 Hessian 的来源：给定的构象\emph{不是}稳定点（梯度范数约 $105$，且几乎全部集中
+在 $\varphi$ 上），这会把原始曲率虚高约 $7$ 倍，因此代码先下降到盆地极小点再在
+那里取 Hessian。实测 $D$：键长 $0.0023$--$0.0030$，键角 $0.032$--$0.071$。
+结果是 $\Delta t=10^{-3}$ 相当宽裕：最大白化曲率约 $80$，对应 $\Delta t\,H=0.08$。
+
+\paragraph{数值盒 TorusBox。}
+二面角分量执行\textbf{回卷}（wrap）到 $(-\pi,\pi]$ 而不是截断：$U_{\rm eff}$ 对每个
+二面角以 $2\pi$ 为周期，回卷是精确的。回卷在\emph{物理}单位下进行，因为在白化单位
+下一个二面角的周期是 $2\pi/D$，而只有 $\varphi,\psi$ 满足 $D=1$。包含性检验把
+二面角一律报告为“在盒内”，因此普通回卷不会被误计为边界截断。
+键长与键角\emph{确实}带边界，且这个边界是物理的而非单纯的溢出保护：Jacobian 中
+含有 $\ln b$ 与 $\ln\sin a$，所以盒必须保证 $b>0$ 且 $a\in(0,\pi)$。取
+\begin{equation}
+ b\in[0.3,\,3]\times b_{\rm ref},\qquad a\in[0.10,\ \pi-0.10]\ \text{rad}.
+\end{equation}
+它们距离热涨落宽度有许多个 $\sigma$，正常采样中从不触发。
+
+\paragraph{报告窗口与接缝。}
+$\varphi$ 按标准区间 $(-180^\circ,180^\circ]$ 报告：参考质量中只有 $0.47\%$ 落在
+其接缝的 $0.15$ rad 之内。$\psi$ 则\emph{不能}这样报告：C5/$\beta$ 区确实跨越
+$\psi=\pm180^\circ$，在那里承载 $8.2\%$ 的质量，欧氏 $W_2$/MMD/FES 会把
+$\psi=+179^\circ$ 与 $\psi=-179^\circ$ 判为最远。因此 $\psi$ 使用一个经过\emph{搜索}
+的分支切割：切口取在密度最低的角度 $\psi=-20^\circ$（该处 $0.15$ rad 内的实测质量
+为 $1.7\times10^{-4}$），给出窗口 $(-20^\circ,340^\circ]$。这只是 E5 内部的\emph{基本域}
+选择，共享的 metrics 代码未做任何修改，欧氏距离仍然有效；盆地标签则独立地使用
+环面度量。必须说明的\textbf{注意事项}：因此 E5 的 Ramachandran 图不是常规的
+$(-180^\circ,180^\circ]$ 图——$\alpha_R$/C7ax 会出现在 $\psi\approx+290^\circ$ 附近；
+$\psi$ 的\emph{时间序列}也会在切口处出现一次表观跳变。系综指标与盆地标签不受影响。
+
+\subsection{参考分布（ground truth）}
+
+\paragraph{well-tempered metadynamics。}
+\textbf{Metadynamics}（元动力学）是一种增强采样方法：在模拟进行的同时，
+按当前的集体变量取值不断沉积一个个高斯“小山丘”，把它们累加成一个偏置势
+$V_{\rm bias}$。这些山丘逐渐\emph{填平}自由能井，使体系可以离开亚稳态。
+\textbf{well-tempered}（良温）指山丘高度随沉积次数衰减，从而使偏置势收敛而不发散。
+本文的设置为：两个 \texttt{CustomTorsionForce} 定义的集体变量 $(\varphi,\psi)$；
+\texttt{LangevinMiddle} 积分器，$T=300$ K，$\dd t=2$ fs；偏置因子 $\gamma=8$；
+初始山丘高度 $1.2$ kJ/mol；山丘宽度 $0.35$ rad；$100\times100$ 网格；每 1000 步
+沉积一次。
+
+采用两阶段协议：(1) 平衡阶段让偏置不断生长；(2) 随后\emph{冻结}偏置，用静态偏置做
+生产采样。每一帧再重新加权回无偏 Boltzmann 测度，权重为
+\begin{equation}
+ w(s)=\exp\!\left[+\beta V_{\rm bias}(s)\right]
+ =\exp\!\left[-\beta\,\frac{\gamma-1}{\gamma}F(s)\right].
+\end{equation}
+由于 OpenMM 精确地返回 $F=-\frac{\gamma}{\gamma-1}V_{\rm bias}$，这个权重\emph{就是}
+所施加的偏置本身，因此对\emph{任何}静态偏置该重加权都是无偏的：metadynamics
+是否收敛控制的是参考的\emph{方差}，而不是它的偏差。重加权后的帧被映射到白化内坐标，
+构成参考构象池；$W_2$/MMD 等要求无权样本的指标则使用 SIR
+（sampling-importance-resampling）抽取。
+
+\paragraph{两个静默陷阱。}
+两者都已加上 fail-closed 的保护，作为实践教训值得写出：
+\begin{enumerate}
+ \item OpenMM 在分配 metadynamics 网格时把两个变量的顺序\emph{反了}，因此
+ \texttt{getFreeEnergy()} 的索引是 $[\psi,\varphi]$。当两个方向的网格宽度相等时，
+ 这个转置在形状上\emph{完全不可见}，只会把整个自由能面关于原点做镜像。现在加入了
+ 一个 fail-closed 的取向检验：把经验的集体变量直方图分别与 $\exp(-\beta F/\gamma)$
+ 和其转置版本做相关，取向不匹配则直接报错。
+ \item $1$ ns $=10^{6}$ fs。早期版本把“每纳秒步数”写成 $1000/\dd t_{\rm fs}$，
+ 于是静默地少跑了 $1000$ 倍。
+\end{enumerate}
+
+\paragraph{盆地定义：一个真正的方法论要点。}
+数值估计出的自由能面上的一个局部极小\emph{并不}自动是一个亚稳态。原始的极小点搜索
+返回了\textbf{五}个候选，但其中两个的逃逸势垒分别约为 $0.00$ 与 $0.19\,k_{\rm B}T$
+（其中一个位于 $\varphi=+178^\circ$，实际上是 $\beta$/C5 区跨越 $\varphi$ 接缝后的
+一个肩部）。保留它们会让盆地占比失去意义——两个之间没有势垒的极小点，其 Voronoi
+边界是任意的——而且实际上确实污染了两项独立诊断：盆地自由能变得随收敛过程噪声
+起伏，同时“正 $\varphi$ 岛屿占比”这一统计量把普通的 $\beta$ 区构型也计入，
+以至于连纯 ULA 看上去都“跨过了势垒”。把任何一对分离势垒低于 $1\,k_{\rm B}T$ 的
+极小点合并，即恢复经典的\textbf{三态}图像。这个 $1\,k_{\rm B}T$ 判据不是调出来的：
+阈值在 $0.05$ 到 $2.0\,k_{\rm B}T$ 之间（$40$ 倍的平台）划分完全不变，
+只有到 $2.4\,k_{\rm B}T$ 才改变，而那正对应 C7eq 与 C5/$\beta$ 之间真实的
+$2.53\,k_{\rm B}T$ 分离。
+
+\subsection{跳跃如何选择}
+
+这是本附录最需要展开的部分。跳跃原子的构造分五步。
+
+\paragraph{1. 候选集。}
+对每一对\emph{有序}盆地 $(i,j)$，取环面最短位移
+\begin{equation}
+ (\Delta\varphi,\Delta\psi)=\mathrm{wrap}\!\left(m_j-m_i\right),
+\end{equation}
+其中 $m_i$ 为盆地 $i$ 的极小点。三个盆地给出 $3\times2=6$ 个候选，
+且正/负两个方向的配对\emph{按构造}成对出现（同伦意义上的两个方向都在）。
+使用环面最短位移而非平面差值，正是第 A.2 小节所述“便宜通道绕过
+$\varphi=\pm180^\circ$”这一事实被自动利用的地方。
+
+\paragraph{2. 纯二面角。}
+每个原子是 60 维白化内坐标空间中的一个向量，它\emph{只}在 $\varphi$ 与 $\psi$
+两个分量上非零，在其余 58 个分量上\emph{精确为零}（已验证，且在加入壳层抖动之后
+仍然成立）。这正是使弦具有“无 Jacobian”性质的前提。
+
+\paragraph{3. 筛选：禁止弦丢弃规则。}
+对每个候选，从其\emph{源}盆地按参考权重抽取状态，在 Gauss--Legendre 的 $\theta$
+节点上求出真实的 score 指数
+\begin{equation}
+ \beta\left[U(q)-U(q-\theta r)\right].
+\end{equation}
+若某原子在超过 $10^{-3}$ 比例的 (状态, $\theta$) 样本上突破 $M_{\max}=600$ 的
+taming cap——即其弦穿过 Ramachandran 图上的禁区——则将其\emph{丢弃}。
+每个保留和丢弃的原子都会连同其几何位置与原因写入日志。若某对盆地因此失去直连，
+则通过中间盆地中继到达。\textbf{结果：6 个候选全部保留，无一被丢弃，
+最大指数约为 $4$，而 cap 为 $600$。}这本身就是一个发现：迫使 E3 使用中继原子、
+迫使 E4 删除对角跳跃的那种障碍，在内坐标中根本不出现。
+
+\paragraph{4. 壳层与权重。}
+权重取均匀 $1/6$（E3/E4 的教训是按质量比倾斜权重会适得其反）。壳层半宽
+\begin{equation}
+ h=0.1\min_a\|r_a\|=0.1868,
+\end{equation}
+一次抽取为 $r=r_a+\rho\,u_a$，其中 $\rho\sim\mathrm{Unif}(-h,h)$，$u_a=r_a/\|r_a\|$，
+因此抖动仍留在同一个 $(\varphi,\psi)$ 平面内。CP 配对的漂移 cap 取
+$c=2h=0.3736$，与 E3/E4 使用同一规则。
+
+\paragraph{5. 跳跃活在哪个空间。}
+这一点需要明确回答：这些跳跃\emph{不是}笛卡尔原子空间中的位移，也\emph{不是}
+一个二维集体变量空间上的简化模型。它们活在完整的 60 维内坐标空间中，
+只是支撑集被限制在二维 $(\varphi,\psi)$ 子空间上。采样的是完整分子构型，
+能量是重建出的 22 原子几何上的真实力场；$(\varphi,\psi)$ 只是我们\emph{测量}的地方。
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llrrr}
+\toprule
+源盆地 $i$ & 目标盆地 $j$ & $\Delta\varphi$ (deg) & $\Delta\psi$ (deg) & $\|r_a\|$ \\
+\midrule
+C5/$\beta$ & C7eq & $+72.0$ & $-79.2$ & $1.868$ \\
+C5/$\beta$ & C7ax & $-154.8$ & $+136.8$ & $3.606$ \\
+C7eq & C5/$\beta$ & $-72.0$ & $+79.2$ & $1.868$ \\
+C7eq & C7ax & $+133.2$ & $-144.0$ & $3.424$ \\
+C7ax & C5/$\beta$ & $+154.8$ & $-136.8$ & $3.606$ \\
+C7ax & C7eq & $-133.2$ & $+144.0$ & $3.424$ \\
+\bottomrule
+\end{tabular}
+\caption{E5 保留的六个跳跃原子。范数在白化内坐标中计算；由于 $\varphi,\psi$ 的
+$D=1$，它就是 $(\Delta\varphi,\Delta\psi)$ 的弧度欧氏范数。注意 C7ax 与 C5/$\beta$
+之间的原子把 $\varphi$ 移动 $\pm151^\circ$，即穿过 $\varphi=\pm180^\circ$，
+而不是穿过 $\varphi=0$。}
+\end{table}
+
+\subsection{估计器与 \texorpdfstring{$R(\varphi)$}{R(phi)} 证书}
+
+\paragraph{估计器。}
+E5 部署配对多原子估计器 \textsc{lsc-cp-ma}，而把精确臂放在\emph{线下}交叉验证，
+不作为生产方法之一。精确臂用确定性乘积求积积分整个六原子 bank 的 score，每个粒子
+每步需要 $q_\theta\times A\times q_\rho=16\times6\times8=768$ 个弦能量。黑箱力场
+并不禁止这样做——弦恒等式只需要能量——但这 $768$ 个点每一个都要展开成完整的 $22$
+原子重建。在生产系综上实测：精确臂在最有利的分块下为 $1.67$ 秒/步（显存峰值
+$66$ GiB），而分块缩小十六倍也只慢 $16\%$，说明它受算术与访存带宽约束，而非受
+kernel 启动开销约束，因而无法靠调参消除。折合 $40000$ 步约 $18.5$ 小时，而已实现
+测度臂约 $3$ 小时。这个比值不是原理性障碍，却正是 E5 想说明的实际问题：在真实力场
+上，精确 score 负担得起的角色是\emph{校验}，而不是采样器。
+
+在 MA 中，每个粒子每步为每个原子族
+抽取一个 bank $R_a$；score 是该\emph{已实现}有限测度的精确 score，
+跳跃则为 $\sum_aN_aR_a$，$N_a\sim\operatorname{Poisson}(\lambda w_a\Delta t)$。
+score 与 jump 使用同一个已实现测度，因此弦平稳性恒等式逐原子成立。
+具体的逐步流程与正文第 9 节完全相同，此处不再重复。
+
+\paragraph{证书。}
+需要区分两处求积：score 的求积只铺在低维的 $(\theta,\rho,\text{原子})$ 上，
+是可行的（这正是精确臂所做的）；而证书里的 $\mu$-期望活在 $60$ 维状态空间上，
+无法铺网格。因此与 24 维的 E4 一样，
+残差采用\textbf{平移形式}（shifted form），\emph{逐原子}计算，
+所有 $\mu$-期望都用重加权后的 metadynamics 池估计。两点约束是本体系特有的：
+\begin{itemize}
+ \item 测试函数必须在环面上\textbf{周期}：取 $f=\sin(m\varphi+n\psi+c)$；
+ 像 tanh 型 ridge 那样的非周期函数在这里是不允许的。
+ \item 测试函数必须与跳跃方向\textbf{对齐}：高维中随机 ridge 与跳跃方向的重叠约为
+ $1/\sqrt{d}$，因而对跳跃几乎完全不敏感，会给出虚假的“通过”。
+\end{itemize}
+实测残差为
+\begin{equation}
+ R=4.9\times10^{-14}\ \ (\text{宽松的全环面域}),
+ \qquad
+ R=3.6\times10^{-15}\ \ (\text{收紧的单盆地域}).
+\end{equation}
+\textbf{直接形式}（direct form）也一并报告，但\emph{不}作为门禁：它的被积函数
+$p\cdot S$ 恰好在 $p$ 指数小的地方是 $O(1)$，因此在高维中不是 $\mu$-可估的；
+其报告值在全环面域上约为 $8.5\times10^{3}$，在收紧域上约为 $1.4\times10^{1}$。
+
+\paragraph{求积阶数的选取，以及 E5 与 E1--E4 的差别。}
+正文四个体系用\emph{细化}来选 $(q_\theta,q_\rho)$：扫一个网格，取满足证书残差
+$<10^{-6}$ \emph{且}终态指标与最细设置一致的最小设置。E5 没有做这个扫描，而是把
+求积阶数钉在公共默认值 $(q_\theta,q_\rho)=(16,8)$ 上。这里明说两条理由和一条保留，
+而不是让读者从表格里推断。其一，默认设置下的残差约 $5\times10^{-14}$，比门槛低八个
+数量级，第一条判据远未逼近。其二，实际部署的是配对多原子 score，它只消费
+$q_\theta$；$q_\rho$ 刻画的是\emph{连续}壳层律的 $\rho$-求积，根本不是已实现测度
+估计器的参数，因此 E1--E4 所扫的三个轴里有两个在这里并不存在。保留之处在于：细化的
+第二条判据——终态指标相对更细求积已收敛——对 E5 相应地\emph{没有}检验，所报告的求积
+阶数是由证书和估计器结构支持的，而不是由收敛扫描支持的。
+
+\subsection{已实现测度估计器的交叉验证}
+
+精确臂既然不作为生产方法，这个替换就必须用证据来支付，而不能只是断言。以下两项
+检验都在生产配置下进行（$40000$ 步，每个 seed $1000$ 个粒子）。
+
+\paragraph{(A) 逐点无偏性。}
+最锐利的陈述是：把已实现测度 score 对 bank 抽样求期望，应当回到精确 score，即在
+固定 $x$ 处 $\E_{\rm bank}[S_{\rm MA}(x)]\to S_{\rm exact}(x)$。在重加权参考池中取
+$256$ 个状态、每个状态 $4096$ 次 bank 抽样，相对误差中位数为 $2.3\times10^{-4}$，
+$90$ 分位为 $1.6\times10^{-3}$，$\varphi$ 分量相关系数为 $1-4\times10^{-9}$。这一项
+只关乎估计器本身，与动力学无关。
+
+\paragraph{(B) 端到端一致性。}
+逐点无偏不必然在 $40000$ 步的 score--状态反馈之后仍然成立，因此两个臂又都作为完整
+采样器在缩减的两 seed 集合上跑了一遍。相对 $p^\star=(0.5697,0.4220,0.0083)$，精确臂
+给出 $\widehat p=(0.567,0.4195,0.0135)$，已实现测度臂给出
+$\widehat p=(0.5825,0.4065,0.0110)$，即盆地 $L_1$ 误差分别为 $0.0104$ 与 $0.031$，
+两者都没有出现非有限值。两个臂都以同一量级恢复了稀疏岛屿，精确臂更准一些——这正是
+预期方向：已实现测度臂因为没有枚举整个 bank 而付出方差代价。这个差距是替换的诚实
+代价，相对下文不同方法族之间的差异而言很小。
+
+\subsection{配置汇总与验证阶梯}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{3.6cm}L{5.2cm}Y}
+\toprule
+项目 & 取值 & 说明 \\
+\midrule
+笛卡尔维数 $D$ & $66$ & 22 个原子，完全柔性，无约束。 \\
+采样维数 $d$ & $60$ & $3N-6$；21 键长 $+$ 20 键角 $+$ 19 二面角。 \\
+$\beta$ & $0.40091$ mol/kJ & $T=300$ K，$k_{\rm B}T=2.4943$ kJ/mol。 \\
+方法集合 & \textsc{ula}, \textsc{mala}, \textsc{fla}, \textsc{baoab}, \textsc{pt},
+raw \textsc{cp}, \textsc{lsc-cp-ma} & 精确臂改为线下交叉验证，见前一小节。 \\
+粒子数 $N$ & $1000$ & 每个 seed。 \\
+seeds & $16$ & 与 MB/$\phi^4$ 一致。 \\
+$T$、$\Delta t$ & $40$、$10^{-3}$ & 共 $40000$ 步。 \\
+初始分布 & C7eq & 所有方法从同一局域初始分布出发。 \\
+跳跃率 $\lambda$ & $1$ & 与其余四个体系一致。 \\
+原子数 $A$、权重 & $6$、均匀 $1/6$ & 壳层半宽 $h=0.1868$，漂移 cap $c=2h=0.3736$。 \\
+score cap & $M_{\max}=600$ & 与正文相同的 log-magnitude cap。 \\
+指标 & 共享套件指标，未修改 & $\psi$ 的基本域选择只发生在 E5 内部。 \\
+\bottomrule
+\end{tabularx}
+\caption{E5 的采样配置。}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{L{6.2cm}C{3.2cm}Y}
+\toprule
+检验项 & 实测值 & 判据/说明 \\
+\midrule
+torch 力场 vs OpenMM，$1024$ 个构型：能量最大相对误差 &
+$\approx10^{-15}$ & 声明阈值 $10^{-6}$ \\
+同上，力的最大相对误差 &
+$\approx10^{-15}$ & 声明阈值 $10^{-5}$ \\
+解析梯度 vs 中心差分 & $2.4\times10^{-9}$ & 有限差分精度量级 \\
+BAT 往返（$x\to q\to x$） & $2\times10^{-15}$ & 机器精度 \\
+解析 $\log|J|$ vs 数值 log-det & $1.4\times10^{-14}$ & $60\times60$ Jacobian \\
+$\log|J|$ 对二面角的导数 & 精确 $0.0$ & 支撑弦的 Jacobian 相消 \\
+无 Jacobian 弦残差 & $4.6\times10^{-13}$ & 机器零 \\
+筛选中的最大 score 指数 & $\approx4$ & cap 为 $600$；6/6 候选保留 \\
+\bottomrule
+\end{tabularx}
+\caption{E5 的验证阶梯。每一项都是实测值。}
+\end{table}
+
+\subsection{结果}
+
+下表给出 16 个种子上的终态指标，其结论与四个合成体系一致，只是这次发生在真实力场上。
+慢事件是到达并正确加权稀疏的正 $\varphi$ 岛屿 C7ax，其参考质量仅
+$\widehat p^\star_{\rm C7ax}=0.0083$。raw \textsc{cp} 不做 score 修正，在此严重有偏：
+它收敛到自身的不变律，把岛屿质量高估了四十余倍（$\widehat p_{\rm C7ax}=0.39$），
+是表中最大的盆地误差。L\'evy-score 修正恰好消除了这一偏差：\textsc{lsc-cp-ma} 给出
+$\widehat p_{\rm C7ax}=0.0096$（目标 $0.0083$），盆地 KL 为 $1.1\times10^{-3}$，
+与金标准的非局部方法 \textsc{pt}（$0.0088$，$6.5\times10^{-4}$）持平，且采样效率更高：
+\textsc{lsc-cp-ma} 取得全场最高的 worst-basin 有效样本量 $1586$，高于 \textsc{pt} 的
+$1010$。
+
+纯局部积分器讲述了互补的另一半：\textsc{ula}、\textsc{mala}、\textsc{baoab} 能在两个
+主导的负 $\varphi$ 盆地间平衡（二者之间是可翻越的约 $2.4\,k_{\rm B}T$ 势垒），因而盆地
+总变差很小，但在整个时域内几乎从不到达岛屿（$\widehat p_{\rm C7ax}\le4\times10^{-4}$，
+\textsc{baoab} 的 worst-basin ESS 为 $0$）：它们很低的总误差完全来自占 $99\%$ 质量的
+两个易采样盆地。\textsc{fla} 的不变律不是 $\pi$，反而高估正 $\varphi$ 区
+（$\widehat p_{\rm C7ax}=0.26$），仅作非目标对照。自由能面 RMSE 在这里区分度很弱
+（所有 $\pi$-目标方法都在 $1.2$--$1.4\,k_{\rm B}T$，由陡峭的盆地壁而非稀疏岛屿质量主导），
+真正区分方法的是盆地占比及其 KL。精确确定性求积臂不在本表部署，其相对
+\textsc{lsc-cp-ma} 的线下交叉验证见前文相应小节。
+
+\begin{table}[H]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4.2pt}
+\begin{tabular}{lccccc}
+\toprule
+方法 & Basin TV & Basin KL & FES RMSE & 岛屿占比 $\widehat p_{\rm C7ax}$ & Worst-basin ESS \\
+\midrule
+\textsc{ula} & $0.0258$ ($0.013$) & $0.0133$ ($0.0047$) & $1.35$ ($0.039$) & $0.0004$ & $710$\\
+\textsc{mala} & $0.0177$ ($0.011$) & $0.0146$ ($0.0033$) & $1.36$ ($0.031$) & $0.0002$ & $503$\\
+\textsc{fla} & $0.250$ ($0.014$) & $0.261$ ($0.018$) & $1.59$ ($0.024$) & $0.2584$ & ---\\
+\textsc{baoab} & $0.0178$ ($0.0084$) & $0.0161$ ($5.3\times10^{-4}$) & $1.37$ ($0.018$) & $0.0000$ & $0$\\
+\textsc{pt} & $0.0117$ ($0.0079$) & $6.5\times10^{-4}$ ($5.5\times10^{-4}$) & $1.23$ ($0.048$) & $0.0088$ & $1010$\\
+raw \textsc{cp} & $0.378$ ($0.012$) & $0.446$ ($0.020$) & $1.72$ ($0.038$) & $0.3866$ & ---\\
+\textbf{\textsc{lsc-cp-ma}} & $0.0136$ ($0.010$) & $1.08\times10^{-3}$ ($9.9\times10^{-4}$) & $1.22$ ($0.046$) & $0.0096$ & $1586$\\
+\bottomrule
+\end{tabular}
+\caption{E5 终态盆地/自由能面/岛屿指标，格式为均值（标准差）。FES RMSE 以
+$k_{\rm B}T$ 为单位，定义在 $(\varphi,\psi)$ 环面网格上；岛屿占比指 C7ax 盆地的
+质量，参考值本身不确定度较大，见下节。Worst-basin ESS 中 \textsc{fla} 与 raw
+\textsc{cp} 因不以 $\pi$ 为不变律而不进入平稳性诊断，记为 ---。}
+\end{table}
+
+\subsection{局限性}
+
+\begin{enumerate}
+ \item 参考是一个受收敛限制的\emph{实验性}输入，不是解析 ground truth。
+ 静态偏置的重加权恒等式保证了无偏性，但 metadynamics 的收敛程度决定了参考的方差，
+ 因而也决定了所有 floor 判据的宽度。
+ \item 岛屿 C7ax 承载的概率不到 $1\%$，因此它的目标质量是整个实验中\emph{最不精确}
+ 已知的量；报告其占比时必须同时给出不确定度，并避免对小于该不确定度的差异做解读。
+ \item E5 是附录：这是\emph{一个}真实力场演示，不是广泛的分子基准。它只说明
+ LSC-CP 的构造在真实力场上可以完整实现并通过全部数值检验，不说明它在更大分子、
+ 显式溶剂或不同力场上的表现。
+ \item $\psi$ 的基本域选择是 E5 内部的报告约定：由此得到的 Ramachandran 图不是
+ 常规区间的图，$\psi$ 时间序列在切口处存在表观跳变。系综指标与盆地标签不受影响，
+ 但跨文献比较图像时必须说明这一点。
+ \item 与正文四个体系相同的有限步限定在此依然成立：有限 $q_\theta$ 弦积分、
+ score cap、Euler splitting、taming 与盒投影都会改变转移核，因此本附录同样不主张
+ “有限步链精确无偏”。
+\end{enumerate}
+
 \end{document}

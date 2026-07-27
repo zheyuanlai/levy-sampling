@@ -15,7 +15,8 @@ it one, and it is deliberately fail-closed:
     a missing method aborts the merge rather than silently producing a summary
     with a hole in it;
   * no method may appear in two shards (an overlap would double-count seeds);
-  * every shard must have finished with status ``ok``;
+  * every shard must have finished with status ``success`` (a data-complete
+    shard whose trailing non-data cell crashed is salvaged, see below);
   * the shards must agree on git commit, seeds, and per-method protocol, since a
     merged CSV whose rows came from different code or different seed sets is not
     a comparison at all.
@@ -135,7 +136,7 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
             raise FileNotFoundError(f"{rid}: no status.json -- shard unfinished")
         plans[rid] = json.loads(plan_path.read_text(encoding="utf-8"))
         statuses[rid] = json.loads(status_path.read_text(encoding="utf-8"))
-        if statuses[rid].get("status") != "ok":
+        if statuses[rid].get("status") != "success":
             # The merge combines row-level data. A shard whose DATA is complete
             # is usable even if a trailing non-data cell crashed -- e.g. a shard
             # that ran every method's dynamics and wrote every row CSV, then died
@@ -221,7 +222,15 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
     shared_rows: dict[str, list[dict]] = {}
 
     for csv_name in MERGED_CSVS:
-        fieldnames: list[str] | None = None
+        # Column sets legitimately DIFFER between shards: write_summary_csv emits
+        # acceptance columns only when MALA/PT ran and jump columns only when a
+        # CP-family method ran, so each shard's header covers its own method
+        # families. The merge takes the ORDER-PRESERVING UNION of columns and
+        # pads missing cells -- exactly the header a single full run produces --
+        # rather than demanding identical headers. DictWriter fills absent keys
+        # with "" (restval), and every row's keys are a subset of the union, so
+        # no data is dropped.
+        fieldnames: list[str] = []
         rows_out: list[dict] = []
         per_shard: dict[str, int] = {}
         for rid in shard_ids:
@@ -229,12 +238,9 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
             if not path.exists():
                 raise FileNotFoundError(f"{rid}: missing {csv_name}")
             names, rows = _read_csv(path)
-            if fieldnames is None:
-                fieldnames = names
-            elif names != fieldnames:
-                raise ValueError(
-                    f"{csv_name}: shards disagree on columns; "
-                    f"{shard_ids[0]}={fieldnames} vs {rid}={names}")
+            for name in names:
+                if name not in fieldnames:
+                    fieldnames.append(name)
             # a shard's CSV must contain exactly the methods it declared, once
             # the shard-independent blocks are set aside
             shared = [r for r in rows if r.get("method") in SHARED_BLOCKS]
@@ -257,7 +263,7 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
         rows_out.extend(shared_rows.get(csv_name, []))
 
         with (out_dir / csv_name).open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, restval="")
             writer.writeheader()
             writer.writerows(rows_out)
         merged_counts[csv_name] = {
