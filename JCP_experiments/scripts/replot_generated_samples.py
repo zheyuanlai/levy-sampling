@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Regenerate sample figures without rerunning any experiment sampler.
+"""Regenerate manuscript sample/reference comparisons without rerunning samplers.
 
-Method samples are read from ``results/<experiment>/positions.csv`` and written
-to a separate figure set:
+Method samples are read from ``results/<experiment>/positions.csv``:
 
-* E1: one figure per method with a smooth reference density above a rug/strip of
-  that method's saved samples.
-* E2--E4: one scatter figure per method and one standalone smooth reference
-  density figure per experiment.
+* E1: two overlays, respectively comparing the reference and every manuscript
+  method by probability density function (PDF) and cumulative distribution
+  function (CDF).
+* E2--E4: one three-row figure per experiment.  The reference density occupies
+  the middle of the first row; the six manuscript methods occupy a 2-by-3 grid
+  in the second and third rows.
 
 Reference densities are evaluated directly where the saved experiment has a
 tractable target density (E1--E3).  For E4, the script regenerates only the same
@@ -26,11 +27,17 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Matplotlib needs a writable cache in the managed desktop environment.
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/jcp-matplotlib")
+
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 import numpy as np
+from scipy.integrate import cumulative_trapezoid
+from scipy.ndimage import gaussian_filter, gaussian_filter1d
 from scipy.signal import fftconvolve
 from scipy.special import logsumexp
 
@@ -40,20 +47,51 @@ if str(JCP_ROOT) not in sys.path:
     sys.path.insert(0, str(JCP_ROOT))
 
 from src.plotting import (  # noqa: E402
-    METHOD_STYLE,
-    SIMPLE_LABELS,
-    apply_style,
     load_positions_csv,
 )
 
 
 EXPERIMENTS = ("double_well", "mog40", "mb3well_10d", "coupled_phi4")
 
+MANUSCRIPT_METHODS = {
+    "double_well": (
+        "ULA", "BAOAB", "FLA", "PT", "CP", "LSC-CP", "LSC-CP-RA",
+    ),
+    "mog40": (
+        "ULA", "BAOAB", "FLA", "PT", "LSC-CP", "LSC-CP-RA",
+    ),
+    "mb3well_10d": (
+        "ULA", "BAOAB", "FLA", "PT", "LSC-CP", "LSC-CP-MA",
+    ),
+    "coupled_phi4": (
+        "ULA", "BAOAB", "FLA", "PT", "LSC-CP", "LSC-CP-MA",
+    ),
+}
+
+# Same method encodings as replot_manuscript_figures.py.
+METHOD_STYLE = {
+    "ULA": dict(color="#767676", linestyle="-", marker="o"),
+    "BAOAB": dict(color="#42949E", linestyle="--", marker="s"),
+    "FLA": dict(color="#009E73", linestyle=":", marker="^"),
+    "PT": dict(color="#9A4D8E", linestyle="-.", marker="D"),
+    "CP": dict(color="#B64342", linestyle=(0, (5, 2)), marker="X"),
+    "LSC-CP": dict(color="#0F4D92", linestyle="-", marker="*"),
+    "LSC-CP-RA": dict(
+        color="#3775BA", linestyle=(0, (3, 1, 1, 1)), marker="P"
+    ),
+    "LSC-CP-MA": dict(
+        color="#3775BA", linestyle=(0, (3, 1, 1, 1)), marker="P"
+    ),
+}
+
 # Fixed scientific display domains.  These are the declared sampling/basin-map
 # domains, not min/max ranges inferred from the reference draws.  Keeping them
 # fixed exposes leakage and boundary contact instead of cropping them away.
 DOMAINS = {
-    "double_well": ((-5.2, 5.2),),
+    # Manuscript zoom: the relevant well/barrier structure lies in [-2, 2].
+    # Empirical densities are still divided by the full saved sample count, so
+    # mass outside the displayed range is not silently renormalized away.
+    "double_well": ((-2.0, 2.0),),
     "mog40": ((-65.0, 65.0), (-65.0, 65.0)),
     "mb3well_10d": ((-2.0, 1.9), (-1.3, 2.6)),
     # qbar can leave the [-4, 4]^2 basin-map domain.  Use the full numerical
@@ -93,17 +131,50 @@ _ARM_ATOMS = {"mb3well_10d": 4, "coupled_phi4": 8}
 
 
 def _method_label(method: str, experiment: str, manifest: dict) -> str:
+    if method == "BAOAB":
+        return "ULD"
+    if method == "CP":
+        return "Raw-CP"
     A = _ARM_ATOMS.get(experiment)
     if method == "LSC-CP-RA":
         return "LSC-CP-RA (1)" if A else "LSC-CP-RA"
     if method == "LSC-CP-MA":
         return f"LSC-CP-RA ({A})" if A else "LSC-CP-MA"
-    overrides = (manifest.get("plot") or {}).get("label_overrides") or {}
-    return overrides.get(method, SIMPLE_LABELS.get(method, method))
+    return method
 
 
 def _method_color(method: str) -> str:
     return METHOD_STYLE.get(method, {}).get("color", "#444444")
+
+
+def _apply_manuscript_style() -> None:
+    plt.rcParams.update({
+        "figure.dpi": 120,
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans", "sans-serif"],
+        "mathtext.fontset": "dejavusans",
+        "font.size": 12,
+        "axes.labelsize": 13,
+        "axes.titlesize": 13,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "axes.linewidth": 1.8,
+        "axes.spines.right": False,
+        "axes.spines.top": False,
+        "lines.linewidth": 2.2,
+        "legend.frameon": False,
+        "axes.grid": False,
+        "xtick.direction": "out",
+        "ytick.direction": "out",
+        "xtick.major.width": 1.3,
+        "ytick.major.width": 1.3,
+        "pdf.fonttype": 42,
+        "ps.fonttype": 42,
+        "savefig.facecolor": "white",
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.06,
+    })
 
 
 def _normalise_density_1d(x: np.ndarray, density: np.ndarray) -> np.ndarray:
@@ -549,155 +620,380 @@ def _reference_density_2d(
 
 
 def _save_figure(
-    fig: plt.Figure, base: Path, *, overwrite: bool, dpi: int
+    fig: plt.Figure,
+    basename: str,
+    output_root: Path,
+    *,
+    overwrite: bool,
+    dpi: int,
 ) -> list[str]:
-    outputs = [base.with_suffix(".png"), base.with_suffix(".pdf")]
+    outputs = [
+        output_root / "png" / f"{basename}.png",
+        output_root / "pdf" / f"{basename}.pdf",
+    ]
     existing = [path for path in outputs if path.exists()]
     if existing and not overwrite:
         names = ", ".join(str(path) for path in existing)
         raise FileExistsError(f"refusing to overwrite existing figure(s): {names}")
-    base.parent.mkdir(parents=True, exist_ok=True)
+    for path in outputs:
+        path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(outputs[0], dpi=dpi, bbox_inches="tight")
     fig.savefig(outputs[1], bbox_inches="tight")
     plt.close(fig)
     return [_manifest_path(path) for path in outputs]
 
 
-def _plot_e1_method(
-    method: str,
+def _empirical_density_1d(
     samples: np.ndarray,
+    grid: np.ndarray,
+    bandwidth: float = 0.04,
+) -> np.ndarray:
+    dx = float(grid[1] - grid[0])
+    edges = np.concatenate((
+        [grid[0] - 0.5 * dx],
+        0.5 * (grid[:-1] + grid[1:]),
+        [grid[-1] + 0.5 * dx],
+    ))
+    counts, _ = np.histogram(samples[:, 0], bins=edges)
+    smoothed = gaussian_filter1d(
+        counts.astype(float),
+        sigma=max(bandwidth / dx, 0.75),
+        mode="constant",
+    )
+    return smoothed / (samples.shape[0] * dx)
+
+
+def _plot_e1_overlays(
+    positions: dict[str, np.ndarray],
+    methods: tuple[str, ...],
+    manifest: dict,
     reference_x: np.ndarray,
     reference_density: np.ndarray,
-    label: str,
-    output_dir: Path,
+    output_root: Path,
     *,
     overwrite: bool,
     dpi: int,
 ) -> list[str]:
-    apply_style()
-    fig, (ax_density, ax_rug) = plt.subplots(
-        2,
-        1,
-        figsize=(4.8, 3.75),
-        sharex=True,
-        gridspec_kw={"height_ratios": [4.0, 0.8], "hspace": 0.04},
-    )
-    ax_density.plot(
+    _apply_manuscript_style()
+    outputs: list[str] = []
+
+    fig_pdf, ax_pdf = plt.subplots(figsize=(7.4, 4.7))
+    ax_pdf.plot(
         reference_x,
         reference_density,
-        color="#666666",
-        lw=2.1,
+        color="#222222",
+        linestyle="-",
+        linewidth=2.8,
+        label="Reference",
+        zorder=5,
     )
-    ax_density.set_ylabel("density")
-    ax_density.set_ylim(bottom=0.0)
-    ax_density.set_title(label, fontsize=10)
-    ax_density.tick_params(labelbottom=False)
-
-    seed = sum((i + 1) * ord(char) for i, char in enumerate(method))
-    rng = np.random.default_rng(seed)
-    n_display = min(4000, samples.shape[0])
-    display_idx = rng.choice(samples.shape[0], size=n_display, replace=False)
-    displayed = samples[display_idx]
-    jitter = rng.uniform(0.12, 0.88, size=n_display)
-    ax_rug.scatter(
-        displayed[:, 0],
-        jitter,
-        s=1.2,
-        alpha=0.14,
-        linewidths=0,
-        color=_method_color(method),
-        rasterized=True,
+    for method in methods:
+        style = METHOD_STYLE[method]
+        density = _empirical_density_1d(positions[method], reference_x)
+        ax_pdf.plot(
+            reference_x,
+            density,
+            color=style["color"],
+            linestyle=style["linestyle"],
+            marker=style["marker"],
+            markevery=max(1, len(reference_x) // 14),
+            markersize=4.5,
+            markerfacecolor="white",
+            markeredgewidth=0.9,
+            label=_method_label(method, "double_well", manifest),
+        )
+    ax_pdf.set_xlim(*DOMAINS["double_well"][0])
+    ax_pdf.set_ylim(bottom=0.0)
+    ax_pdf.set_xlabel(AXIS_LABELS["double_well"][0])
+    ax_pdf.set_ylabel("Probability density")
+    ax_pdf.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.18),
+        ncol=4,
+        columnspacing=1.2,
+        handlelength=2.4,
     )
-    ax_rug.set_xlim(*DOMAINS["double_well"][0])
-    ax_rug.set_ylim(0.0, 1.0)
-    ax_rug.set_yticks([])
-    ax_rug.set_xlabel(AXIS_LABELS["double_well"][0])
-    ax_rug.grid(False)
-
-    return _save_figure(
-        fig,
-        output_dir / f"double_well_samples_{method}",
+    fig_pdf.tight_layout(rect=(0, 0, 1, 0.88))
+    outputs.extend(_save_figure(
+        fig_pdf,
+        "double_well_generated_pdf",
+        output_root,
         overwrite=overwrite,
         dpi=dpi,
+    ))
+
+    reference_cdf = cumulative_trapezoid(
+        reference_density, reference_x, initial=0.0
     )
+    reference_cdf /= reference_cdf[-1]
+    fig_cdf, ax_cdf = plt.subplots(figsize=(7.4, 4.7))
+    ax_cdf.plot(
+        reference_x,
+        reference_cdf,
+        color="#222222",
+        linestyle="-",
+        linewidth=2.8,
+        label="Reference",
+        zorder=5,
+    )
+    for method in methods:
+        style = METHOD_STYLE[method]
+        values = np.sort(positions[method][:, 0])
+        cdf = np.searchsorted(values, reference_x, side="right") / values.size
+        ax_cdf.plot(
+            reference_x,
+            cdf,
+            color=style["color"],
+            linestyle=style["linestyle"],
+            marker=style["marker"],
+            markevery=max(1, len(reference_x) // 14),
+            markersize=4.5,
+            markerfacecolor="white",
+            markeredgewidth=0.9,
+            label=_method_label(method, "double_well", manifest),
+        )
+    ax_cdf.set_xlim(*DOMAINS["double_well"][0])
+    ax_cdf.set_ylim(-0.015, 1.015)
+    ax_cdf.set_xlabel(AXIS_LABELS["double_well"][0])
+    ax_cdf.set_ylabel("Cumulative probability")
+    ax_cdf.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, 1.18),
+        ncol=4,
+        columnspacing=1.2,
+        handlelength=2.4,
+    )
+    fig_cdf.tight_layout(rect=(0, 0, 1, 0.88))
+    outputs.extend(_save_figure(
+        fig_cdf,
+        "double_well_generated_cdf",
+        output_root,
+        overwrite=overwrite,
+        dpi=dpi,
+    ))
+    return outputs
 
 
-def _plot_2d_samples(
-    experiment: str,
-    method: str,
+def _empirical_density_2d(
     samples: np.ndarray,
-    label: str,
-    output_dir: Path,
-    *,
-    overwrite: bool,
-    dpi: int,
-) -> list[str]:
-    apply_style()
-    fig, ax = plt.subplots(figsize=(4.25, 4.0))
-    ax.scatter(
-        samples[:, 0],
-        samples[:, 1],
-        s=1.5,
-        alpha=0.24,
-        linewidths=0,
-        color=_method_color(method),
-        rasterized=True,
-    )
-    xlim, ylim = DOMAINS[experiment]
-    ax.set_xlim(*xlim)
-    ax.set_ylim(*ylim)
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_xlabel(AXIS_LABELS[experiment][0])
-    ax.set_ylabel(AXIS_LABELS[experiment][1])
-    ax.set_title(label, fontsize=10)
-    ax.grid(False)
-    return _save_figure(
-        fig,
-        output_dir / f"{experiment}_samples_{method}",
-        overwrite=overwrite,
-        dpi=dpi,
-    )
-
-
-def _plot_2d_reference_density(
-    experiment: str,
     x: np.ndarray,
     y: np.ndarray,
-    density: np.ndarray,
-    output_dir: Path,
+    *,
+    smoothing_bins: float = 1.4,
+) -> np.ndarray:
+    dx = float(x[1] - x[0])
+    dy = float(y[1] - y[0])
+    x_edges = np.concatenate((
+        [x[0] - 0.5 * dx],
+        0.5 * (x[:-1] + x[1:]),
+        [x[-1] + 0.5 * dx],
+    ))
+    y_edges = np.concatenate((
+        [y[0] - 0.5 * dy],
+        0.5 * (y[:-1] + y[1:]),
+        [y[-1] + 0.5 * dy],
+    ))
+    counts, _, _ = np.histogram2d(
+        samples[:, 1],
+        samples[:, 0],
+        bins=(y_edges, x_edges),
+    )
+    smoothed = gaussian_filter(
+        counts.astype(float),
+        sigma=smoothing_bins,
+        mode="constant",
+    )
+    # Divide by the full sample count rather than the in-domain count, so any
+    # escaped mass remains visible as missing density instead of being silently
+    # renormalized away.
+    return smoothed / (samples.shape[0] * dx * dy)
+
+
+def _plot_2d_density_grid(
+    experiment: str,
+    positions: dict[str, np.ndarray],
+    methods: tuple[str, ...],
+    manifest: dict,
+    x: np.ndarray,
+    y: np.ndarray,
+    reference_density: np.ndarray,
+    output_root: Path,
     *,
     overwrite: bool,
     dpi: int,
 ) -> list[str]:
-    apply_style()
-    fig, ax = plt.subplots(figsize=(4.55, 4.0))
+    _apply_manuscript_style()
+    method_densities = {
+        method: _empirical_density_2d(positions[method], x, y)
+        for method in methods
+    }
+    positive_blocks = [
+        block[block > 0]
+        for block in [reference_density, *method_densities.values()]
+        if np.any(block > 0)
+    ]
+    if not positive_blocks:
+        raise ValueError(f"{experiment} has no positive density values")
+    all_positive = np.concatenate(positive_blocks)
+    vmax = float(np.quantile(all_positive, 0.997))
+    vmax = max(vmax, float(reference_density.max()) * 0.25)
+    vmin = max(vmax * 1.0e-4, np.finfo(float).tiny)
+    norm = LogNorm(vmin=vmin, vmax=vmax, clip=True)
+
+    fig = plt.figure(figsize=(11.0, 10.1))
+    grid = fig.add_gridspec(
+        3,
+        3,
+        height_ratios=(1.0, 1.0, 1.0),
+        hspace=0.34,
+        wspace=0.24,
+    )
+    reference_ax = fig.add_subplot(grid[0, 1])
+    method_axes = [
+        fig.add_subplot(grid[row, col])
+        for row in (1, 2)
+        for col in range(3)
+    ]
     xx, yy = np.meshgrid(x, y, indexing="xy")
-    mesh = ax.pcolormesh(
+    xlim, ylim = DOMAINS[experiment]
+
+    def draw_panel(ax, density: np.ndarray, title: str) -> None:
+        ax.pcolormesh(
+            xx,
+            yy,
+            np.maximum(density, vmin),
+            cmap="viridis",
+            norm=norm,
+            shading="auto",
+            rasterized=True,
+        )
+        ax.set_xlim(*xlim)
+        ax.set_ylim(*ylim)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel(AXIS_LABELS[experiment][0])
+        ax.set_ylabel(AXIS_LABELS[experiment][1])
+        ax.set_title(title, pad=4)
+        ax.grid(False)
+
+    draw_panel(reference_ax, reference_density, "Reference")
+    for ax, method in zip(method_axes, methods):
+        draw_panel(
+            ax,
+            method_densities[method],
+            _method_label(method, experiment, manifest),
+        )
+
+    # Empty first-row side cells preserve the requested centered reference.
+    for col in (0, 2):
+        empty_ax = fig.add_subplot(grid[0, col])
+        empty_ax.axis("off")
+
+    scalar_mappable = matplotlib.cm.ScalarMappable(norm=norm, cmap="viridis")
+    scalar_mappable.set_array([])
+    colorbar = fig.colorbar(
+        scalar_mappable,
+        ax=[reference_ax, *method_axes],
+        fraction=0.025,
+        pad=0.025,
+        aspect=35,
+    )
+    colorbar.set_label("Probability density")
+    return _save_figure(
+        fig,
+        f"{experiment}_generated_density_grid",
+        output_root,
+        overwrite=overwrite,
+        dpi=dpi,
+    )
+
+
+def _plot_2d_scatter_grid(
+    experiment: str,
+    positions: dict[str, np.ndarray],
+    methods: tuple[str, ...],
+    manifest: dict,
+    x: np.ndarray,
+    y: np.ndarray,
+    reference_density: np.ndarray,
+    output_root: Path,
+    *,
+    overwrite: bool,
+    dpi: int,
+) -> list[str]:
+    """Reference density above a 2-by-3 grid of generated sample points."""
+    _apply_manuscript_style()
+    positive = reference_density[reference_density > 0]
+    if not positive.size:
+        raise ValueError(f"{experiment} reference has no positive density values")
+    vmax = float(reference_density.max())
+    vmin = max(vmax * 1.0e-4, float(positive.min()))
+    norm = LogNorm(vmin=vmin, vmax=vmax, clip=True)
+
+    fig = plt.figure(figsize=(11.0, 10.1))
+    grid = fig.add_gridspec(
+        3,
+        3,
+        height_ratios=(1.0, 1.0, 1.0),
+        hspace=0.34,
+        wspace=0.24,
+    )
+    reference_ax = fig.add_subplot(grid[0, 1])
+    method_axes = [
+        fig.add_subplot(grid[row, col])
+        for row in (1, 2)
+        for col in range(3)
+    ]
+    xx, yy = np.meshgrid(x, y, indexing="xy")
+    mesh = reference_ax.pcolormesh(
         xx,
         yy,
-        density,
+        np.maximum(reference_density, vmin),
         cmap="viridis",
+        norm=norm,
         shading="auto",
         rasterized=True,
     )
-    positive = density[density > 0]
-    if positive.size:
-        levels = np.linspace(float(positive.min()), float(density.max()), 12)[1:-1]
-        if levels.size:
-            ax.contour(xx, yy, density, levels=levels, colors="white", linewidths=0.35)
-    cbar = fig.colorbar(mesh, ax=ax)
-    cbar.set_label("probability density")
     xlim, ylim = DOMAINS[experiment]
-    ax.set_xlim(*xlim)
-    ax.set_ylim(*ylim)
-    ax.set_aspect("equal", adjustable="box")
-    ax.set_xlabel(AXIS_LABELS[experiment][0])
-    ax.set_ylabel(AXIS_LABELS[experiment][1])
-    ax.set_title("Reference", fontsize=10)
-    ax.grid(False)
+
+    def format_panel(ax, title: str) -> None:
+        ax.set_xlim(*xlim)
+        ax.set_ylim(*ylim)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlabel(AXIS_LABELS[experiment][0])
+        ax.set_ylabel(AXIS_LABELS[experiment][1])
+        ax.set_title(title, pad=4)
+        ax.grid(False)
+
+    format_panel(reference_ax, "Reference density")
+    for ax, method in zip(method_axes, methods):
+        samples = positions[method]
+        ax.scatter(
+            samples[:, 0],
+            samples[:, 1],
+            s=2.0,
+            alpha=0.20,
+            linewidths=0,
+            color=_method_color(method),
+            rasterized=True,
+        )
+        format_panel(ax, _method_label(method, experiment, manifest))
+
+    # Keep the density reference centered.  Its colorbar occupies a narrow
+    # strip inside the otherwise empty first-row right cell and does not imply
+    # a color scale for the single-color scatter panels.
+    left_empty = fig.add_subplot(grid[0, 0])
+    left_empty.axis("off")
+    colorbar_grid = grid[0, 2].subgridspec(1, 2, width_ratios=(1.0, 4.5))
+    colorbar_ax = fig.add_subplot(colorbar_grid[0, 0])
+    right_empty = fig.add_subplot(colorbar_grid[0, 1])
+    right_empty.axis("off")
+    colorbar = fig.colorbar(mesh, cax=colorbar_ax)
+    colorbar.set_label("Reference probability density")
+
     return _save_figure(
         fig,
-        output_dir / f"{experiment}_reference_density",
+        f"{experiment}_generated_scatter_grid",
+        output_root,
         overwrite=overwrite,
         dpi=dpi,
     )
@@ -707,6 +1003,7 @@ def replot_experiment(
     experiment: str,
     results_root: Path,
     output_root: Path,
+    cache_root: Path,
     *,
     overwrite: bool,
     dpi: int,
@@ -730,42 +1027,32 @@ def replot_experiment(
     with manifest_path.open(encoding="utf-8") as handle:
         manifest = json.load(handle)
 
-    methods = [name for name in positions if name != "reference"]
-    output_dir = output_root / experiment
+    methods = MANUSCRIPT_METHODS[experiment]
+    missing = [method for method in methods if method not in positions]
+    if missing:
+        raise ValueError(
+            f"{positions_path} is missing manuscript methods: {missing}"
+        )
     written: list[str] = []
 
     if experiment == "double_well":
         reference_x, reference_density = _reference_density_1d(
             experiment, manifest, grid_size
         )
-        for method in methods:
-            written.extend(
-                _plot_e1_method(
-                    method,
-                    positions[method],
-                    reference_x,
-                    reference_density,
-                    _method_label(method, experiment, manifest),
-                    output_dir,
-                    overwrite=overwrite,
-                    dpi=dpi,
-                )
-            )
+        written.extend(_plot_e1_overlays(
+            positions,
+            methods,
+            manifest,
+            reference_x,
+            reference_density,
+            output_root,
+            overwrite=overwrite,
+            dpi=dpi,
+        ))
+        reference_details = {}
     else:
-        for method in methods:
-            written.extend(
-                _plot_2d_samples(
-                    experiment,
-                    method,
-                    positions[method],
-                    _method_label(method, experiment, manifest),
-                    output_dir,
-                    overwrite=overwrite,
-                    dpi=dpi,
-                )
-            )
         e4_cache_path = (
-            output_dir / "direct_snis_qbar_reference.npz"
+            cache_root / "coupled_phi4" / "direct_snis_qbar_reference.npz"
             if experiment == "coupled_phi4"
             else None
         )
@@ -781,22 +1068,35 @@ def replot_experiment(
             e4_reference_batch_size=e4_reference_batch_size,
             refresh_e4_reference=refresh_e4_reference,
         )
-        written.extend(
-            _plot_2d_reference_density(
-                experiment,
-                x,
-                y,
-                density,
-                output_dir,
-                overwrite=overwrite,
-                dpi=dpi,
-            )
-        )
+        written.extend(_plot_2d_density_grid(
+            experiment,
+            positions,
+            methods,
+            manifest,
+            x,
+            y,
+            density,
+            output_root,
+            overwrite=overwrite,
+            dpi=dpi,
+        ))
+        written.extend(_plot_2d_scatter_grid(
+            experiment,
+            positions,
+            methods,
+            manifest,
+            x,
+            y,
+            density,
+            output_root,
+            overwrite=overwrite,
+            dpi=dpi,
+        ))
 
     report = {
         "experiment": experiment,
         "source": _manifest_path(positions_path),
-        "methods": methods,
+        "methods": list(methods),
         "reference_density": REFERENCE_LABELS[experiment],
         "figure_pairs": len(written) // 2,
         "files": written,
@@ -822,7 +1122,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=JCP_ROOT / "figures" / "generated_samples",
+        default=JCP_ROOT / "figures",
+    )
+    parser.add_argument(
+        "--cache-root",
+        type=Path,
+        default=JCP_ROOT / "cache" / "generated_samples",
+    )
+    parser.add_argument(
+        "--manifest-path",
+        type=Path,
+        default=JCP_ROOT / "cache" / "generated_samples"
+        / "generated_sample_plots_manifest.json",
     )
     parser.add_argument("--grid-size", type=int, default=401)
     parser.add_argument("--dpi", type=int, default=400)
@@ -851,6 +1162,7 @@ def main() -> None:
             experiment,
             args.results_root.resolve(),
             args.output_root.resolve(),
+            args.cache_root.resolve(),
             overwrite=args.overwrite,
             dpi=args.dpi,
             grid_size=args.grid_size,
@@ -865,7 +1177,7 @@ def main() -> None:
             f"from {report['source']}"
         )
 
-    manifest_path = args.output_root.resolve() / "generated_sample_plots_manifest.json"
+    manifest_path = args.manifest_path.resolve()
     if manifest_path.exists() and not args.overwrite:
         raise FileExistsError(f"refusing to overwrite existing manifest: {manifest_path}")
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
