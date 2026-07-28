@@ -859,14 +859,20 @@ def test_notebook_and_replot_plot_policies_agree_on_labels():
     labelled by atom count: LSC-CP-RA -> "(1)", LSC-CP-MA -> "(A)".
     """
     module = _load_script_module("replot_figures.py", "jcp_replot_policy")
+    samples = _load_script_module("replot_generated_samples.py", "jcp_gen_samples")
     generator = (ROOT / "notebooks" / "build_notebooks.py").read_text()
+    # all three labelling paths -- the notebook generator, the CSV-only metric
+    # replot, and the sample-figure replot -- must share the atom-count map and
+    # resolve the realised arms identically.
+    assert module._ARM_ATOMS == samples._ARM_ATOMS
     for experiment, atoms in module._ARM_ATOMS.items():
-        # the same atom-count map must appear in the notebook generator
         assert f'"{experiment}": {atoms}' in generator, (
             f"{experiment} -> {atoms} atom count missing from the notebook generator")
-        # and both sources must resolve the arms to the same family labels
         assert module._realised_label(experiment, "LSC-CP-RA") == "LSC-CP-RA (1)"
         assert module._realised_label(experiment, "LSC-CP-MA") == f"LSC-CP-RA ({atoms})"
+        # the sample-figure titler agrees
+        assert samples._method_label("LSC-CP-RA", experiment, {}) == "LSC-CP-RA (1)"
+        assert samples._method_label("LSC-CP-MA", experiment, {}) == f"LSC-CP-RA ({atoms})"
 
 
 def test_mirror_into_repo_refreshes_results_and_figures(tmp_path):

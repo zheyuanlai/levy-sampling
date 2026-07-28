@@ -82,10 +82,11 @@
         "PT",
         "CP",
         "LSC-CP",
-        "LSC-CP-MA"
+        "LSC-CP-MA",
+        "LSC-CP-RA"
       ],
       "reference_density": "target density in active plane",
-      "figure_pairs": 9,
+      "figure_pairs": 10,
       "files": [
         "figures/generated_samples/mb3well_10d/mb3well_10d_samples_ULA.png",
         "figures/generated_samples/mb3well_10d/mb3well_10d_samples_ULA.pdf",
@@ -103,6 +104,8 @@
         "figures/generated_samples/mb3well_10d/mb3well_10d_samples_LSC-CP.pdf",
         "figures/generated_samples/mb3well_10d/mb3well_10d_samples_LSC-CP-MA.png",
         "figures/generated_samples/mb3well_10d/mb3well_10d_samples_LSC-CP-MA.pdf",
+        "figures/generated_samples/mb3well_10d/mb3well_10d_samples_LSC-CP-RA.png",
+        "figures/generated_samples/mb3well_10d/mb3well_10d_samples_LSC-CP-RA.pdf",
         "figures/generated_samples/mb3well_10d/mb3well_10d_reference_density.png",
         "figures/generated_samples/mb3well_10d/mb3well_10d_reference_density.pdf"
       ]
@@ -118,10 +121,11 @@
         "PT",
         "CP",
         "LSC-CP",
-        "LSC-CP-MA"
+        "LSC-CP-MA",
+        "LSC-CP-RA"
       ],
       "reference_density": "direct-SNIS weighted qbar density",
-      "figure_pairs": 9,
+      "figure_pairs": 10,
       "files": [
         "figures/generated_samples/coupled_phi4/coupled_phi4_samples_ULA.png",
         "figures/generated_samples/coupled_phi4/coupled_phi4_samples_ULA.pdf",
@@ -139,6 +143,8 @@
         "figures/generated_samples/coupled_phi4/coupled_phi4_samples_LSC-CP.pdf",
         "figures/generated_samples/coupled_phi4/coupled_phi4_samples_LSC-CP-MA.png",
         "figures/generated_samples/coupled_phi4/coupled_phi4_samples_LSC-CP-MA.pdf",
+        "figures/generated_samples/coupled_phi4/coupled_phi4_samples_LSC-CP-RA.png",
+        "figures/generated_samples/coupled_phi4/coupled_phi4_samples_LSC-CP-RA.pdf",
         "figures/generated_samples/coupled_phi4/coupled_phi4_reference_density.png",
         "figures/generated_samples/coupled_phi4/coupled_phi4_reference_density.pdf"
       ],
@@ -148,25 +154,25 @@
       "reference_metadata": {
         "diagnostics": {
           "entropy_ess": 177521.31248201075,
-          "max_normalized_weight": 0.0009236128392682061,
+          "max_normalized_weight": 0.0009236128392681963,
           "production_manifest_proposal_ess": 41181.62474302272,
-          "proposal_ess": 107246.47538842646,
-          "proposal_ess_fraction": 0.5362323769421323,
+          "proposal_ess": 107246.47538842697,
+          "proposal_ess_fraction": 0.5362323769421349,
           "weighted_qbar_mean": [
-            -0.06480132382143028,
-            -0.11919279281512843
+            -0.06480132382143416,
+            -0.1191927928151253
           ],
           "weighted_sign_phase_masses": [
-            0.32216893390545426,
-            0.21072942330237715,
-            0.2379604997376425,
-            0.22914114305452582
+            0.3221689339054552,
+            0.210729423302378,
+            0.23796049973763994,
+            0.22914114305452637
           ]
         },
         "runtime": {
           "device": "cpu",
           "rng_backend": "torch_cpu",
-          "torch_version": "2.6.0"
+          "torch_version": "2.13.0+cu130"
         },
         "signature": {
           "backend": "torch_cpu",

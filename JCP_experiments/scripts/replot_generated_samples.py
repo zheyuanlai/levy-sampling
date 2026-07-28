@@ -85,12 +85,21 @@ def _manifest_path(path: Path) -> str:
         return str(resolved)
 
 
+# Atom-bank size A per finite-bank experiment. The realised LSC arms are one
+# family labelled "LSC-CP-RA (k)" by the atoms used per step: single-atom RA is
+# k=1, multi-atom MA is k=A. E1/E2 have continuous jump laws (no finite bank),
+# so their single realised arm stays plain "LSC-CP-RA".
+_ARM_ATOMS = {"mb3well_10d": 4, "coupled_phi4": 8}
+
+
 def _method_label(method: str, experiment: str, manifest: dict) -> str:
+    A = _ARM_ATOMS.get(experiment)
+    if method == "LSC-CP-RA":
+        return "LSC-CP-RA (1)" if A else "LSC-CP-RA"
     if method == "LSC-CP-MA":
-        return "LSC-CP-MA"
+        return f"LSC-CP-RA ({A})" if A else "LSC-CP-MA"
     overrides = (manifest.get("plot") or {}).get("label_overrides") or {}
-    label = overrides.get(method, SIMPLE_LABELS.get(method, method))
-    return label
+    return overrides.get(method, SIMPLE_LABELS.get(method, method))
 
 
 def _method_color(method: str) -> str:
