@@ -1,4 +1,0 @@
-claim,supported,selected_metric,estimate,bootstrap_ci_low,bootstrap_ci_high,rate_consistency_passed,selection_summary,accepted_low8_rate_windows,n_censored,bin_count_robustness,focused_particle_robustness
-"Langevin Arrhenius gap, abscissa, rate, and mixing time",True,bin_chi2_M80,0.2655901988205459,0.2646767498016695,0.2664413155417193,True,stable family required on four of five subsets,,,,
-LSC-CP non-Arrhenius graph-channel rate and mixing time,True,bin_chi2_M80,0.13248196399384968,0.12664500691559874,0.137534116092223,True,polynomial family on the production grid with order-one low-temperature flattening allowed,8.0,0.0,True,True
-strong cross-diagnostic scaling separation,True,bin_chi2_M80,,,,True,both method-specific acceptance rules and rate-consistency checks,,,,

@@ -1,2 +1,0 @@
-cache_status,cache_path,target_basin_mass_grid_resolution,basin_grid_nx,basin_grid_ny,basin_grid_points,basin_lookup
-loaded,manuscript_clean_active\numerics\four_experiment_release\muller10d\muller10d_basin_map_cache.npz,320x280,320,280,89600,nearest_latent_grid_cell

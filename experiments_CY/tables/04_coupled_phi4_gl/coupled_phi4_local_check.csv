@@ -1,2 +1,0 @@
-n_minima,all_optimizer_success,all_sign_states_ok,min_hessian_eig,min_parallel_sine,closest_parallel_edge_a,closest_parallel_edge_b,min_local_2d_basin_mass,max_local_2d_basin_mass,no_well_destroyed,local_2d_basin_masses_visible,edge_geometry_tradeoff
-4,True,True,0.33538359058340367,0.030161134610162586,--->+-,-+->++,0.0544273651870279,0.6479959207360095,True,True,True

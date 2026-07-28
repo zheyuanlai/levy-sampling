@@ -1,4 +1,0 @@
-\section{Experimental protocol and compute accounting}
-Every experiment is launched through the bounded JCP launcher with one visible GPU per process and at most two concurrent processes. Each run directory stores the input configuration, resolved configuration JSON, git state, environment metadata, logs, raw metrics, time-series summaries, final samples, reference samples, and run status JSON.
-
-The reported metrics include basin population error, basin KL, free-energy RMSE when a grid reference is available, observable bias, integrated autocorrelation time, ESS, ESS/sec, ESS per gradient evaluation, ESS per potential evaluation, ESS per L\'evy-score quadrature evaluation, wall time, potential and gradient evaluation counts, L\'evy-score quadrature counts, jump counts, clipping diagnostics, and nonfinite counts. Tables and figures are regenerated from aggregate CSV outputs rather than manually typed.

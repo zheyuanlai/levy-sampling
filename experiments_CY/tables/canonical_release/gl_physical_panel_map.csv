@@ -1,7 +1,0 @@
-panel,quantity,physical_interpretation
-a,weighted graph gap,graph connectivity certificate
-b,phase-reference TV and noncoherent probability,coherent reference accuracy plus domain-rich fields
-c,coherent phase-reference TV over time,coherent phase communication
-d,final mean-order scatter,phase coverage in order-parameter space
-e,domain-wall density versus gradient energy,nonuniform field content
-f,low-mode structure factors,finite-lattice spatial organization

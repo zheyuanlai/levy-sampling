@@ -1,5 +1,0 @@
-method,graph_family,jump_type,undirected_edges,directed_atoms,graph_gap,total_jump_rate,h_shell,edge_set
-LSC-MST-shell,MST,shell,3,6,0.15620971670050798,1.6,0.08,-+-++;+--++;----+
-LSC-cycle-shell,cycle,shell,4,8,0.4,1.6,0.08,----+;-+-+-;+--++;++---
-LSC-5-shell,5,shell,5,10,0.32,1.6,0.08,----+;---+-;---++;-+-+-;+--++
-LSC-complete-shell,complete,shell,6,12,0.5333333333333332,1.6,0.08,----+;---+-;---++;-+-+-;-+-++;+--++

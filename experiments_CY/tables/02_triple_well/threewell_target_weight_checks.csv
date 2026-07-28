@@ -1,2 +1,0 @@
-experiment,raw_weight_left,raw_weight_middle,raw_weight_right,raw_weight_sum,weight_left,weight_middle,weight_right,weight_sum,target_integral,cdf_endpoint,mode_mass_sum,common_rescaling_changes_drift_and_score
-triple-well,0.25,0.45,0.35,1.0499999999999998,0.23809523809523814,0.42857142857142866,0.33333333333333337,1.0,1.0,1.0,1.0000000000000004,False

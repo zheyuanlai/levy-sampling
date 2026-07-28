@@ -1,6 +1,0 @@
-# Tier-1 wave 2: E2b relaxation ridge, E3 full triple support (with too-short control), E5 invariance.
-configs:
-  - experiments/jcp_sampling/configs/double_well/scale_intensity_relax.yaml
-  - experiments/jcp_sampling/configs/triple_well/support_target_bias.yaml
-  - experiments/jcp_sampling/configs/triple_well/invariance.yaml
-  - experiments/jcp_sampling/configs/muller10d/invariance.yaml

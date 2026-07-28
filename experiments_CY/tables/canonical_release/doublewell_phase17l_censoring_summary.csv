@@ -1,9 +1,0 @@
-method,metric,n_points,n_censored,censoring_fraction,minimum_epsilon,maximum_epsilon
-LSC-CP,CDF_sup,96,0,0.0,0.05,0.35
-LSC-CP,W1,96,0,0.0,0.05,0.35
-LSC-CP,truncated_KDE_chi2,96,11,0.11458333333333333,0.05,0.35
-LSC-CP,well_TV,96,0,0.0,0.05,0.35
-Langevin,CDF_sup,96,0,0.0,0.05,0.35
-Langevin,W1,96,1,0.010416666666666666,0.05,0.35
-Langevin,truncated_KDE_chi2,96,0,0.0,0.05,0.35
-Langevin,well_TV,96,0,0.0,0.05,0.35

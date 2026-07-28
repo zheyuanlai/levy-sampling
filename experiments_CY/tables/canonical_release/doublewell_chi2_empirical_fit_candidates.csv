@@ -1,5 +1,0 @@
-method,quantity,fit_family,n_points,prefactor,barrier,exponent,r2_log,AIC,BIC,leave_one_out_error,selected_for_display,selection_rule
-Langevin,chi2_mixing_time,arrhenius,160,2.539917653092019,0.265656997653014,,0.9977725905556002,-331.88959611781297,-322.6640746721115,-0.8595182486404911,True,"two-of-three majority across AIC, BIC, and leave-one-epsilon-out likelihood"
-Langevin,chi2_mixing_time,polynomial,160,0.2071250023738581,,2.48811791521077,0.927963433515126,224.32394498169904,233.5494664274005,1.0191683935057687,False,"two-of-three majority across AIC, BIC, and leave-one-epsilon-out likelihood"
-LSC-CP,chi2_mixing_time,arrhenius,160,1.0455914723685933,0.0114111164168024,,0.5494564733360651,-394.133145580744,-384.9076241350425,-1.0640738583990856,False,"two-of-three majority across AIC, BIC, and leave-one-epsilon-out likelihood"
-LSC-CP,chi2_mixing_time,polynomial,160,0.8892940265304635,,0.1324819639938496,0.7852166483289795,-512.6651195812419,-503.4395981355405,-1.47733994796624,True,"two-of-three majority across AIC, BIC, and leave-one-epsilon-out likelihood"

@@ -1,8 +1,0 @@
-configs:
-  - experiments/jcp_sampling/configs/double_well/scale_intensity_timestep.yaml
-  - experiments/jcp_sampling/configs/four_well/graph_ablation.yaml
-  - experiments/jcp_sampling/configs/muller_brown/free_energy_recovery.yaml
-  - experiments/jcp_sampling/configs/manywell/dimension_scaling.yaml
-  - experiments/jcp_sampling/configs/manywell/dimension_scaling_d16.yaml
-  - experiments/jcp_sampling/configs/manywell/dimension_scaling_d32.yaml
-  - experiments/jcp_sampling/configs/manywell/dimension_scaling_d64.yaml

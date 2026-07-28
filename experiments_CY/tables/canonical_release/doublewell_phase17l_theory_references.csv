@@ -1,3 +1,0 @@
-method,metric,reference_family,fixed_parameter,amplitude,amplitude_rule
-Langevin,truncated_KDE_chi2,fixed Arrhenius barrier,0.25,3.6827142305622833,least-squares log amplitude over Kaplan-Meier median simulation mixing times
-LSC-CP,truncated_KDE_chi2,fixed graph-channel inverse scale,0.5,0.7432517549784382,least-squares log amplitude over Kaplan-Meier median simulation mixing times

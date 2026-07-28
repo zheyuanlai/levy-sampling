@@ -1,5 +1,0 @@
-configs:
-  - experiments/jcp_sampling/configs/manywell/dimension_scaling.yaml
-  - experiments/jcp_sampling/configs/manywell/dimension_scaling_d16.yaml
-  - experiments/jcp_sampling/configs/manywell/dimension_scaling_d32.yaml
-  - experiments/jcp_sampling/configs/manywell/dimension_scaling_d64.yaml

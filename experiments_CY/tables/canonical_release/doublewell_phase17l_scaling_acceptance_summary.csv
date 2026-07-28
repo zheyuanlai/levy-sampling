@@ -1,3 +1,0 @@
-claim,supported,primary_metric,estimate,bootstrap_ci_low,bootstrap_ci_high,selection_count,selection_total,stability_range,criterion
-Langevin Arrhenius barrier near one quarter,True,truncated_KDE_chi2,0.2669379498265854,0.2645017421788298,0.26946174243500515,4,4,0.017392771350555336,pre-registered Langevin acceptance rule
-LSC-CP polynomial-like growth,False,truncated_KDE_chi2,1.7509842647845129,1.66261973645907,1.8457536041886033,0,4,2.9176353405569153,pre-registered LSC-CP acceptance rule
