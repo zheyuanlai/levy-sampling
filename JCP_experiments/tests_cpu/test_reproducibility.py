@@ -444,23 +444,27 @@ def test_every_deployed_lsc_arm_charges_score_quadrature():
 EXACT_ARM_VALIDATED_OFFLINE = {"alanine_dipeptide": "results/e5_exact_vs_ma.json"}
 
 
-def test_production_method_matrix_carries_two_lsc_arms_everywhere():
-    """Each experiment reports an exact arm and one realised-displacement arm.
-
+def test_production_method_matrix_carries_exact_and_realised_lsc_arms():
+    """Each experiment reports the exact arm and at least one realised-displacement
+    arm. E3 (mb3well_10d) and E4 (coupled_phi4) additionally carry BOTH realised
+    arms -- the single-atom LSC-CP-RA and the multi-atom LSC-CP-MA (the A=1 and
+    A=atoms members of the same family) -- to compare the estimators directly.
     The exact arm may be validated offline instead of deployed, but only for an
     experiment on EXACT_ARM_VALIDATED_OFFLINE, and never both ways at once.
     """
     for name, (_notebook, methods) in launcher.EXPERIMENTS.items():
         arms = [m for m in methods.split(",") if m.startswith("LSC-CP")]
         realised = [a for a in arms if a in ("LSC-CP-RA", "LSC-CP-MA")]
-        assert len(realised) == 1, f"{name} needs one realised arm: {arms}"
+        assert realised, f"{name} needs at least one realised arm: {arms}"
+        assert len(realised) == len(set(realised)), f"{name} duplicate arm: {arms}"
         if name in EXACT_ARM_VALIDATED_OFFLINE:
             assert "LSC-CP" not in arms, (
                 f"{name} both deploys the exact arm and claims offline "
                 f"validation; do one or the other: {arms}")
             continue
         assert "LSC-CP" in arms, f"{name} is missing the exact arm: {arms}"
-        assert len(arms) == 2, f"{name} must carry exactly two LSC arms: {arms}"
+        # exact arm plus its realised arm(s); no stray or duplicated LSC keys
+        assert len(arms) == 1 + len(realised), f"{name} unexpected LSC arms: {arms}"
 
 
 def _write_shard(root, rid, methods, registered, experiment="alanine_dipeptide",
@@ -850,12 +854,19 @@ def test_replot_plot_policy_shows_both_lsc_arms_and_labels_the_atom_count():
 
 
 def test_notebook_and_replot_plot_policies_agree_on_labels():
-    """Generator and CSV-only replot duplicate the policy; drift breaks replots."""
+    """Generator and CSV-only replot duplicate the realised-arm label policy;
+    drift breaks replots. The finite-bank experiments carry both realised arms,
+    labelled by atom count: LSC-CP-RA -> "(1)", LSC-CP-MA -> "(A)".
+    """
     module = _load_script_module("replot_figures.py", "jcp_replot_policy")
     generator = (ROOT / "notebooks" / "build_notebooks.py").read_text()
-    for experiment, label in module._RA_LABEL.items():
-        assert f'"{experiment}": "{label}"' in generator, (
-            f"{experiment} -> {label} missing from the notebook generator")
+    for experiment, atoms in module._ARM_ATOMS.items():
+        # the same atom-count map must appear in the notebook generator
+        assert f'"{experiment}": {atoms}' in generator, (
+            f"{experiment} -> {atoms} atom count missing from the notebook generator")
+        # and both sources must resolve the arms to the same family labels
+        assert module._realised_label(experiment, "LSC-CP-RA") == "LSC-CP-RA (1)"
+        assert module._realised_label(experiment, "LSC-CP-MA") == f"LSC-CP-RA ({atoms})"
 
 
 def test_mirror_into_repo_refreshes_results_and_figures(tmp_path):

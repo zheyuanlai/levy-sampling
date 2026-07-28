@@ -24,8 +24,8 @@ sys.path.insert(0, str(JCP_ROOT))
 EXPERIMENT_NOTEBOOK_METHODS = {
     "double_well": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA",
     "mog40": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA",
-    "mb3well_10d": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA",
-    "coupled_phi4": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA",
+    "mb3well_10d": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA,LSC-CP-MA",
+    "coupled_phi4": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA,LSC-CP-MA",
     "alanine_dipeptide": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA",
 }
 

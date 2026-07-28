@@ -85,16 +85,18 @@ one step are generated from the same random finite measure.  This pairing
 aligns the drift and jump measures before the remaining finite chord
 quadrature is applied (Appendix~\ref{app:paired}).  The reported variants are:
 deterministic shell quadrature (double well), full numerical
-chord--radius--angle quadrature for the annular MoG40 law, the paired
-single-atom estimator \textsc{lsc-cp-ra} (double
-well and MoG40, as an estimator-agreement check), deterministic shell
-quadrature in the two higher-dimensional systems, and the paired multi-atom
-estimator \textsc{lsc-cp-ma} (M\"uller--Brown and $\phi^4$).
-The numerical artifacts store the latter under the key
-\texttt{LSC-CP-MA}; legacy plotting aliases call it
-\texttt{LSC-CP-RA (4)} or \texttt{LSC-CP-RA (8)}.  We use MA throughout this
-note because the implementation draws one displacement from every atom family,
-distinguishing it from the single-displacement RA estimator in E1--E2.
+chord--radius--angle quadrature for the annular MoG40 law, the single-atom
+estimator \textsc{lsc-cp-ra} (double well and MoG40, as an estimator-agreement
+check), and---for the two higher-dimensional finite-bank systems---\emph{both}
+realised-displacement estimators alongside the deterministic shell quadrature:
+the single-atom \textsc{lsc-cp-ra} and the paired multi-atom \textsc{lsc-cp-ma}.
+The two realised arms are the $A{=}1$ and $A{=}\text{atoms}$ members of one
+family: \textsc{ra} draws one displacement per step, \textsc{ma} draws one from
+every atom family (Appendix~\ref{app:paired}).  In figures and tables they are
+labelled by atom count, \texttt{LSC-CP-RA (1)} and \texttt{LSC-CP-RA (A)} with
+$A{=}4$ (M\"uller--Brown) or $A{=}8$ ($\phi^4$); the numerical artifacts store
+them under the keys \texttt{LSC-CP-RA} and \texttt{LSC-CP-MA}.  Comparing the
+two directly isolates the variance the multi-atom stratification removes.
 
 Baselines are the unadjusted Langevin algorithm (\textsc{ula}), Metropolis
 adjusted Langevin (\textsc{mala}), the BAOAB underdamped integrator
@@ -144,7 +146,7 @@ steps                & 20{,}000 & 10{,}000 & 40{,}000 & 50{,}000\\
 seeds                & 24 & 24 & 16 & 16\\
 jump rate $\lambda$  & 1 & 1 & 1 & 1\\
 score quadrature     & $q_\theta{=}16$, $q_\rho{=}4$ & $q_\theta{=}16$, $q_\rho{=}4$, $m_\phi{=}16$ & $q_\theta{=}8$, $q_\rho{=}4$ & $q_\theta{=}32$, $q_\rho{=}4$\\
-score estimator      & deterministic + \textsc{ra} & numerical annulus + \textsc{ra} & deterministic + \textsc{ma} & deterministic + \textsc{ma}\\
+score estimator      & deterministic + \textsc{ra} & numerical annulus + \textsc{ra} & deterministic + \textsc{ra} + \textsc{ma} & deterministic + \textsc{ra} + \textsc{ma}\\
 weak-identity residual & $1.5\times10^{-7}$ & $2.1\times10^{-8}$ & $5.0\times10^{-7}$ & $2.0\times10^{-7}$\\
 \bottomrule
 \end{tabular}}
@@ -367,6 +369,7 @@ Method & $W_2$ & $\mathrm{TV}_{\rm basin}$ & $\mathrm{RMSE}_{F/(k_{\rm B}T)}$
 \textsc{pt}    & 0.056 (0.021) & 0.013 (0.008) & 0.616 (0.036) & $5.7\times10^{-4}$ & 0\\
 \textsc{cp}    & 0.353 (0.008) & 0.135 (0.006) & 1.654 (0.024) & 0.047 (0.005) & 0.172\\
 \textsc{lsc-cp} & 0.050 (0.010) & 0.017 (0.009) & 1.070 (0.059) & 0.00105 (0.00108) & 0.0062\\
+\textsc{lsc-cp-ra} & 0.218 (0.012) & 0.129 (0.010) & 1.227 (0.052) & 0.038 (0.006) & 0.013\\
 \textsc{lsc-cp-ma} & 0.047 (0.009) & 0.014 (0.006) & 1.053 (0.053) & $5.8\times10^{-4}$ & 0.0062\\
 \midrule
 \multicolumn{6}{l}{\emph{Coupled $\phi^4$, 24D} \hfill (reference levels: $W_2$ $0.130\pm0.035$, TV $0.024\pm0.010$)}\\
@@ -377,6 +380,7 @@ Method & $W_2$ & $\mathrm{TV}_{\rm basin}$ & $\mathrm{RMSE}_{F/(k_{\rm B}T)}$
 \textsc{pt}    & 0.364 (0.028) & 0.119 (0.015) & 1.063 (0.056) & 0.039 (0.008) & 0\\
 \textsc{cp}    & 0.410 (0.021) & 0.077 (0.016) & 2.085 (0.027) & 0.017 (0.006) & 0.209\\
 \textsc{lsc-cp} & 0.124 (0.031) & 0.028 (0.013) & 1.321 (0.126) & 0.0023 (0.0018) & 0.0036\\
+\textsc{lsc-cp-ra} & 0.165 (0.025) & 0.041 (0.010) & 1.620 (0.045) & 0.0046 (0.0022) & 0.015\\
 \textsc{lsc-cp-ma} & 0.100 (0.028) & 0.022 (0.011) & 1.294 (0.088) & 0.0015 (0.0013) & 0.0029\\
 \bottomrule
 \end{tabular}
@@ -463,15 +467,25 @@ general box-size independence.
 
 \emph{(iv) Random-bank and deterministic estimators are qualitatively
 consistent.}
-Where both are run (double well and MoG40), the paired single-atom estimator
-preserves the qualitative method ordering and gives comparable terminal
-errors on several metrics.  It is not numerically equivalent on every metric:
-for example, its MoG40 basin TV is $0.111$ versus $0.053$, its KL is $0.0448$
-versus $0.0089$, and its outside-grid mass is about four times larger.  In MB
-and $\phi^4$, deterministic and paired multi-atom LSC estimates have similar
-terminal $W_2$, TV, KL, and FES values, but both implementations retain energy
-discrepancies large relative to their chain MCSEs.  These comparisons provide
-estimator-sensitivity checks, not proofs of numerical equivalence.
+The single-atom estimator is run on every finite-bank system.  On the double
+well and MoG40 it preserves the qualitative method ordering with comparable
+terminal errors on several metrics, though it is not numerically equivalent on
+every one: its MoG40 basin TV is $0.111$ versus $0.053$, its KL $0.0448$ versus
+$0.0089$, and its outside-grid mass about four times larger.  The
+M\"uller--Brown and $\phi^4$ comparisons are the sharpest, because there the
+single-atom (\textsc{ra}) and multi-atom (\textsc{ma}) estimators draw from the
+\emph{same} finite atom bank and differ only in how many atoms enter each
+score---one for \textsc{ra}, all $A$ for \textsc{ma}.  The multi-atom
+stratification then measurably reduces variance and finite-step bias: on MB the
+single-atom basin KL is $0.038$ against the multi-atom $5.8\times10^{-4}$ (a
+factor of about $65$) and its $W_2$ ($0.218$) rises well above the reference
+band while the multi-atom value ($0.047$) sits inside it; on $\phi^4$ the KL is
+$0.0046$ against $0.0015$ (about $3\times$).  The two arms mix comparably
+(similar worst-basin ESS) but the single-atom arm carries the larger energy
+bias---$+0.065$ versus $+0.039$ on MB, $+0.558$ versus $+0.251$ on
+$\phi^4$---the finite-bank signature stratification removes.  Deterministic and
+multi-atom estimates stay close to each other throughout.  These comparisons
+are estimator-sensitivity checks, not proofs of numerical equivalence.
 
 \section{Post-settling time-series diagnostics}
 \label{sec:efficiency}
@@ -502,7 +516,7 @@ Method & DW & MoG40 & MB & $\phi^4$ & DW & MoG40 & MB & $\phi^4$\\
 \textsc{baoab} & 0 & 0 & 0 & 0 & 3{,}658 / $-0.0002$ & 534 / $-0.001$ & 5{,}622 / $+0.004$ & 2{,}734 / $+0.028$\\
 \textsc{pt}    & 1{,}211 & 572 & 2{,}336 & 2{,}567 & 20{,}494 / $-0.001$ & 1{,}340 / $+0.0006$ & 25{,}202 / $-0.0004$ & 24{,}383 / $-0.002$\\
 \textsc{lsc-cp} & 1{,}648 & 271 & 2{,}066 & 1{,}222 & 31{,}891 / $+0.194$ & 24{,}051 / $+0.166$ & 27{,}993 / $+0.040$ & 30{,}475 / $+0.255$\\
-\textsc{lsc-cp-ra} & 1{,}809 & 859 & --- & --- & 31{,}224 / $+0.247$ & 8{,}119 / $+0.717$ & --- & ---\\
+\textsc{lsc-cp-ra} & 1{,}809 & 859 & 2{,}208 & 1{,}133 & 31{,}224 / $+0.247$ & 8{,}119 / $+0.717$ & 27{,}660 / $+0.065$ & 30{,}917 / $+0.558$\\
 \textsc{lsc-cp-ma} & --- & --- & 1{,}952 & 1{,}150 & --- & --- & 26{,}720 / $+0.039$ & 30{,}972 / $+0.251$\\
 \bottomrule
 \end{tabular}
@@ -511,9 +525,11 @@ Worst-basin ESS is the minimum, over basins, of the summed per-chain effective
 sample size of that basin's indicator (Geyer IAT; constant chains contribute
 zero).  Energy bias is the signed difference between the trace mean of $V$ and
 the reference target, in energy units; it is interpreted with its
-observable-specific Monte Carlo standard error.  The deterministic/numerical
-\textsc{lsc-cp} row and paired
-\textsc{lsc-cp-ma} row are shown separately for MB and $\phi^4$.
+observable-specific Monte Carlo standard error.  For MB and $\phi^4$ the
+deterministic \textsc{lsc-cp}, single-atom \textsc{lsc-cp-ra}, and multi-atom
+\textsc{lsc-cp-ma} rows are shown separately; the single-atom arm mixes
+comparably (similar worst-basin ESS) but carries a larger energy bias, the
+finite-bank signature that multi-atom stratification removes.
 Split-$\Rhat$ and MCSE values for every observable are reported in the
 supporting data.}
 \label{tab:ess}

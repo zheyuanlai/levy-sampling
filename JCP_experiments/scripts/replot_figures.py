@@ -35,14 +35,28 @@ _SINGLE = (
 )
 
 
-_RA_LABEL = {"mb3well_10d": "LSC-CP-RA (4)", "coupled_phi4": "LSC-CP-RA (8)"}
+# Atom-bank size A per experiment. The realised LSC arms are members of one
+# family labelled "LSC-CP-RA (k)" by the number of atoms k used per step:
+# genuine single-atom RA is k=1, multi-atom MA is k=A. E1/E2 have continuous
+# jump laws (no finite bank), so their single realised arm stays plain
+# "LSC-CP-RA".
+_ARM_ATOMS = {"mb3well_10d": 4, "coupled_phi4": 8}
+
+
+def _realised_label(experiment: str, arm: str) -> str:
+    A = _ARM_ATOMS.get(experiment)
+    if arm == "LSC-CP-RA":
+        return "LSC-CP-RA (1)" if A else "LSC-CP-RA"
+    if arm == "LSC-CP-MA":
+        return f"LSC-CP-RA ({A})" if A else "LSC-CP-MA"
+    return arm
 
 
 def _plot_policy(experiment: str,
                  in_data: set[str]) -> tuple[list[str], dict[str, str]]:
-    """Plot BOTH LSC arms: the exact deterministic-quadrature score and the
-    realised-displacement estimator (single-atom RA on E1/E2, atom-stratified MA
-    on E3/E4, labelled with its atom count). Must stay in sync with the notebook
+    """Plot every LSC arm present: the exact deterministic-quadrature score and
+    the realised-displacement estimator(s). E3/E4 carry both single-atom RA and
+    multi-atom MA, labelled by atom count. Must stay in sync with the notebook
     generator's CELL_FIGURES policy.
     """
     raw = "CP" if "CP" in in_data else ("CP-RA" if "CP-RA" in in_data else None)
@@ -58,7 +72,7 @@ def _plot_policy(experiment: str,
     for ra in ("LSC-CP-RA", "LSC-CP-MA"):
         if ra in in_data:
             methods.append(ra)
-            label_overrides[ra] = _RA_LABEL.get(experiment, "LSC-CP-RA")
+            label_overrides[ra] = _realised_label(experiment, ra)
     return methods, label_overrides
 
 

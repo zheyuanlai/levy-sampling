@@ -469,7 +469,17 @@ from src.runner import convergence_report
 # on E3/E4. The MA arm reads as "LSC-CP-RA (A)" with A the atom count.
 PLOT_RAW = "CP" if "CP" in RUN_METHODS else (
     "CP-RA" if "CP-RA" in RUN_METHODS else None)
-_RA_LABEL = {"mb3well_10d": "LSC-CP-RA (4)", "coupled_phi4": "LSC-CP-RA (8)"}
+# Realised LSC arms are one family "LSC-CP-RA (k)" by atoms-per-step k: genuine
+# single-atom RA is k=1, multi-atom MA is k=A. E1/E2 (continuous laws) keep the
+# plain "LSC-CP-RA".
+_ARM_ATOMS = {"mb3well_10d": 4, "coupled_phi4": 8}
+def _realised_label(arm):
+    A = _ARM_ATOMS.get(EXPERIMENT)
+    if arm == "LSC-CP-RA":
+        return "LSC-CP-RA (1)" if A else "LSC-CP-RA"
+    if arm == "LSC-CP-MA":
+        return f"LSC-CP-RA ({A})" if A else "LSC-CP-MA"
+    return arm
 PLOT_METHODS = [m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
                 if m in RUN_METHODS]
 PLOT_LABELS = {}
@@ -482,7 +492,7 @@ if "LSC-CP" in RUN_METHODS:
 for _ra in ("LSC-CP-RA", "LSC-CP-MA"):
     if _ra in RUN_METHODS:
         PLOT_METHODS.append(_ra)
-        PLOT_LABELS[_ra] = _RA_LABEL.get(EXPERIMENT, "LSC-CP-RA")
+        PLOT_LABELS[_ra] = _realised_label(_ra)
 print("plotted methods:", PLOT_METHODS, " labels:", PLOT_LABELS)
 
 fig = metric_grid(rows, os.path.join(FIGURES, EXPERIMENT + "_metrics"),
@@ -739,8 +749,14 @@ write_manifest(
 # would silently drop an arm from every regenerated figure.
 _plot_raw = "CP" if "CP" in RUN_METHODS else (
     "CP-RA" if "CP-RA" in RUN_METHODS else None)
-_plot_ra_label = {{"mb3well_10d": "LSC-CP-RA (4)",
-                  "coupled_phi4": "LSC-CP-RA (8)"}}
+_arm_atoms = {{"mb3well_10d": 4, "coupled_phi4": 8}}
+def _realised_label(arm):
+    A = _arm_atoms.get(EXPERIMENT)
+    if arm == "LSC-CP-RA":
+        return "LSC-CP-RA (1)" if A else "LSC-CP-RA"
+    if arm == "LSC-CP-MA":
+        return f"LSC-CP-RA ({{A}})" if A else "LSC-CP-MA"
+    return arm
 _plot_methods = [m for m in ("ULA", "MALA", "FLA", "BAOAB", "PT")
                  if m in RUN_METHODS]
 _plot_labels = {{}}
@@ -753,7 +769,7 @@ if "LSC-CP" in RUN_METHODS:
 for _ra in ("LSC-CP-RA", "LSC-CP-MA"):
     if _ra in RUN_METHODS:
         _plot_methods.append(_ra)
-        _plot_labels[_ra] = _plot_ra_label.get(EXPERIMENT, "LSC-CP-RA")
+        _plot_labels[_ra] = _realised_label(_ra)
 manifest = dict(
     experiment=EXPERIMENT,
     run_id=RUN_ID,
