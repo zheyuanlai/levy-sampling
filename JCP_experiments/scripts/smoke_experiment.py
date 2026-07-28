@@ -21,12 +21,10 @@ HERE = Path(__file__).resolve().parent
 JCP_ROOT = HERE.parent
 sys.path.insert(0, str(JCP_ROOT))
 
+from src.manuscript import EXPERIMENTS as MANUSCRIPT_EXPERIMENTS  # noqa: E402
+
 EXPERIMENT_NOTEBOOK_METHODS = {
-    "double_well": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA",
-    "mog40": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA",
-    "mb3well_10d": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA,LSC-CP-MA",
-    "coupled_phi4": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA,LSC-CP-MA",
-    "alanine_dipeptide": "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA",
+    key: spec.methods_csv for key, spec in MANUSCRIPT_EXPERIMENTS.items()
 }
 
 
@@ -136,19 +134,13 @@ def _strictly_finite_mapping(mapping: dict, *, context: str) -> None:
 def _build_experiment(name: str, device: str, cache_dir: Path,
                       args: argparse.Namespace):
     """Build with smoke-only coarse references isolated under this run."""
-    from src.experiments import (build_e1, build_e2, build_e3, build_e4,
-                                 build_e5_alanine)
+    from src.experiments import build_e1, build_e2, build_e3, build_e4
 
     cache_dir.mkdir(parents=True, exist_ok=False)
     if name == "double_well":
         return build_e1(device=device)
     if name == "mog40":
         return build_e2(device=device)
-    if name == "alanine_dipeptide":
-        # E5 has no gradient-flow basin map: the partition is a torus Voronoi
-        # around the metadynamics FES minima, so the smoke reuses the committed
-        # reference cache rather than building a coarse one.
-        return build_e5_alanine(device=device, n_particles=args.particles)
     cache = str(cache_dir / "basin_map.npz")
     common = dict(
         basin_cache=cache,

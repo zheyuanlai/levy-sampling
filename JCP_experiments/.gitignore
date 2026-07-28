@@ -12,6 +12,9 @@ __pycache__/
 !src/e5_alanine/params.npz
 # reusable numerical caches (basin maps etc.), not run results
 cache/
+dist/
+executed_notebooks/
+.matplotlib-cache/
 # internal working notes, kept local only
 REVISION_NOTES.md
 REVISION_NOTES_manuscript.md

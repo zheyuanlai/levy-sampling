@@ -20,31 +20,22 @@ REPOSITORY_ROOT = HERE.parent
 DEFAULT_OUTPUT_ROOT = REPOSITORY_ROOT / "results" / "jcp_sampling"
 HARD_MAX_CONCURRENT = 2
 
-# Every experiment carries TWO LSC-CP arms: the exact deterministic-quadrature
-# score (`LSC-CP`, always numerical integration -- no closed form anywhere) and
-# one realised-displacement estimator. Which estimator depends on the jump law:
-# a continuous law (E2's annulus) admits only the single-displacement RA form,
-# while a finite atom bank additionally admits the atom-stratified MA form.
-DUAL_RA = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA"
-DUAL_MA = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-MA"
-# E3/E4 have finite atom banks, so they carry BOTH realised estimators as a
-# comparison: single-atom LSC-CP-RA (the A=1 member) and multi-atom LSC-CP-MA
-# (the A=atoms member of the same family), alongside the exact arm.
-TRIPLE_MA = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP,LSC-CP-RA,LSC-CP-MA"
-# Exact arm validated offline rather than deployed (E5 only).
-MA_VALIDATED = "ULA,MALA,FLA,BAOAB,PT,CP,LSC-CP-MA"
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+from src.manuscript import EXPERIMENTS as MANUSCRIPT_EXPERIMENTS  # noqa: E402
+
+# The production launcher is intentionally scoped to the four examples used in
+# the JCP manuscript. Internal method names remain compatible with the sampler
+# implementation and frozen CSV files; plotting maps BAOAB -> ULD and
+# LSC-CP-MA -> LSC-CP-RA (4)/(8).
 EXPERIMENTS = {
-    "double_well": ("01_double_well.ipynb", DUAL_RA),
-    "mog40": ("02_mog40.ipynb", DUAL_RA),
-    "mb3well_10d": ("03_mb3well_10d.ipynb", TRIPLE_MA),
-    "coupled_phi4": ("04_coupled_phi4.ipynb", TRIPLE_MA),
-    # E5 deploys the realised-measure arm only. The exact arm costs ~18.5 h at
-    # the production ensemble even at the best block size measured (1.67 s/step
-    # at 66 GiB; 2^18 gives 1.99 s/step, so the cost is FLOP/memory bound, not
-    # launch bound). It is validated offline instead -- see
-    # scripts/e5_exact_vs_ma.py and results/e5_exact_vs_ma.json.
-    "alanine_dipeptide": ("05_alanine_dipeptide.ipynb", MA_VALIDATED),
+    key: (spec.notebook, spec.methods_csv)
+    for key, spec in MANUSCRIPT_EXPERIMENTS.items()
 }
+# Backward-compatible names used by older job wrappers and launcher regression
+# tests. They now denote the final manuscript matrices.
+DUAL_RA = EXPERIMENTS["double_well"][1]
+DUAL_MA = EXPERIMENTS["mb3well_10d"][1]
 SMOKE_CONFIG = {
     "particles": 64,
     "steps": 64,
@@ -87,6 +78,29 @@ FULL_SUCCESS_ARTIFACT_NAMES = FULL_PREFLIGHT_ARTIFACT_NAMES + (
     "summary.csv",
     "positions.csv",
     "manifest.json",
+)
+
+# Explicit E1--E4 preflight allow-list. Keeping this list here prevents optional
+# E5/OpenMM tests or historical release tests from silently becoming a
+# dependency of the four-example manuscript campaign.
+RELEASE_PREFLIGHT_TESTS = (
+    "tests/test_certificate.py",
+    "tests/test_metrics.py",
+    "tests/test_metrics_cpu.py",
+    "tests/test_nfe_ledger.py",
+    "tests/test_paired_multiatom.py",
+    "tests/test_ra_lsc_atomwise_certificate.py",
+    "tests/test_ra_lsc_mismatch_is_nonzero.py",
+    "tests/test_ra_lsc_state_independence.py",
+    "tests/test_samplers.py",
+    "tests/test_score.py",
+    "tests_cpu/test_basin_cache.py",
+    "tests_cpu/test_manuscript_replot.py",
+    "tests_cpu/test_reference_snis.py",
+    "tests_cpu/test_release_structure.py",
+    "tests_cpu/test_runner_controls.py",
+    "tests_cpu/test_sampler_diagnostics.py",
+    "tests_cpu/test_stationarity.py",
 )
 
 
@@ -222,7 +236,9 @@ def job_environment(base: dict[str, str], *, gpu: str,
     existing.update(str(item) for item in selected_gpus)
     env["JCP_EXTRA_GPUS"] = ",".join(sorted(existing, key=int))
     env["JCP_RUN_ID"] = run_id
-    env["JCP_RESULTS_ROOT"] = str(results_root.resolve())
+    # Keep portable POSIX spellings such as /tmp instead of resolving platform
+    # aliases to /private/tmp on macOS.
+    env["JCP_RESULTS_ROOT"] = str(results_root.absolute())
     env["JCP_METHODS"] = methods
     env["PYTHONUNBUFFERED"] = "1"
     return env
@@ -665,7 +681,7 @@ def main(argv: list[str] | None = None) -> int:
 
     preflight_env = job_environment(
         os.environ, gpu=args.gpus[0], selected_gpus=args.gpus,
-        run_id=args.run_id, methods=DUAL_RA,
+        run_id=args.run_id, methods=EXPERIMENTS[args.experiments[0]][1],
         results_root=args.output_root,
     )
     if not args.no_regen:
@@ -681,17 +697,11 @@ def main(argv: list[str] | None = None) -> int:
             })
             return 1
     if not args.skip_tests:
-        # E5's gates read the alanine metadynamics reference cache, which is
-        # gitignored and regenerated out of band (a multi-hour OpenMM job). A
-        # rebuild in flight leaves a partially converged reference that fails
-        # its own convergence assertion, which must not block an unrelated
-        # E1-E4 campaign. Deselect those tests unless E5 is actually selected;
-        # the resolved command is recorded in the stage status either way.
-        pytest_args = [sys.executable, "-m", "pytest", "-q"]
-        if "alanine_dipeptide" not in args.experiments:
-            pytest_args.append("--ignore-glob=*test_e5_*")
+        pytest_args = [
+            sys.executable, "-m", "pytest", "-q", *RELEASE_PREFLIGHT_TESTS,
+        ]
         status = _run_preflight(
-            "unit_tests", [*pytest_args, "tests", "tests_cpu"],
+            "unit_tests", pytest_args,
             run_dir, preflight_env, timeout=1_800,
         )
         if status["status"] != "success":

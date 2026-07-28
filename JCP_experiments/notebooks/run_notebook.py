@@ -8,10 +8,13 @@ folder. Direct legacy invocation still executes in place:
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import sys
+import tempfile
 import time
 import traceback
 
@@ -43,6 +46,43 @@ def _write_notebook(nb, source: Path, destination: Path | None) -> Path:
     return output
 
 
+@contextmanager
+def _current_interpreter_kernel():
+    """Expose an ephemeral kernelspec pinned to this Python interpreter."""
+    with tempfile.TemporaryDirectory(prefix="jcp-kernel-") as temporary:
+        data_dir = Path(temporary)
+        kernel_dir = data_dir / "kernels" / "jcp-current"
+        kernel_dir.mkdir(parents=True)
+        (kernel_dir / "kernel.json").write_text(
+            json.dumps({
+                "argv": [
+                    sys.executable,
+                    "-m",
+                    "ipykernel_launcher",
+                    "-f",
+                    "{connection_file}",
+                ],
+                "display_name": "JCP current interpreter",
+                "language": "python",
+                "metadata": {},
+            }),
+            encoding="utf-8",
+        )
+        previous = os.environ.get("JUPYTER_PATH")
+        os.environ["JUPYTER_PATH"] = (
+            str(data_dir)
+            if not previous
+            else str(data_dir) + os.pathsep + previous
+        )
+        try:
+            yield "jcp-current"
+        finally:
+            if previous is None:
+                os.environ.pop("JUPYTER_PATH", None)
+            else:
+                os.environ["JUPYTER_PATH"] = previous
+
+
 def execute_notebook(path: str | os.PathLike, *,
                      output_notebook: str | os.PathLike | None = None,
                      status_path: str | os.PathLike | None = None,
@@ -63,23 +103,24 @@ def execute_notebook(path: str | os.PathLike, *,
             raise FileExistsError(candidate)
 
     notebook = nbformat.read(source, as_version=4)
-    client = NotebookClient(
-        notebook,
-        timeout=timeout,
-        kernel_name="python3",
-        resources={"metadata": {"path": str(source.parent)}},
-    )
     started_at = _utc_now()
     started = time.monotonic()
     error: BaseException | None = None
     error_traceback = None
-    try:
-        client.execute()
-    except BaseException as exc:
-        error = exc
-        error_traceback = traceback.format_exc()
-    finally:
-        written = _write_notebook(notebook, source, destination)
+    with _current_interpreter_kernel() as kernel_name:
+        client = NotebookClient(
+            notebook,
+            timeout=timeout,
+            kernel_name=kernel_name,
+            resources={"metadata": {"path": str(source.parent)}},
+        )
+        try:
+            client.execute()
+        except BaseException as exc:
+            error = exc
+            error_traceback = traceback.format_exc()
+        finally:
+            written = _write_notebook(notebook, source, destination)
 
     elapsed = time.monotonic() - started
     status = {
@@ -90,6 +131,8 @@ def execute_notebook(path: str | os.PathLike, *,
         "finished_at_utc": _utc_now(),
         "elapsed_seconds": elapsed,
         "timeout_seconds": timeout,
+        "python_executable": sys.executable,
+        "kernel_name": "jcp-current",
         "run_id": os.environ.get("JCP_RUN_ID", ""),
         "jcp_gpu": os.environ.get("JCP_GPU", ""),
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),

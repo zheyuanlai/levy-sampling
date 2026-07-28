@@ -17,6 +17,147 @@ def code(src: str):
     return nbf.v4.new_code_cell(src)
 
 
+def _release_notebook(cells) -> nbf.NotebookNode:
+    nb = nbf.v4.new_notebook()
+    nb.cells = cells
+    nb.metadata["kernelspec"] = {
+        "name": "python3",
+        "display_name": "Python 3",
+        "language": "python",
+    }
+    nb.metadata["language_info"] = {"name": "python", "version": "3.12"}
+    return nb
+
+
+def build_environment_nb() -> nbf.NotebookNode:
+    return _release_notebook([
+        md(r"""# E1--E4 release environment check
+
+This notebook performs the CPU-safe checks that should be run immediately
+after unpacking the collaborator archive. It validates package versions,
+the four experiment/config/notebook contracts, frozen result completeness,
+and a focused CPU regression suite. It does **not** launch a production GPU
+experiment."""),
+        code(r"""from pathlib import Path
+import os
+import platform
+import subprocess
+import sys
+
+HERE = Path.cwd().resolve()
+ROOT = HERE.parent if HERE.name == "notebooks" else HERE
+if not (ROOT / "src" / "manuscript.py").is_file():
+    raise RuntimeError("Run this notebook from JCP_experiments/notebooks")
+os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".matplotlib-cache"))
+sys.path.insert(0, str(ROOT))
+
+import matplotlib
+import nbclient
+import nbformat
+import numpy
+import pandas
+import scipy
+import torch
+import yaml
+
+print("Project root:", ROOT)
+print("Python:", sys.version.split()[0], platform.platform())
+print("NumPy:", numpy.__version__)
+print("Pandas:", pandas.__version__)
+print("SciPy:", scipy.__version__)
+print("Matplotlib:", matplotlib.__version__)
+print("PyTorch:", torch.__version__)
+print("CUDA available:", torch.cuda.is_available())
+print("CUDA device count:", torch.cuda.device_count())"""),
+        code(r"""from scripts.validate_release import validate_release
+
+report = validate_release(
+    ROOT,
+    check_results=True,
+    require_figures=True,
+)
+print("Release validation:", report["status"])
+for key, item in report["experiments"].items():
+    print(key, item["results"]["release_methods"])"""),
+        code(r"""command = [
+    sys.executable, "-m", "pytest", "-q",
+    "tests_cpu/test_release_structure.py",
+    "tests_cpu/test_manuscript_replot.py",
+    "tests_cpu/test_runner_controls.py",
+    "tests_cpu/test_sampler_diagnostics.py",
+    "tests_cpu/test_stationarity.py",
+]
+print("Running:", " ".join(command))
+subprocess.run(command, cwd=ROOT, check=True)
+print("CPU release checks passed.")"""),
+    ])
+
+
+def build_plotting_nb() -> nbf.NotebookNode:
+    return _release_notebook([
+        md(r"""# E1--E4 manuscript plotting
+
+This notebook reads the frozen `results/` artifacts and regenerates every
+manuscript metric, density, and scatter figure. It never reruns a sampler.
+
+Outputs are written in both PNG and PDF under `figures/png/` and
+`figures/pdf/`. BAOAB is labelled **ULD** in all figures."""),
+        code(r"""from pathlib import Path
+import os
+import subprocess
+import sys
+
+HERE = Path.cwd().resolve()
+ROOT = HERE.parent if HERE.name == "notebooks" else HERE
+if not (ROOT / "src" / "manuscript.py").is_file():
+    raise RuntimeError("Run this notebook from JCP_experiments/notebooks")
+os.environ.setdefault("MPLCONFIGDIR", str(ROOT / ".matplotlib-cache"))
+sys.path.insert(0, str(ROOT))
+
+from src.manuscript import EXPERIMENTS, METRICS, RESOURCE_AXES
+
+print("Project root:", ROOT)
+for key, spec in EXPERIMENTS.items():
+    print(spec.number, key, "->", [spec.display_labels[m] for m in spec.methods])
+print("Metrics:", METRICS)
+print("Resource axes:", RESOURCE_AXES)"""),
+        code(r"""from scripts.validate_release import validate_release
+
+validate_release(ROOT, check_results=True, require_figures=False)
+print("Frozen inputs are complete.")"""),
+        code(r"""metric_command = [
+    sys.executable,
+    str(ROOT / "scripts" / "replot_manuscript_figures.py"),
+    "--results-dir", str(ROOT / "results"),
+    "--figures-dir", str(ROOT / "figures"),
+    "--no-clean",
+]
+print("Running:", " ".join(metric_command))
+subprocess.run(metric_command, cwd=ROOT, env=os.environ.copy(), check=True)"""),
+        code(r"""sample_command = [
+    sys.executable,
+    str(ROOT / "scripts" / "replot_generated_samples.py"),
+    "--results-root", str(ROOT / "results"),
+    "--output-root", str(ROOT / "figures"),
+    "--cache-root", str(ROOT / "cache" / "generated_samples"),
+    "--manifest-path",
+    str(ROOT / "cache" / "generated_samples" / "generated_sample_plots_manifest.json"),
+    "--overwrite",
+]
+print("Running:", " ".join(sample_command))
+subprocess.run(sample_command, cwd=ROOT, env=os.environ.copy(), check=True)"""),
+        code(r"""report = validate_release(
+    ROOT,
+    check_results=True,
+    require_figures=True,
+)
+png_files = sorted((ROOT / "figures" / "png").glob("*.png"))
+pdf_files = sorted((ROOT / "figures" / "pdf").glob("*.pdf"))
+print("Final validation:", report["status"])
+print(f"Generated {len(png_files)} PNG and {len(pdf_files)} PDF files.")"""),
+    ])
+
+
 # ======================================================================
 # shared code cells
 # ======================================================================
@@ -33,6 +174,7 @@ import numpy as np
 import pandas as pd
 
 from src import config as C
+from src.manuscript import manuscript_methods
 from src.experiments import ({builder}, make_sampler_factory,
                              make_batched_factory, make_metrics)
 from src.runner import (run_experiment_batched, run_one, refine_dt,
@@ -80,7 +222,7 @@ _prebuild_config = dict(
     builder_function="{builder}",
     builder_invocation={extra!r},
     requested_methods=os.environ.get(
-        "JCP_METHODS", ",".join(C.METHODS)).split(","),
+        "JCP_METHODS", ",".join(manuscript_methods(EXPERIMENT))).split(","),
     requested_trace_environment=dict(
         JCP_TRACE_SEEDS=os.environ.get("JCP_TRACE_SEEDS", "4"),
         JCP_TRACE_CHAINS=os.environ.get("JCP_TRACE_CHAINS", "8"),
@@ -125,7 +267,8 @@ if (_basin_cache_provenance is not None
 # Method matrix: seven configured methods by default; override with JCP_METHODS
 # (comma-separated). The production launcher uses exact+RA for E1/E2 and the
 # paired multi-atom estimator for E3/E4.
-RUN_METHODS = os.environ.get("JCP_METHODS", ",".join(C.METHODS)).split(",")
+RUN_METHODS = os.environ.get(
+    "JCP_METHODS", ",".join(manuscript_methods(EXPERIMENT))).split(",")
 
 # Declared fail-closed numerical thresholds. Environment overrides are recorded
 # in both source and resolved configs; they cannot silently change a run.
@@ -568,11 +711,13 @@ print("stationary diagnostics are in", os.path.join(RESULTS, "stationarity"))'''
 
 CELL_STATIONARITY = r"""# Uniform scalar trajectories for IAT/ESS/R-hat.
 # These are separate from the sparse, nonstationary relaxation checkpoints.
-# Raw CP and FLA are deliberately excluded: they do not target pi, so an ESS
-# about the target would be scientifically misleading. Their target bias is
-# retained in the relaxation/FES/basin tables.
+# FLA is excluded because it does not target pi. Raw CP is retained only in E1,
+# where it is a declared geometric-bias diagnostic and its ESS is interpreted
+# together with (never instead of) its target-distribution error.
 STATIONARY_METHODS = [m for m in RUN_METHODS
                       if m not in ("CP", "CP-RA", "FLA")]
+if EXPERIMENT == "double_well" and "CP" in RUN_METHODS:
+    STATIONARY_METHODS.append("CP")
 TRACE_SEED_COUNT = min(len(cfg.seeds), int(os.environ.get("JCP_TRACE_SEEDS", "4")))
 TRACE_CHAINS_PER_SEED = int(os.environ.get("JCP_TRACE_CHAINS", "8"))
 TRACE_DRAWS_REQUESTED = int(os.environ.get("JCP_TRACE_DRAWS", "1000"))
@@ -694,7 +839,8 @@ stationarity_manifest = {
             reference_method == "sampling_importance_resampling"),
     },
     "excluded_non_targeting_methods": [m for m in RUN_METHODS
-                                         if m in ("CP", "CP-RA", "FLA")],
+                                         if m in ("CP-RA", "FLA")
+                                         or (m == "CP" and EXPERIMENT != "double_well")],
 }
 print("stationary trace protocol:", TRACE_SEEDS, TRACE_CHAINS_PER_SEED,
       "chains/seed,", TRACE_DRAWS, "draws, stride", TRACE_STEPS_PER_DRAW,
@@ -1770,11 +1916,12 @@ def build_e5_nb() -> nbf.NotebookNode:
 if __name__ == "__main__":
     import os
     here = os.path.dirname(os.path.abspath(__file__))
-    for name, builder in [("01_double_well", build_e1_nb),
+    for name, builder in [("00_environment_check", build_environment_nb),
+                          ("01_double_well", build_e1_nb),
                           ("02_mog40", build_e2_nb),
                           ("03_mb3well_10d", build_e3_nb),          # main E3 (mb3)
                           ("04_coupled_phi4", build_e4_nb),
-                          ("05_alanine_dipeptide", build_e5_nb)]:
+                          ("05_manuscript_plotting", build_plotting_nb)]:
         nb = builder()
         nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3",
                                      "language": "python"}

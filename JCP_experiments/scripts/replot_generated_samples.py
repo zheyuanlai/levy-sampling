@@ -49,23 +49,13 @@ if str(JCP_ROOT) not in sys.path:
 from src.plotting import (  # noqa: E402
     load_positions_csv,
 )
+from src.manuscript import EXPERIMENTS as RELEASE_EXPERIMENTS  # noqa: E402
 
 
-EXPERIMENTS = ("double_well", "mog40", "mb3well_10d", "coupled_phi4")
+EXPERIMENTS = tuple(RELEASE_EXPERIMENTS)
 
 MANUSCRIPT_METHODS = {
-    "double_well": (
-        "ULA", "BAOAB", "FLA", "PT", "CP", "LSC-CP", "LSC-CP-RA",
-    ),
-    "mog40": (
-        "ULA", "BAOAB", "FLA", "PT", "LSC-CP", "LSC-CP-RA",
-    ),
-    "mb3well_10d": (
-        "ULA", "BAOAB", "FLA", "PT", "LSC-CP", "LSC-CP-MA",
-    ),
-    "coupled_phi4": (
-        "ULA", "BAOAB", "FLA", "PT", "LSC-CP", "LSC-CP-MA",
-    ),
+    key: spec.methods for key, spec in RELEASE_EXPERIMENTS.items()
 }
 
 # Same method encodings as replot_manuscript_figures.py.
