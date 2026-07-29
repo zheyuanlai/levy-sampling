@@ -20,4 +20,4 @@ production:
   jump_rate: 1.0
   seeds: 24
 metrics: [W2, MMD, basin_TV, worst_basin_ESS]
-resource_axes: [t, nfe, wallclock]
+resource_axes: [t, nfe]

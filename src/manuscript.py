@@ -10,7 +10,9 @@ from dataclasses import dataclass
 
 
 METRICS: tuple[str, ...] = ("W2", "MMD", "TV", "worst_basin_ESS")
-RESOURCE_AXES: tuple[str, ...] = ("t", "nfe", "wallclock")
+# Wall-clock comparisons are withheld until every method has been rerun under
+# one declared hardware and batching protocol.
+RESOURCE_AXES: tuple[str, ...] = ("t", "nfe")
 
 
 @dataclass(frozen=True)

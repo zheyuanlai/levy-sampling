@@ -34,9 +34,14 @@ The reported metrics are:
 - worst-basin ESS.
 
 The first three are lower-is-better. Worst-basin ESS is higher-is-better.
-Because FLA does not preserve the target, target ESS is deliberately shown as
-not applicable for FLA. E1 Raw-CP ESS is reported as a mixing diagnostic but
-must always be read together with its distributional bias metrics.
+FLA and E1 Raw-CP do not preserve the target, so their worst-basin ESS values
+are mixing diagnostics rather than target ESS. They must always be read
+together with their distributional bias metrics.
+
+Wall-clock results are deliberately withheld from this release because the
+frozen runs used mixed hardware and batching protocols. Only physical-time and
+NFE views are publication figures. Wall-clock comparisons may be added only
+after every method is rerun on the same declared GPU with one timing protocol.
 
 ## Directory guide
 
@@ -126,9 +131,9 @@ python scripts/validate_release.py --require-figures
 
 Outputs are written to `figures/png/` and `figures/pdf/`. For every example,
 the metric script writes individual \(W_2\), MMD, basin-TV, and worst-basin-ESS
-figures and a 2-by-2 combined figure against physical time, NFE, and wall-clock
-time. The generated-sample script writes density and scatter comparisons. E1
-uses the manuscript display range \(x\in[-2,2]\).
+figures and a 2-by-2 combined figure against physical time and NFE. The
+generated-sample script writes density and scatter comparisons. E1 uses the
+manuscript display range \(x\in[-2,2]\).
 
 ## 4. Regenerate the notebook source files
 

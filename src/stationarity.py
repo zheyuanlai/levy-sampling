@@ -841,7 +841,12 @@ def write_stationarity_csv(
     for row in rows[1:]:
         fieldnames.extend(key for key in row if key not in fieldnames)
     with output.open(mode, newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=fieldnames,
+            extrasaction="ignore",
+            lineterminator="\n",
+        )
         writer.writeheader()
         writer.writerows(rows)
     return output

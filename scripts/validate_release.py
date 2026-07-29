@@ -41,6 +41,33 @@ def _csv_methods(path: Path) -> set[str]:
         return {row["method"] for row in reader if row.get("method")}
 
 
+def _reject_wallclock_keys(value, *, path: str) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized = str(key).lower()
+            if "wallclock" in normalized or normalized.endswith("_per_second"):
+                raise ReleaseValidationError(
+                    f"{path}: wall-clock result key remains: {key!r}"
+                )
+            _reject_wallclock_keys(child, path=path)
+    elif isinstance(value, list):
+        for child in value:
+            _reject_wallclock_keys(child, path=path)
+
+
+def _reject_wallclock_columns(path: Path) -> None:
+    with path.open(newline="", encoding="utf-8") as handle:
+        columns = set(csv.DictReader(handle).fieldnames or ())
+    forbidden = {
+        column for column in columns
+        if "wallclock" in column.lower() or column.endswith("_per_second")
+    }
+    if forbidden:
+        raise ReleaseValidationError(
+            f"{path}: wall-clock-derived columns remain: {sorted(forbidden)}"
+        )
+
+
 def _validate_config(root: Path, key: str) -> dict:
     spec = EXPERIMENTS[key]
     path = root / "configs" / spec.config
@@ -109,6 +136,9 @@ def _validate_results(root: Path, key: str) -> dict:
         _require(path)
 
     manifest = json.loads(required[0].read_text(encoding="utf-8"))
+    _reject_wallclock_keys(manifest, path=str(required[0]))
+    for csv_path in required[1:]:
+        _reject_wallclock_columns(csv_path)
     config = manifest.get("config") or {}
     for field in ("d", "N", "T", "dt", "beta", "seeds"):
         if field not in config:
@@ -120,7 +150,7 @@ def _validate_results(root: Path, key: str) -> dict:
         reader = csv.DictReader(handle)
         columns = set(reader.fieldnames or ())
         expected_columns = {
-            "method", "seed", "t", "nfe", "wallclock_s", *METRICS[:3]
+            "method", "seed", "t", "nfe", *METRICS[:3]
         }
         missing_columns = expected_columns - columns
         if missing_columns:
@@ -143,15 +173,16 @@ def _validate_results(root: Path, key: str) -> dict:
             f"{required[3]} is missing release methods {sorted(missing_positions)}"
         )
 
-    # FLA is a non-target-preserving diagnostic, so target ESS is intentionally
-    # not reported. Raw-CP ESS is required only for E1 and must be interpreted
-    # alongside its distributional bias.
-    ess_methods = set(spec.methods) - {"FLA"}
+    # FLA and E1 Raw-CP are non-target-preserving mixing diagnostics. Their ESS
+    # is still required, but must be interpreted alongside distributional bias.
+    ess_methods = set(spec.methods)
     stationarity_dir = directory / "stationarity"
     _require(stationarity_dir, "directory")
+    _reject_wallclock_columns(stationarity_dir / "all_methods_summary.csv")
     for method in ess_methods:
         summary = stationarity_dir / f"{method}_summary.csv"
         _require(summary)
+        _reject_wallclock_columns(summary)
         with summary.open(newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
             if "worst_basin_ess" not in set(reader.fieldnames or ()):
@@ -245,6 +276,12 @@ def validate_release(
         for extension in ("png", "pdf"):
             directory = root / "figures" / extension
             _require(directory, "directory")
+            forbidden = sorted(directory.glob("*wallclock*"))
+            if forbidden:
+                raise ReleaseValidationError(
+                    "wall-clock figures remain: "
+                    + ", ".join(str(path) for path in forbidden)
+                )
             for key in EXPERIMENTS:
                 for axis in RESOURCE_AXES:
                     _require(directory / f"{key}_combined_{axis}.{extension}")

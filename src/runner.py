@@ -1,15 +1,10 @@
-"""Checkpoint loop, defensible timing, CSV emission, dt refinement, and the
-ULA first-passage barrier verification.
+"""Checkpoint loops, timing provenance, CSV emission, and refinement tools.
 
-Timing policy (the wall-clock axis is a reported result):
-* _cuda_synchronize() immediately before starting and stopping every
-  timed region; the timer covers ONLY sampler work (metrics, reference
-  sampling, plotting and I/O are outside it);
-* 20 untimed warm-up steps on a throwaway sampler absorb allocator/JIT
-  effects without touching the production chain;
-* seeds run sequentially, never batched, so per-run wall-clock is
-  meaningful; PT's step advances all K replicas, so its wall-clock includes
-  every replica by construction.
+The current manuscript release does not report wall-clock comparisons because
+its frozen runs mix hardware and batching protocols. Timers remain available
+as run provenance. A future wall-clock benchmark must use ``run_experiment``
+with sequential seeds on one declared device; the batched production path is
+for throughput and its timings are informational only.
 """
 from __future__ import annotations
 

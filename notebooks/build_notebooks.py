@@ -634,7 +634,7 @@ fig = metric_grid(rows, os.path.join(FIGURES, EXPERIMENT + "_metrics"),
                   label_overrides=PLOT_LABELS)
 print("saved:", os.path.join(FIGURES, EXPERIMENT + "_metrics") + ".{png,pdf}")
 
-# per-metric log-y single figures on t / NFE / wall-clock axes (all curves start
+# per-metric log-y single figures on t / NFE axes (all curves start
 # at the shared n=0 point; linear x so t=0 / NFE=0 is representable; the cost
 # axes are truncated at the largest non-LSC terminal x -- metric_single's
 # xmax_mode="baselines" -- so the 10-30x-per-step LSC-CP curve cannot squeeze
@@ -648,12 +648,12 @@ _single = [m for m in ("W2", "TV", "TV_density", "MMD",
                        "pdf_L1", "KDE_chi2", "W2_10d")
            if m in _present and not (m == "e_F" and "FES_RMSE_kBT" in _present)]
 for _m in _single:
-    for _axis in ("t", "nfe", "wallclock"):
+    for _axis in ("t", "nfe"):
         metric_single(rows, _m, os.path.join(FIGURES, f"{EXPERIMENT}_{_m}_{_axis}"),
                       xaxis=_axis, floors=floors, methods=PLOT_METHODS,
                       emc_target=emc_target, label_overrides=PLOT_LABELS,
                       show=False)
-print("saved per-metric log-y figures:", _single, "x {t, nfe, wallclock}")
+print("saved per-metric log-y figures:", _single, "x {t, nfe}")
 
 # ---- sample-space figures. Terminal samples are persisted FIRST and then read
 # ---- back, so these figures are exactly what a CSV-only replot reproduces.
@@ -700,11 +700,10 @@ print("stationary diagnostics are in", os.path.join(RESULTS, "stationarity"))'''
 
 CELL_STATIONARITY = r"""# Uniform scalar trajectories for IAT/ESS/R-hat.
 # These are separate from the sparse, nonstationary relaxation checkpoints.
-# FLA is excluded because it does not target pi. Raw CP is retained only in E1,
-# where it is a declared geometric-bias diagnostic and its ESS is interpreted
-# together with (never instead of) its target-distribution error.
+# FLA and E1 Raw-CP are retained as explicitly non-targeting mixing diagnostics:
+# their ESS must be interpreted together with (never instead of) target bias.
 STATIONARY_METHODS = [m for m in RUN_METHODS
-                      if m not in ("CP", "CP-RA", "FLA")]
+                      if m not in ("CP", "CP-RA")]
 if EXPERIMENT == "double_well" and "CP" in RUN_METHODS:
     STATIONARY_METHODS.append("CP")
 TRACE_SEED_COUNT = min(len(cfg.seeds), int(os.environ.get("JCP_TRACE_SEEDS", "4")))
@@ -828,8 +827,15 @@ stationarity_manifest = {
             reference_method == "sampling_importance_resampling"),
     },
     "excluded_non_targeting_methods": [m for m in RUN_METHODS
-                                         if m in ("CP-RA", "FLA")
+                                         if m == "CP-RA"
                                          or (m == "CP" and EXPERIMENT != "double_well")],
+    "non_targeting_mixing_diagnostics": {
+        m: {
+            "interpretation": "biased-kernel mixing diagnostic; not target ESS",
+            "must_report_with_target_bias": True,
+        }
+        for m in STATIONARY_METHODS if m in ("FLA", "CP")
+    },
 }
 print("stationary trace protocol:", TRACE_SEEDS, TRACE_CHAINS_PER_SEED,
       "chains/seed,", TRACE_DRAWS, "draws, stride", TRACE_STEPS_PER_DRAW,

@@ -296,7 +296,6 @@
         "trace_start": 200.20000000000002,
         "trace_stop": 400.0,
         "trace_interval": 0.19999999999998863,
-        "wallclock_s": 850.5452982792631,
         "gradient_evals": 2560000.0,
         "potential_evals": 0.0,
         "score_quadrature_evals": 0.0,
@@ -316,7 +315,6 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 0.0,
-        "worst_basin_ess_per_second": 0.0,
         "worst_basin_ess_per_gradient_eval": 0.0,
         "worst_basin_ess_per_potential_eval": "nan",
         "worst_basin_ess_per_score_quadrature_eval": "nan",
@@ -422,7 +420,6 @@
             "finite_iat_chain_count": 0,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.0,
             "ess_per_gradient_eval": 0.0,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan",
@@ -455,7 +452,6 @@
             "finite_iat_chain_count": 18,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.2922150716328038,
             "ess_per_gradient_eval": 9.708677939985131e-05,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan",
@@ -488,7 +484,6 @@
             "finite_iat_chain_count": 18,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.2922150716328038,
             "ess_per_gradient_eval": 9.708677939985131e-05,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan",
@@ -521,7 +516,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 26.127368166815096,
             "ess_per_gradient_eval": 0.008680668027615574,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan"
@@ -548,7 +542,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 6.651184189407086,
             "ess_per_gradient_eval": 0.002209817750113113,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan"
@@ -575,7 +568,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 6.402017467320429,
             "ess_per_gradient_eval": 0.0021270335376293386,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan"
@@ -604,7 +596,6 @@
         "trace_start": 200.20000000000002,
         "trace_stop": 400.0,
         "trace_interval": 0.19999999999998863,
-        "wallclock_s": 1631.8157050013542,
         "gradient_evals": 2560000.0,
         "potential_evals": 2560000.0,
         "score_quadrature_evals": 0.0,
@@ -624,7 +615,6 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 0.0,
-        "worst_basin_ess_per_second": 0.0,
         "worst_basin_ess_per_gradient_eval": 0.0,
         "worst_basin_ess_per_potential_eval": 0.0,
         "worst_basin_ess_per_score_quadrature_eval": "nan",
@@ -730,7 +720,6 @@
             "finite_iat_chain_count": 0,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.0,
             "ess_per_gradient_eval": 0.0,
             "ess_per_potential_eval": 0.0,
             "ess_per_score_quadrature_eval": "nan",
@@ -763,7 +752,6 @@
             "finite_iat_chain_count": 21,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.14029326509699572,
             "ess_per_gradient_eval": 8.942685675437341e-05,
             "ess_per_potential_eval": 8.942685675437341e-05,
             "ess_per_score_quadrature_eval": "nan",
@@ -796,7 +784,6 @@
             "finite_iat_chain_count": 21,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.14029326509699572,
             "ess_per_gradient_eval": 8.942685675437341e-05,
             "ess_per_potential_eval": 8.942685675437341e-05,
             "ess_per_score_quadrature_eval": "nan",
@@ -829,7 +816,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 13.478087458546156,
             "ess_per_gradient_eval": 0.008591310464155236,
             "ess_per_potential_eval": 0.008591310464155236,
             "ess_per_score_quadrature_eval": "nan"
@@ -856,7 +842,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 2.7322573552054803,
             "ess_per_gradient_eval": 0.001741617368097565,
             "ess_per_potential_eval": 0.001741617368097565,
             "ess_per_score_quadrature_eval": "nan"
@@ -883,7 +868,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 2.4847434780220077,
             "ess_per_gradient_eval": 0.0015838450899749996,
             "ess_per_potential_eval": 0.0015838450899749996,
             "ess_per_score_quadrature_eval": "nan"
@@ -912,7 +896,6 @@
         "trace_start": 200.20000000000002,
         "trace_stop": 400.0,
         "trace_interval": 0.19999999999998863,
-        "wallclock_s": 855.6171904793009,
         "gradient_evals": 2560000.0,
         "potential_evals": 0.0,
         "score_quadrature_evals": 0.0,
@@ -932,7 +915,6 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 0.0,
-        "worst_basin_ess_per_second": 0.0,
         "worst_basin_ess_per_gradient_eval": 0.0,
         "worst_basin_ess_per_potential_eval": "nan",
         "worst_basin_ess_per_score_quadrature_eval": "nan",
@@ -1038,7 +1020,6 @@
             "finite_iat_chain_count": 0,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.0,
             "ess_per_gradient_eval": 0.0,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan",
@@ -1071,7 +1052,6 @@
             "finite_iat_chain_count": 19,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 1.1074398772195109,
             "ess_per_gradient_eval": 0.000370134607957539,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan",
@@ -1104,7 +1084,6 @@
             "finite_iat_chain_count": 19,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 1.1074398772195109,
             "ess_per_gradient_eval": 0.000370134607957539,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan",
@@ -1137,7 +1116,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 6.570444692699792,
             "ess_per_gradient_eval": 0.002196009932877902,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan"
@@ -1164,7 +1142,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 4.298526177893192,
             "ess_per_gradient_eval": 0.00143667691075418,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan"
@@ -1191,7 +1168,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 5.047217357516569,
             "ess_per_gradient_eval": 0.0016869085684283937,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan"
@@ -1220,7 +1196,6 @@
         "trace_start": 200.20000000000002,
         "trace_stop": 400.0,
         "trace_interval": 0.19999999999998863,
-        "wallclock_s": 4705.542095639743,
         "gradient_evals": 2560000.0,
         "potential_evals": 0.0,
         "score_quadrature_evals": 327680000.0,
@@ -1240,7 +1215,6 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 2066.158538738353,
-        "worst_basin_ess_per_second": 0.4390904377739815,
         "worst_basin_ess_per_gradient_eval": 0.0008070931791946691,
         "worst_basin_ess_per_potential_eval": "nan",
         "worst_basin_ess_per_score_quadrature_eval": 6.305415462458353e-06,
@@ -1346,7 +1320,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.4390904377739815,
             "ess_per_gradient_eval": 0.0008070931791946691,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 6.305415462458353e-06,
@@ -1379,7 +1352,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.7877951606331778,
             "ess_per_gradient_eval": 0.0014480481605862075,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 1.1312876254579746e-05,
@@ -1412,7 +1384,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.6011430191375787,
             "ess_per_gradient_eval": 0.0011049624148640018,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 8.632518866125014e-06,
@@ -1445,7 +1416,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 5.9489382543149745,
             "ess_per_gradient_eval": 0.010934757570328406,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 8.542779351819067e-05
@@ -1472,7 +1442,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.4720064535928772,
             "ess_per_gradient_eval": 0.0008675961862480118,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 6.778095205062592e-06
@@ -1499,7 +1468,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.4308500943788202,
             "ess_per_gradient_eval": 0.0007919465843788651,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 6.187082690459884e-06
@@ -1528,7 +1496,6 @@
         "trace_start": 200.20000000000002,
         "trace_stop": 400.0,
         "trace_interval": 0.19999999999998863,
-        "wallclock_s": 3834.5744477082044,
         "gradient_evals": 2560000.0,
         "potential_evals": 0.0,
         "score_quadrature_evals": 81920000.0,
@@ -1548,7 +1515,6 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 1951.726955857156,
-        "worst_basin_ess_per_second": 0.5089813700249417,
         "worst_basin_ess_per_gradient_eval": 0.0007623933421317016,
         "worst_basin_ess_per_potential_eval": "nan",
         "worst_basin_ess_per_score_quadrature_eval": 2.3824791941615677e-05,
@@ -1654,7 +1620,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.5089813700249417,
             "ess_per_gradient_eval": 0.0007623933421317016,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 2.3824791941615677e-05,
@@ -1687,7 +1652,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.9008057467617281,
             "ess_per_gradient_eval": 0.0013492994917504806,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 4.216560911720252e-05,
@@ -1720,7 +1684,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.7027546952363939,
             "ess_per_gradient_eval": 0.0010526426552189229,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 3.289508297559134e-05,
@@ -1753,7 +1716,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 6.96814458254781,
             "ess_per_gradient_eval": 0.01043744889225554,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 0.00032617027788298564
@@ -1780,7 +1742,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.5336799089591526,
             "ess_per_gradient_eval": 0.0007993888055273466,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 2.498090017272958e-05
@@ -1807,7 +1768,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 0.4926545992423008,
             "ess_per_gradient_eval": 0.0007379377882033017,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 2.3060555881353178e-05
@@ -1836,7 +1796,6 @@
         "trace_start": 200.20000000000002,
         "trace_stop": 400.0,
         "trace_interval": 0.19999999999998863,
-        "wallclock_s": 1787.6683035930619,
         "gradient_evals": 10240000.0,
         "potential_evals": 10240000.0,
         "score_quadrature_evals": 0.0,
@@ -1856,7 +1815,6 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 2335.88860787025,
-        "worst_basin_ess_per_second": 1.3066677991522877,
         "worst_basin_ess_per_gradient_eval": 0.00022811412186232908,
         "worst_basin_ess_per_potential_eval": 0.00022811412186232908,
         "worst_basin_ess_per_score_quadrature_eval": "nan",
@@ -1962,7 +1920,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 1.3066677991522877,
             "ess_per_gradient_eval": 0.00022811412186232908,
             "ess_per_potential_eval": 0.00022811412186232908,
             "ess_per_score_quadrature_eval": "nan",
@@ -1995,7 +1952,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 1.8812203131201741,
             "ess_per_gradient_eval": 0.0003284177661953467,
             "ess_per_potential_eval": 0.0003284177661953467,
             "ess_per_score_quadrature_eval": "nan",
@@ -2028,7 +1984,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 2.262677620417113,
             "ess_per_gradient_eval": 0.00039501143195986774,
             "ess_per_potential_eval": 0.00039501143195986774,
             "ess_per_score_quadrature_eval": "nan",
@@ -2061,7 +2016,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 14.097614478697523,
             "ess_per_gradient_eval": 0.0024611189999845886,
             "ess_per_potential_eval": 0.0024611189999845886,
             "ess_per_score_quadrature_eval": "nan"
@@ -2088,7 +2042,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 1.6131836494747187,
             "ess_per_gradient_eval": 0.00028162473418364597,
             "ess_per_potential_eval": 0.00028162473418364597,
             "ess_per_score_quadrature_eval": "nan"
@@ -2115,7 +2068,6 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
-            "ess_per_second": 1.3985125189513024,
             "ess_per_gradient_eval": 0.00024414809592845064,
             "ess_per_potential_eval": 0.00024414809592845064,
             "ess_per_score_quadrature_eval": "nan"
@@ -2134,6 +2086,306 @@
         "dt": 0.005,
         "equilibrium_initialized": false,
         "initialization_method": "numerical_grid_times_gaussian:cold_draw_replicated_over_ladder_then_charged_settling"
+      },
+      "FLA": {
+        "schema_version": 1,
+        "n_draws_per_chain": 1000,
+        "n_chains": 32,
+        "n_cv": 2,
+        "n_basins": 3,
+        "trace_start": 200.20000000000002,
+        "trace_stop": 400.0,
+        "trace_interval": 0.19999999999998863,
+        "gradient_evals": 2560000.0,
+        "potential_evals": 0.0,
+        "score_quadrature_evals": 0.0,
+        "observed_basin_ids": [
+          0,
+          1,
+          2
+        ],
+        "basin_ids": [
+          0,
+          1,
+          2
+        ],
+        "cv_names": [
+          "cv_0",
+          "cv_1"
+        ],
+        "worst_basin_name": "basin_0",
+        "worst_basin_ess": 6298.680938467429,
+        "worst_basin_ess_per_gradient_eval": 0.0024604222415888395,
+        "worst_basin_ess_per_potential_eval": "nan",
+        "worst_basin_ess_per_score_quadrature_eval": "nan",
+        "diagnostics": {
+          "label_transition_count": 10790,
+          "label_transition_count_per_chain": [
+            324,
+            356,
+            342,
+            320,
+            343,
+            328,
+            354,
+            344,
+            346,
+            312,
+            357,
+            336,
+            340,
+            309,
+            384,
+            341,
+            319,
+            306,
+            316,
+            321,
+            312,
+            361,
+            347,
+            374,
+            331,
+            328,
+            348,
+            338,
+            358,
+            345,
+            334,
+            316
+          ],
+          "no_label_transition_chain_count": 0,
+          "all_chains_no_label_transition": false,
+          "transition_basin_ids": [
+            0,
+            1,
+            2
+          ],
+          "lag_one_transition_counts": [
+            [
+              7658,
+              1850,
+              361
+            ],
+            [
+              1865,
+              12188,
+              3176
+            ],
+            [
+              345,
+              3193,
+              1332
+            ]
+          ],
+          "lag_one_transition_probabilities": [
+            [
+              0.7759651433782552,
+              0.18745566926740298,
+              0.03657918735434188
+            ],
+            [
+              0.10824772186429857,
+              0.7074119217598236,
+              0.18434035637587787
+            ],
+            [
+              0.07084188911704312,
+              0.65564681724846,
+              0.27351129363449694
+            ]
+          ],
+          "any_constant_observable_chain": false
+        },
+        "observables": [
+          {
+            "kind": "basin",
+            "name": "basin_0",
+            "index": 0,
+            "mean": 0.308625,
+            "target": 0.3102247587087531,
+            "signed_bias": -0.0015997587087531184,
+            "absolute_bias": 0.0015997587087531184,
+            "sample_sd": 0.46193319600476224,
+            "iat": 5.080428793363539,
+            "iat_saved_draws": 5.080428793363539,
+            "iat_sampler_time": 1.01608575867265,
+            "iat_min_chain": 3.985748558215077,
+            "iat_median_chain": 5.041869368702102,
+            "iat_max_chain": 6.792300406464769,
+            "ess": 6298.680938467429,
+            "rhat": 1.0030781525279926,
+            "mcse": 0.005820420589844871,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_gradient_eval": 0.0024604222415888395,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan",
+            "basin_id": 0,
+            "basin_transition_count": 4421,
+            "no_basin_transition_chain_count": 0,
+            "unvisited_chain_count": 0,
+            "always_in_basin_chain_count": 0,
+            "unvisited": false
+          },
+          {
+            "kind": "basin",
+            "name": "basin_1",
+            "index": 1,
+            "mean": 0.53903125,
+            "target": 0.4209229629281407,
+            "signed_bias": 0.11810828707185927,
+            "absolute_bias": 0.11810828707185927,
+            "sample_sd": 0.49848202240265954,
+            "iat": 2.9979029605766696,
+            "iat_saved_draws": 2.9979029605766696,
+            "iat_sampler_time": 0.5995805921152998,
+            "iat_min_chain": 2.2632655899884155,
+            "iat_median_chain": 3.034156621660211,
+            "iat_max_chain": 4.145885963226344,
+            "ess": 10674.128022424233,
+            "rhat": 1.0010560252332805,
+            "mcse": 0.004824844228531029,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_gradient_eval": 0.004169581258759466,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan",
+            "basin_id": 1,
+            "basin_transition_count": 10084,
+            "no_basin_transition_chain_count": 0,
+            "unvisited_chain_count": 0,
+            "always_in_basin_chain_count": 0,
+            "unvisited": false
+          },
+          {
+            "kind": "basin",
+            "name": "basin_2",
+            "index": 2,
+            "mean": 0.15234375,
+            "target": 0.2688522783631063,
+            "signed_bias": -0.11650852836310632,
+            "absolute_bias": 0.11650852836310632,
+            "sample_sd": 0.3593593847875965,
+            "iat": 1.5418421288360917,
+            "iat_saved_draws": 1.5418421288360917,
+            "iat_sampler_time": 0.3083684257672008,
+            "iat_min_chain": 1.2797697140828443,
+            "iat_median_chain": 1.529997568523431,
+            "iat_max_chain": 2.1830789225448064,
+            "ess": 20754.394630633302,
+            "rhat": 1.0005090723312038,
+            "mcse": 0.002494445133904891,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_gradient_eval": 0.008107185402591133,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan",
+            "basin_id": 2,
+            "basin_transition_count": 7075,
+            "no_basin_transition_chain_count": 0,
+            "unvisited_chain_count": 0,
+            "always_in_basin_chain_count": 0,
+            "unvisited": false
+          },
+          {
+            "kind": "energy",
+            "name": "energy",
+            "index": 0,
+            "mean": 0.5361502410560365,
+            "target": -0.5837756842780077,
+            "signed_bias": 1.1199259253340443,
+            "absolute_bias": 1.1199259253340443,
+            "sample_sd": 45.4102878192358,
+            "iat": 1.03754932175218,
+            "iat_saved_draws": 1.03754932175218,
+            "iat_sampler_time": 0.2075098643504242,
+            "iat_min_chain": 1.0,
+            "iat_median_chain": 1.0,
+            "iat_max_chain": 1.296563251135681,
+            "ess": 30841.907299365223,
+            "rhat": 1.0001166818092742,
+            "mcse": 0.2585732778102015,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_gradient_eval": 0.01204762003881454,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan"
+          },
+          {
+            "kind": "cv",
+            "name": "cv_0",
+            "index": 0,
+            "mean": -0.1791716610853933,
+            "target": -0.07602179339145934,
+            "signed_bias": -0.10314986769393397,
+            "absolute_bias": 0.10314986769393397,
+            "sample_sd": 0.47002335256351463,
+            "iat": 3.458730097077858,
+            "iat_saved_draws": 3.458730097077858,
+            "iat_sampler_time": 0.6917460194155323,
+            "iat_min_chain": 2.80223154587543,
+            "iat_median_chain": 3.488421071071863,
+            "iat_max_chain": 5.072915123432068,
+            "ess": 9251.950600896993,
+            "rhat": 1.001786530353772,
+            "mcse": 0.004886554909686201,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_gradient_eval": 0.003614043203475388,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan"
+          },
+          {
+            "kind": "cv",
+            "name": "cv_1",
+            "index": 1,
+            "mean": 0.6772709414599246,
+            "target": 0.6554177006131997,
+            "signed_bias": 0.02185324084672491,
+            "absolute_bias": 0.02185324084672491,
+            "sample_sd": 0.5247907080665615,
+            "iat": 4.393044398360478,
+            "iat_saved_draws": 4.393044398360478,
+            "iat_sampler_time": 0.8786088796720456,
+            "iat_min_chain": 3.4602365034708544,
+            "iat_median_chain": 4.443358271926344,
+            "iat_max_chain": 5.98807789744792,
+            "ess": 7284.2423381704675,
+            "rhat": 1.0021398758135085,
+            "mcse": 0.006148850640906202,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_gradient_eval": 0.002845407163347839,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan"
+          }
+        ],
+        "method": "FLA",
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "warmup_steps": 20,
+        "burn_in_steps": 40000,
+        "steps_per_draw": 40,
+        "dt": 0.005,
+        "equilibrium_initialized": false,
+        "initialization_method": "numerical_grid_times_gaussian:reference_draw_then_charged_kernel_settling"
       }
     },
     "collection": {
@@ -2154,6 +2406,15 @@
         "dt": 0.005,
         "equilibrium_initialized": false,
         "initialization_method": "numerical_grid_times_gaussian:cold_draw_replicated_over_ladder_then_charged_settling"
+      },
+      "charged_settling_non_targeting_fla": {
+        "n_draws": 1000,
+        "steps_per_draw": 40,
+        "warmup_steps": 20,
+        "burn_in_steps": 40000,
+        "dt": 0.005,
+        "equilibrium_initialized": false,
+        "initialization_method": "numerical_grid_times_gaussian:reference_draw_then_charged_kernel_settling"
       }
     },
     "protocol": {
@@ -2174,12 +2435,20 @@
       "cv_target_method": "unweighted_reference_sample",
       "reference_exact_for_mala": false,
       "reference_requires_settling": true,
-      "sir_reference_is_approximate": false
+      "sir_reference_is_approximate": false,
+      "charged_settling_non_targeting_methods": [
+        "FLA"
+      ]
     },
     "excluded_non_targeting_methods": [
-      "FLA",
       "CP"
-    ]
+    ],
+    "non_targeting_mixing_diagnostics": {
+      "FLA": {
+        "interpretation": "biased-kernel mixing diagnostic; not target ESS",
+        "must_report_with_target_bias": true
+      }
+    }
   },
   "failure_thresholds": {
     "max_score_clip_fraction": 0.01,
@@ -2223,8 +2492,6 @@
   },
   "method_info": {
     "ULA": {
-      "wallclock_mean_s": 108.51924395561218,
-      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 32000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2236,8 +2503,6 @@
       "nonfinite_frac": 0.0
     },
     "MALA": {
-      "wallclock_mean_s": 211.06095259729773,
-      "wallclock_std_s": 0.0,
       "V_evals_per_step": 32000.0,
       "grad_evals_per_step": 32000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2252,8 +2517,6 @@
       "nonfinite_frac": 0.0
     },
     "FLA": {
-      "wallclock_mean_s": 111.60252873506397,
-      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 32000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2265,8 +2528,6 @@
       "nonfinite_frac": 0.0
     },
     "BAOAB": {
-      "wallclock_mean_s": 111.36560863163322,
-      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 32000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2278,8 +2539,6 @@
       "nonfinite_frac": 0.0
     },
     "PT": {
-      "wallclock_mean_s": 235.71449913736433,
-      "wallclock_std_s": 0.0,
       "V_evals_per_step": 128000.0,
       "grad_evals_per_step": 128000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2297,8 +2556,6 @@
       "nonfinite_frac": 0.0
     },
     "CP": {
-      "wallclock_mean_s": 480.8955922955647,
-      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 32000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2321,8 +2578,6 @@
       "nonfinite_frac": 0.0
     },
     "LSC-CP": {
-      "wallclock_mean_s": 808.9663624055684,
-      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 32000.0,
       "score_quad_evals_per_step": 4096000.0,
@@ -2347,8 +2602,6 @@
       "nonfinite_frac": 0.0
     },
     "LSC-CP-MA": {
-      "wallclock_mean_s": 521.2237058393657,
-      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 32000.0,
       "score_quad_evals_per_step": 1024000.0,
@@ -2418,5 +2671,12 @@
       0.268
     ],
     "TV_vs_pstar": 0.0058
+  },
+  "release_policy": {
+    "resource_axes": [
+      "t",
+      "nfe"
+    ],
+    "timing_status": "withheld_mixed_hardware_and_batching"
   }
 }

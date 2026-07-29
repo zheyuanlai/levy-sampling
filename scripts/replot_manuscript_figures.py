@@ -3,15 +3,15 @@
 * E1--E4 use the manuscript method matrix agreed for the JCP paper.
 * BAOAB is displayed as ULD (underdamped Langevin dynamics).
 * Only W2, MMD, basin TV, and worst-basin ESS are plotted.
-* Every metric is exported individually for t, NFE, and wall-clock views.
+* Every metric is exported individually for physical-time and NFE views.
 * Every experiment/axis also receives one 2-by-2 combined figure.
 * PNG and PDF outputs are separated into ``figures/png`` and ``figures/pdf``.
 
 The first three metrics are checkpoint time series.  Worst-basin ESS is only
 available as a post-settling stationarity statistic, so it is shown as a bar
-comparison: raw ESS in the t view, ESS per million NFE in the NFE view, and
-ESS per second in the wall-clock view.  The script never fabricates an ESS
-time series.
+comparison: raw ESS in the t view and ESS per million NFE in the NFE view.
+The script never fabricates an ESS time series. Wall-clock plots are withheld
+until all methods have one common hardware and batching protocol.
 """
 from __future__ import annotations
 
@@ -43,9 +43,12 @@ DEFAULT_RESULTS_DIR = JCP_ROOT / "results"
 DEFAULT_FIGURES_DIR = JCP_ROOT / "figures"
 if str(JCP_ROOT) not in sys.path:
     sys.path.insert(0, str(JCP_ROOT))
-from src.manuscript import EXPERIMENTS as RELEASE_EXPERIMENTS  # noqa: E402
+from src.manuscript import (  # noqa: E402
+    EXPERIMENTS as RELEASE_EXPERIMENTS,
+    RESOURCE_AXES,
+)
 
-AXES = ("t", "nfe", "wallclock")
+AXES = RESOURCE_AXES
 METRICS = ("W2", "MMD", "TV", "worst_basin_ESS")
 TIME_SERIES_METRICS = METRICS[:3]
 
@@ -107,7 +110,6 @@ METRIC_LABELS = {
 X_AXIS = {
     "t": ("t", r"$t=n\,\Delta t$"),
     "nfe": ("nfe", "NFE"),
-    "wallclock": ("wallclock_s", "Wall-clock time (s)"),
 }
 
 ESS_AXIS = {
@@ -116,11 +118,6 @@ ESS_AXIS = {
         "worst_basin_ess_per_nfe",
         r"Worst-basin ESS per $10^6$ NFE",
         1.0e6,
-    ),
-    "wallclock": (
-        "worst_basin_ess_per_second",
-        r"Worst-basin ESS s$^{-1}$",
-        1.0,
     ),
 }
 
@@ -281,7 +278,7 @@ def _plot_time_series(
         style = METHOD_STYLE[method]
         y = _running_mean(y, smooth)
         sd = _running_mean(sd, smooth)
-        if axis in ("nfe", "wallclock"):
+        if axis == "nfe":
             keep = x > 0
             x, y, sd = x[keep], y[keep], sd[keep]
         if not len(x):
@@ -311,7 +308,7 @@ def _plot_time_series(
             zorder=3,
         )
 
-    if axis in ("nfe", "wallclock") and all_terminal_x:
+    if axis == "nfe" and all_terminal_x:
         positive = [value for value in all_terminal_x if value > 0]
         if positive and max(positive) / min(positive) >= 10:
             ax.set_xscale("log")
