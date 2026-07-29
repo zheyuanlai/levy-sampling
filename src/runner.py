@@ -296,7 +296,7 @@ def checkpoint_schedule(n_steps: int, dense_frac: float = 0.05,
     if not 0.0 <= dense_frac <= 1.0:
         raise ValueError("dense_frac must lie in [0, 1]")
 
-    # For short smoke runs there may be fewer steps than requested points.  In
+    # For short diagnostic runs there may be fewer steps than requested points. In
     # that case use each available integer step exactly once.  For production
     # runs this reduces to the declared dense-then-sparse schedule.
     dense_end = min(n_steps, max(n_dense, int(round(n_steps * dense_frac))))

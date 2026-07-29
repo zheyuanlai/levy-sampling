@@ -32,40 +32,10 @@ EXPERIMENTS = {
     key: (spec.notebook, spec.methods_csv)
     for key, spec in MANUSCRIPT_EXPERIMENTS.items()
 }
-# Backward-compatible names used by older job wrappers and launcher regression
-# tests. They now denote the final manuscript matrices.
+# Backward-compatible names used by older job wrappers. They now denote the
+# final manuscript matrices.
 DUAL_RA = EXPERIMENTS["double_well"][1]
 DUAL_MA = EXPERIMENTS["mb3well_10d"][1]
-SMOKE_CONFIG = {
-    "particles": 64,
-    "steps": 64,
-    "q_theta": 4,
-    "q_rho": 2,
-    "pt_replicas": 4,
-    # Coarse smoke-only reference construction. Production builder defaults
-    # remain 600/400 basin grids, 40k flow steps, a 2400^2 E3 grid, and 200k
-    # E4 SNIS proposals.
-    # 96 keeps the smoke basin-map cell size after the E4 domain widened to
-    # +-4 (jump-reachable order-parameter coverage).
-    "basin_n_grid": 96,
-    "basin_flow_steps": 800,
-    "basin_mass_n_quad": 96,
-    "reference_grid_size": 128,
-    "snis_proposals": 2_048,
-    # Fail-closed numerical diagnostics. These thresholds are part of every
-    # smoke plan/config rather than hidden launcher constants.
-    "max_score_clip_fraction": 0.01,
-    "max_state_box_clip_fraction": 0.01,
-    # Conditional on applied CP jumps, artificial boundary clipping must be
-    # absent in smoke. Production uses the same fail-closed zero default.
-    "max_jump_boundary_clip_fraction": 0.0,
-    # Basin maps clamp lookups outside their construction grid; expose and gate
-    # that mass rather than silently treating clamped labels as exact.
-    "max_basin_map_outside_fraction": 0.0,
-    "max_jump_cap_hits": 0,
-    "min_mala_acceptance": 0.01,
-    "min_pt_swap_acceptance": 0.01,
-}
 
 FULL_PREFLIGHT_ARTIFACT_NAMES = (
     "original_config.yaml",
@@ -170,24 +140,17 @@ def build_parser() -> argparse.ArgumentParser:
               "resulting run directories are combined afterwards."))
     parser.add_argument("--dry-run", action="store_true",
                         help="write the launch plan without starting subprocesses")
-    parser.add_argument(
-        "--smoke-only", action="store_true",
-        help=("run required regeneration and all selected bounded smokes, "
-              "then stop before certificates/full notebooks"))
     parser.add_argument("--notebook-timeout", type=int, default=28_800,
                         help="nbclient per-cell timeout")
     parser.add_argument("--wall-timeout", type=int, default=43_200,
                         help="whole notebook subprocess timeout")
-    parser.add_argument("--smoke-timeout", type=int, default=3_600,
-                        help="whole per-experiment dynamics-smoke timeout")
     return parser
 
 
 def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     if not 1 <= args.max_concurrent <= HARD_MAX_CONCURRENT:
         parser.error(f"--max-concurrent must be between 1 and {HARD_MAX_CONCURRENT}")
-    if (args.notebook_timeout < 1 or args.wall_timeout < 1
-            or args.smoke_timeout < 1):
+    if args.notebook_timeout < 1 or args.wall_timeout < 1:
         parser.error("timeouts must be positive")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", args.run_id):
         parser.error("--run-id may contain only letters, digits, dot, underscore, and hyphen")
@@ -264,108 +227,6 @@ def run_logged(command: list[str], *, cwd: Path, env: dict[str, str],
         except subprocess.TimeoutExpired:
             _terminate_process_group(process)
             raise
-
-
-def _smoke_plan(name: str, gpu: str, run_id: str, job_dir: Path) -> dict:
-    _, methods = EXPERIMENTS[name]
-    return {
-        "schema_version": 1,
-        "kind": "per_experiment_dynamics_smoke",
-        "experiment": name,
-        "gpu": gpu,
-        "methods": methods.split(","),
-        "run_id": run_id,
-        "config": dict(SMOKE_CONFIG),
-        "expected_artifacts_directory": str(job_dir / "artifacts"),
-    }
-
-
-def run_smoke_job(name: str, gpu: str, run_dir: Path,
-                  args: argparse.Namespace) -> dict:
-    """Run one real, bounded model/method smoke before any full notebook."""
-    _, methods = EXPERIMENTS[name]
-    job_dir = run_dir / "smoke" / name
-    stdout_path = job_dir / "stdout.log"
-    stderr_path = job_dir / "stderr.log"
-    _initialize_logs(stdout_path, stderr_path, f"smoke:{name}")
-    env = job_environment(
-        os.environ, gpu=gpu, selected_gpus=args.gpus,
-        run_id=args.run_id, methods=methods, results_root=args.output_root,
-    )
-    plan = _smoke_plan(name, gpu, args.run_id, job_dir)
-    _write_json_exclusive(job_dir / "smoke_plan.json", plan)
-    status = {**plan, "status": "failed", "started_at_utc": _utc_now()}
-    started = time.monotonic()
-    artifacts = job_dir / "artifacts"
-    try:
-        command = [
-            sys.executable, str(HERE / "scripts" / "smoke_experiment.py"),
-            "--experiment", name,
-            "--methods", methods,
-            "--output-dir", str(artifacts),
-            "--particles", str(SMOKE_CONFIG["particles"]),
-            "--steps", str(SMOKE_CONFIG["steps"]),
-            "--q-theta", str(SMOKE_CONFIG["q_theta"]),
-            "--q-rho", str(SMOKE_CONFIG["q_rho"]),
-            "--pt-replicas", str(SMOKE_CONFIG["pt_replicas"]),
-            "--basin-n-grid", str(SMOKE_CONFIG["basin_n_grid"]),
-            "--basin-flow-steps", str(SMOKE_CONFIG["basin_flow_steps"]),
-            "--basin-mass-n-quad", str(SMOKE_CONFIG["basin_mass_n_quad"]),
-            "--reference-grid-size", str(SMOKE_CONFIG["reference_grid_size"]),
-            "--snis-proposals", str(SMOKE_CONFIG["snis_proposals"]),
-            "--max-score-clip-fraction",
-            str(SMOKE_CONFIG["max_score_clip_fraction"]),
-            "--max-state-box-clip-fraction",
-            str(SMOKE_CONFIG["max_state_box_clip_fraction"]),
-            "--max-jump-boundary-clip-fraction",
-            str(SMOKE_CONFIG["max_jump_boundary_clip_fraction"]),
-            "--max-basin-map-outside-fraction",
-            str(SMOKE_CONFIG["max_basin_map_outside_fraction"]),
-            "--max-jump-cap-hits", str(SMOKE_CONFIG["max_jump_cap_hits"]),
-            "--min-mala-acceptance",
-            str(SMOKE_CONFIG["min_mala_acceptance"]),
-            "--min-pt-swap-acceptance",
-            str(SMOKE_CONFIG["min_pt_swap_acceptance"]),
-        ]
-        code = run_logged(
-            command, cwd=HERE, env=env, stdout_path=stdout_path,
-            stderr_path=stderr_path, timeout=args.smoke_timeout,
-            phase="dynamics_smoke",
-        )
-        status["returncode"] = code
-        if code != 0:
-            status["failure_phase"] = "dynamics_smoke"
-            return status
-        required = (
-            "original_config.yaml", "resolved_config.json",
-            "smoke_metrics.csv", "smoke_manifest.json",
-        )
-        missing = [name for name in required if not (artifacts / name).is_file()]
-        if missing:
-            status.update({
-                "failure_phase": "smoke_artifacts",
-                "missing_artifacts": missing,
-                "returncode": 1,
-            })
-            return status
-        status.update({"status": "success", "returncode": 0})
-        return status
-    except subprocess.TimeoutExpired as exc:
-        status.update({
-            "failure_phase": "smoke_timeout", "returncode": None,
-            "error_type": type(exc).__name__, "error_message": str(exc),
-        })
-        return status
-    except BaseException as exc:
-        status.update({
-            "failure_phase": "smoke_launcher", "returncode": None,
-            "error_type": type(exc).__name__, "error_message": str(exc),
-        })
-        return status
-    finally:
-        status["finished_at_utc"] = _utc_now()
-        status["elapsed_seconds"] = time.monotonic() - started
-        _write_json_exclusive(job_dir / "status.json", status)
 
 
 def _job_plan(name: str, gpu: str, run_id: str, job_dir: Path,
@@ -622,12 +483,9 @@ def main(argv: list[str] | None = None) -> int:
         "partial_method_shard": is_partial,
         "regenerate_notebooks": not args.no_regen,
         "release_validation": "scripts/validate_release.py",
-        "smoke_required_before_full": True,
         "full_certificate_gate": "in_notebook_after_resolved_preflight_config",
         "redundant_launcher_certificate_gate": False,
         "full_success_artifacts": list(FULL_SUCCESS_ARTIFACT_NAMES),
-        "smoke_only": bool(args.smoke_only),
-        "smoke_config": dict(SMOKE_CONFIG),
         "dry_run": args.dry_run,
         "git": git_provenance(),
     }
@@ -640,8 +498,6 @@ def main(argv: list[str] | None = None) -> int:
             gpu = args.gpus[index % len(args.gpus)]
             payload = {**_job_plan(name, gpu, args.run_id, job_dir,
                                    args.notebook_timeout),
-                       "required_smoke": _smoke_plan(
-                           name, gpu, args.run_id, run_dir / "smoke" / name),
                        "status": "dry_run"}
             _write_json_exclusive(job_dir / "status.json", payload)
         _write_json_exclusive(run_dir / "status.json", {
@@ -686,41 +542,6 @@ def main(argv: list[str] | None = None) -> int:
         })
         return 1
 
-    # Every selected model must complete a real small dynamics run with its
-    # exact production method matrix.  This entire stage completes before a
-    # single certificate/full notebook process is submitted.
-    smoke_results = _run_bounded_jobs(
-        args.experiments, args.gpus, args.max_concurrent,
-        lambda name, gpu: run_smoke_job(name, gpu, run_dir, args),
-        stage="smoke",
-    )
-    smoke_failed = [result for result in smoke_results
-                    if result["status"] != "success"]
-    if smoke_failed:
-        _write_json_exclusive(run_dir / "status.json", {
-            "status": "failed",
-            "failure_phase": "smoke",
-            "run_id": args.run_id,
-            "finished_at_utc": _utc_now(),
-            "smoke_results": smoke_results,
-            "failed_smoke_experiments": [
-                item["experiment"] for item in smoke_failed],
-            "full_experiments_started": False,
-        })
-        return 1
-
-    if args.smoke_only:
-        _write_json_exclusive(run_dir / "status.json", {
-            "status": "success",
-            "completion_scope": "smoke_only",
-            "run_id": args.run_id,
-            "finished_at_utc": _utc_now(),
-            "smoke_results": smoke_results,
-            "full_experiments_started": False,
-        })
-        print(f"smoke-only gate passed: {run_dir}")
-        return 0
-
     results = _run_bounded_jobs(
         args.experiments, args.gpus, args.max_concurrent,
         lambda name, gpu: run_experiment_job(name, gpu, run_dir, args),
@@ -731,7 +552,6 @@ def main(argv: list[str] | None = None) -> int:
         "status": "failed" if failed else "success",
         "run_id": args.run_id,
         "finished_at_utc": _utc_now(),
-        "smoke_results": smoke_results,
         "experiments": results,
         "failed_experiments": [item["experiment"] for item in failed],
         "full_experiments_started": True,

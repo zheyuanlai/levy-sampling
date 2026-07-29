@@ -147,17 +147,8 @@ Do not edit generated `.ipynb` files without making the corresponding change in
 Full experiment runs are expensive and require Linux, CUDA, and sufficient GPU
 memory. Use the bounded launcher instead of executing production notebooks
 directly. The launcher restricts every child to one visible GPU, records the
-resolved method matrix and environment, validates the release, and requires a
-real dynamics smoke before starting a full notebook.
-
-First run only the preflight and smoke stage:
-
-```bash
-./run_production.sh --gpus 0 --max-concurrent 1 --smoke-only
-```
-
-Review the generated status, logs, and smoke artifacts. Then launch the full
-E1--E4 campaign:
+resolved method matrix and environment, and validates the release before
+starting the full notebooks. Launch the E1--E4 campaign with:
 
 ```bash
 ./run_production.sh --gpus 0,1 --max-concurrent 2

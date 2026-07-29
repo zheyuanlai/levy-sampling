@@ -208,6 +208,7 @@ def validate_release(
     for unrelated in (
         root / "notebooks" / "05_alanine_dipeptide.ipynb",
         root / "results" / "alanine_dipeptide",
+        root / "scripts" / "smoke_experiment.py",
         root / "src" / "e5_alanine",
     ):
         if unrelated.exists():

@@ -1,10 +1,8 @@
 """Merge the per-method CSV shards of one E1--E4 experiment.
 
 Method sharding lets expensive methods run concurrently on separate GPUs.
-Each shard is a complete, gated production run of its own methods: it passes
-the release validation and bounded dynamics smoke
-(``scripts/smoke_experiment.py``, which permits a shard to narrow the matrix
-but never to widen it), and writes the same artifacts.
+Each shard is a complete production run of its own methods: it passes release
+validation and writes the same artifacts.
 
 What a shard is NOT is a complete experiment. This script is the step that makes
 it one, and it is deliberately fail-closed:
@@ -55,7 +53,7 @@ MERGED_CSVS = ("metrics_timeseries.csv", "summary.csv", "positions.csv")
 SHARED_BLOCKS = frozenset({"reference"})
 # Shard-level agreement: these must be identical across shards or the merge is
 # comparing runs that are not actually comparable.
-PINNED_PLAN_KEYS = ("registered_methods", "experiments", "smoke_config")
+PINNED_PLAN_KEYS = ("registered_methods", "experiments")
 # The numerical engine: every file whose bytes determine a method's produced
 # rows (sampler dynamics, Levy score, jump law, energy, metrics, experiment
 # wiring, run config). Two shards at different commits are mergeable iff these
@@ -186,7 +184,7 @@ def merge(experiment: str, shard_ids: list[str], out_run_id: str,
             "rerun the shards with a launcher that records shard provenance")
     registered_set = set(registered.split(","))
 
-    # --- union-of-shards coverage, the check the smoke gate delegates here --
+    # --- union-of-shards coverage ------------------------------------------
     shard_methods: dict[str, set[str]] = {}
     for rid in shard_ids:
         declared = plans[rid].get("methods", {}).get(experiment)

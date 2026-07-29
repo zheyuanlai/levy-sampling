@@ -37,6 +37,7 @@ INCLUDE = (
     "scripts/validate_release.py",
     "scripts/replot_manuscript_figures.py",
     "scripts/replot_generated_samples.py",
+    "scripts/merge_method_shards.py",
     "scripts/build_collaborator_zip.py",
     "launch_production.py",
     "run_production.sh",

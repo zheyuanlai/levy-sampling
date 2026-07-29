@@ -1543,6 +1543,9 @@ if __name__ == "__main__":
                           ("04_coupled_phi4", build_e4_nb),
                           ("05_manuscript_plotting", build_plotting_nb)]:
         nb = builder()
+        # Stable IDs make source regeneration byte-for-byte reproducible.
+        for index, cell in enumerate(nb.cells):
+            cell["id"] = f"{name}-{index:03d}"
         nb.metadata["kernelspec"] = {"name": "python3", "display_name": "Python 3",
                                      "language": "python"}
         path = os.path.join(here, f"{name}.ipynb")
