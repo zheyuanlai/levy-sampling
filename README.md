@@ -211,6 +211,37 @@ uncertainty, not bit-for-bit across different GPU architectures or PyTorch
 versions. Every run records package, hardware, seed, configuration, and Git
 provenance in its manifest.
 
+### 5a. Bootstrapping a new release contract
+
+The launcher gates on `scripts/validate_release.py --require-figures` before it
+starts, so it cannot run when the frozen results predate a change to the
+release contract itself — as when the wall-clock columns and figures were
+reinstated. `scripts/run_wallclock_campaign.py` is the driver for that case. It
+issues the same `notebooks/run_notebook.py` command with the same
+one-visible-GPU child environment, strictly one experiment at a time:
+
+```bash
+python scripts/run_wallclock_campaign.py --gpu 0 --run-id <run-id>
+```
+
+Its `RUN_MATRIX` pins the full released method matrix, which is wider than the
+manuscript display matrix — the released CSV files also carry MALA in every
+experiment, Raw-CP in E2--E4, and the single-atom LSC-CP-RA arm alongside the
+multi-atom arm in E3/E4. Use the launcher for ordinary reruns.
+
+### 5b. Promote a run into the frozen release
+
+Runs write immutable artifacts; `results/<experiment>/` is the published tree.
+The promotion step is fail-closed — it refuses a run that did not finish
+successfully, that is missing any released file, or whose manifest shows a
+contended GPU:
+
+```bash
+python scripts/promote_run.py --run-id <run-id>
+python scripts/replot_manuscript_figures.py
+python scripts/validate_release.py --require-figures
+```
+
 ## 6. Build the collaborator archive
 
 The archive builder validates both the research tree and the staged standalone

@@ -39,6 +39,8 @@ INCLUDE = (
     "scripts/replot_generated_samples.py",
     "scripts/recompute_fla_stationarity.py",
     "scripts/merge_method_shards.py",
+    "scripts/run_wallclock_campaign.py",
+    "scripts/promote_run.py",
     "scripts/build_collaborator_zip.py",
     "launch_production.py",
     "run_production.sh",
