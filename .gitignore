@@ -17,3 +17,24 @@ executed_notebooks/
 # internal working notes, kept local only
 REVISION_NOTES.md
 REVISION_NOTES_manuscript.md
+
+# Immutable per-run directories. A run writes results/jcp_sampling/<run-id>/
+# and then mirrors its released files into results/<experiment>/; the release
+# ships that mirror, not the ~100 MB duplicate under the run tree. The run
+# directory is the local source of truth and is kept out of git deliberately.
+/results/jcp_sampling/
+/results/iclr_sampling/
+
+# Per-experiment diagnostic figures written by mirror_into_repo. The same
+# plots are embedded in the executed notebooks, and the release layout ships
+# only the manuscript formats under figures/{png,tiff,svg,pdf}/.
+/figures/double_well/
+/figures/mog40/
+/figures/mb3well_10d/
+/figures/coupled_phi4/
+
+# campaign driver logs
+/campaign*.log
+
+# editable-install metadata
+*.egg-info/

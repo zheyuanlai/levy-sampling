@@ -30,10 +30,17 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.manuscript import EXPERIMENTS  # noqa: E402
+from src.runner import MIRROR_CSV_NAMES  # noqa: E402
 from scripts.validate_release import _require_single_gpu_timing  # noqa: E402
 
-# Exactly the files the published release carries per experiment.
-RELEASED_FILES = ("manifest.json", "metrics_timeseries.csv", "summary.csv",
+# The released per-experiment file set is defined once, by the in-notebook
+# mirror in src/runner.py. Do not restate it here: an independent list silently
+# drops whatever it forgets (it forgot E2's modes.csv, which the generated
+# sample figures need).
+RELEASED_FILES = MIRROR_CSV_NAMES
+# Present in every experiment; the rest of RELEASED_FILES is experiment
+# specific (only E2 has modes.csv).
+REQUIRED_FILES = ("manifest.json", "metrics_timeseries.csv", "summary.csv",
                   "positions.csv")
 RELEASED_DIRS = ("stationarity",)
 
@@ -71,9 +78,15 @@ def promote(run_dir: Path, results_dir: Path, names) -> dict:
             for filename in RELEASED_FILES:
                 source = artifacts / filename
                 if not source.is_file():
-                    raise PromotionError(f"{name}: missing {source}")
+                    if filename in REQUIRED_FILES:
+                        raise PromotionError(f"{name}: missing {source}")
+                    continue
                 shutil.copy2(source, target / filename)
                 copied.append(filename)
+            missing_required = [f for f in REQUIRED_FILES if f not in copied]
+            if missing_required:
+                raise PromotionError(
+                    f"{name}: missing required files {missing_required}")
             for dirname in RELEASED_DIRS:
                 source = artifacts / dirname
                 if not source.is_dir():

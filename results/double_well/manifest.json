@@ -1,7 +1,7 @@
 {
   "experiment": "double_well",
-  "run_id": "20260721T153842Z-p1992500",
-  "results_directory": "/home/zheyuanlai/levy-sampling/results/jcp_sampling/20260721T153842Z-p1992500/double_well/artifacts",
+  "run_id": "20260801-wallclock-gpu0",
+  "results_directory": "/home/zheyuanlai/levy-sampling-production/results/jcp_sampling/20260801-wallclock-gpu0/double_well/artifacts",
   "config": {
     "d": 1,
     "N": 16000,
@@ -54,11 +54,13 @@
       "BAOAB",
       "PT",
       "CP",
-      "LSC-CP"
+      "LSC-CP",
+      "LSC-CP-RA"
     ],
     "label_overrides": {
       "CP": "Raw-CP",
-      "LSC-CP": "LSC-CP"
+      "LSC-CP": "LSC-CP",
+      "LSC-CP-RA": "LSC-CP-RA"
     }
   },
   "quadrature": {
@@ -201,52 +203,65 @@
   "certificate": {
     "phi_0": {
       "residual": 4.239023614980848e-09,
+      "residual_capped_score": 0.00018192340654810693,
       "jump_term": 0.019536937057235873,
-      "drift_term": -0.01953693714005341
+      "drift_term": -0.01953693714005341,
+      "drift_term_capped_score": -0.019533382831092905
     },
     "phi_1": {
       "residual": 6.990347414940393e-09,
+      "residual_capped_score": 0.00021212699061248235,
       "jump_term": 0.08865605276334593,
-      "drift_term": -0.08865605338308254
+      "drift_term": -0.08865605338308254,
+      "drift_term_capped_score": -0.08863724642167366
     },
     "phi_2": {
       "residual": 5.124114475906894e-09,
+      "residual_capped_score": 0.0001457630890478303,
       "jump_term": -0.01282935275570026,
-      "drift_term": 0.012829352821439332
+      "drift_term": 0.012829352821439332,
+      "drift_term_capped_score": 0.012827482709612105
     },
     "phi_3": {
       "residual": 4.302927358999289e-09,
+      "residual_capped_score": 0.00019008732764336824,
       "jump_term": 0.1013375075829891,
-      "drift_term": -0.10133750801903703
+      "drift_term": -0.10133750801903703,
+      "drift_term_capped_score": -0.1013182446069826
     },
     "phi_4": {
       "residual": 1.4834261464646867e-07,
+      "residual_capped_score": 3.8829279038203826e-06,
       "jump_term": -0.0028724344161136935,
-      "drift_term": 0.002872433990009262
+      "drift_term": 0.002872433990009262,
+      "drift_term_capped_score": 0.0028724232626579473
     },
     "phi_5": {
       "residual": 1.374145230360123e-08,
+      "residual_capped_score": 7.395837147575127e-05,
       "jump_term": 0.05286225423042479,
-      "drift_term": -0.05286225350402064
+      "drift_term": -0.05286225350402064,
+      "drift_term_capped_score": -0.05285834462418937
     },
     "max_residual": 1.4834261464646867e-07,
+    "max_residual_capped_score": 0.00021212699061248235,
     "m_clip_fraction_grid": 0.40208333333333335,
     "clip_tamed_step_defect": 1.2201285744729098e-261
   },
   "provenance": {
-    "source_config_file": "/home/zheyuanlai/levy-sampling/results/jcp_sampling/20260721T153842Z-p1992500/double_well/artifacts/original_config.yaml",
-    "resolved_preflight_config_file": "/home/zheyuanlai/levy-sampling/results/jcp_sampling/20260721T153842Z-p1992500/double_well/artifacts/resolved_preflight_config.json",
-    "resolved_preflight_config_sha256": "6f9f0195bf59212ecdcd9752bf6f9d625933eac3ca848424d131745db36c11f1",
-    "certificate_result_file": "/home/zheyuanlai/levy-sampling/results/jcp_sampling/20260721T153842Z-p1992500/double_well/artifacts/certificate_result.json"
+    "source_config_file": "/home/zheyuanlai/levy-sampling-production/results/jcp_sampling/20260801-wallclock-gpu0/double_well/artifacts/original_config.yaml",
+    "resolved_preflight_config_file": "/home/zheyuanlai/levy-sampling-production/results/jcp_sampling/20260801-wallclock-gpu0/double_well/artifacts/resolved_preflight_config.json",
+    "resolved_preflight_config_sha256": "f6529571bf120de2b02ff10450be0588fdbf97814364a9fa1737c0f43acb969e",
+    "certificate_result_file": "/home/zheyuanlai/levy-sampling-production/results/jcp_sampling/20260801-wallclock-gpu0/double_well/artifacts/certificate_result.json"
   },
   "bias_floors": {
     "W2": {
-      "mean": 0.06135907176604912,
+      "mean": 0.061359071766049114,
       "std": 0.03296023738236022
     },
     "MMD": {
-      "mean": 0.006010058203909973,
-      "std": 0.003886952952362813
+      "mean": 0.006010058203909217,
+      "std": 0.0038869529523625403
     },
     "TV": {
       "mean": 0.0032093750000000048,
@@ -296,6 +311,7 @@
         "trace_start": 100.10000000000001,
         "trace_stop": 200.0,
         "trace_interval": 0.09999999999999432,
+        "wallclock_s": 50.23123221471906,
         "gradient_evals": 1280000.0,
         "potential_evals": 0.0,
         "score_quadrature_evals": 0.0,
@@ -312,6 +328,7 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 0.0,
+        "worst_basin_ess_per_second": 0.0,
         "worst_basin_ess_per_gradient_eval": 0.0,
         "worst_basin_ess_per_potential_eval": "nan",
         "worst_basin_ess_per_score_quadrature_eval": "nan",
@@ -402,6 +419,7 @@
             "finite_iat_chain_count": 0,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 0.0,
             "ess_per_gradient_eval": 0.0,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan",
@@ -434,6 +452,7 @@
             "finite_iat_chain_count": 0,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 0.0,
             "ess_per_gradient_eval": 0.0,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan",
@@ -466,6 +485,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 294.94131685971837,
             "ess_per_gradient_eval": 0.011574426388199645,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan"
@@ -492,6 +512,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 200.94326909242787,
             "ess_per_gradient_eval": 0.007885646884192596,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan"
@@ -520,6 +541,7 @@
         "trace_start": 100.10000000000001,
         "trace_stop": 200.0,
         "trace_interval": 0.09999999999999432,
+        "wallclock_s": 95.28739611711353,
         "gradient_evals": 1280000.0,
         "potential_evals": 1280000.0,
         "score_quadrature_evals": 0.0,
@@ -536,6 +558,7 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 0.0,
+        "worst_basin_ess_per_second": 0.0,
         "worst_basin_ess_per_gradient_eval": 0.0,
         "worst_basin_ess_per_potential_eval": 0.0,
         "worst_basin_ess_per_score_quadrature_eval": "nan",
@@ -626,6 +649,7 @@
             "finite_iat_chain_count": 0,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 0.0,
             "ess_per_gradient_eval": 0.0,
             "ess_per_potential_eval": 0.0,
             "ess_per_score_quadrature_eval": "nan",
@@ -658,6 +682,7 @@
             "finite_iat_chain_count": 0,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 0.0,
             "ess_per_gradient_eval": 0.0,
             "ess_per_potential_eval": 0.0,
             "ess_per_score_quadrature_eval": "nan",
@@ -690,6 +715,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 156.03866450921936,
             "ess_per_gradient_eval": 0.011616029714590132,
             "ess_per_potential_eval": 0.011616029714590132,
             "ess_per_score_quadrature_eval": "nan"
@@ -716,12 +742,243 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 104.56803782038146,
             "ess_per_gradient_eval": 0.007784387532015623,
             "ess_per_potential_eval": 0.007784387532015623,
             "ess_per_score_quadrature_eval": "nan"
           }
         ],
         "method": "MALA",
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "warmup_steps": 20,
+        "burn_in_steps": 20000,
+        "steps_per_draw": 20,
+        "dt": 0.005,
+        "equilibrium_initialized": false,
+        "initialization_method": "numerical_inverse_cdf:reference_draw_then_charged_kernel_settling"
+      },
+      "FLA": {
+        "schema_version": 1,
+        "n_draws_per_chain": 1000,
+        "n_chains": 32,
+        "n_cv": 1,
+        "n_basins": 2,
+        "trace_start": 100.10000000000001,
+        "trace_stop": 200.0,
+        "trace_interval": 0.09999999999999432,
+        "wallclock_s": 65.95471605658531,
+        "gradient_evals": 1280000.0,
+        "potential_evals": 0.0,
+        "score_quadrature_evals": 0.0,
+        "observed_basin_ids": [
+          0,
+          1
+        ],
+        "basin_ids": [
+          0,
+          1
+        ],
+        "cv_names": [
+          "x"
+        ],
+        "worst_basin_name": "basin_0",
+        "worst_basin_ess": 597.8013931368705,
+        "worst_basin_ess_per_second": 9.063815734177245,
+        "worst_basin_ess_per_gradient_eval": 0.0004670323383881801,
+        "worst_basin_ess_per_potential_eval": "nan",
+        "worst_basin_ess_per_score_quadrature_eval": "nan",
+        "diagnostics": {
+          "label_transition_count": 507,
+          "label_transition_count_per_chain": [
+            13,
+            28,
+            11,
+            9,
+            14,
+            19,
+            19,
+            12,
+            16,
+            9,
+            18,
+            13,
+            20,
+            17,
+            16,
+            12,
+            10,
+            28,
+            17,
+            8,
+            17,
+            23,
+            21,
+            20,
+            20,
+            20,
+            12,
+            7,
+            12,
+            16,
+            15,
+            15
+          ],
+          "no_label_transition_chain_count": 0,
+          "all_chains_no_label_transition": false,
+          "transition_basin_ids": [
+            0,
+            1
+          ],
+          "lag_one_transition_counts": [
+            [
+              15326,
+              254
+            ],
+            [
+              253,
+              16135
+            ]
+          ],
+          "lag_one_transition_probabilities": [
+            [
+              0.9836970474967908,
+              0.016302952503209244
+            ],
+            [
+              0.015438125457651941,
+              0.9845618745423481
+            ]
+          ],
+          "any_constant_observable_chain": false
+        },
+        "observables": [
+          {
+            "kind": "basin",
+            "name": "basin_0",
+            "index": 0,
+            "mean": 0.487375,
+            "target": 0.5,
+            "signed_bias": -0.012624999999999997,
+            "absolute_bias": 0.012624999999999997,
+            "sample_sd": 0.49984839415370286,
+            "iat": 53.529483817501564,
+            "iat_saved_draws": 53.529483817501564,
+            "iat_sampler_time": 5.352948381749852,
+            "iat_min_chain": 31.906811971995047,
+            "iat_median_chain": 54.81562905548114,
+            "iat_max_chain": 144.47273657289003,
+            "ess": 597.8013931368705,
+            "rhat": 1.0848210662073465,
+            "mcse": 0.020443716028723573,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_second": 9.063815734177245,
+            "ess_per_gradient_eval": 0.0004670323383881801,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan",
+            "basin_id": 0,
+            "basin_transition_count": 507,
+            "no_basin_transition_chain_count": 0,
+            "unvisited_chain_count": 0,
+            "always_in_basin_chain_count": 0,
+            "unvisited": false
+          },
+          {
+            "kind": "basin",
+            "name": "basin_1",
+            "index": 1,
+            "mean": 0.512625,
+            "target": 0.5,
+            "signed_bias": 0.012624999999999997,
+            "absolute_bias": 0.012624999999999997,
+            "sample_sd": 0.49984839415370286,
+            "iat": 53.529483817501564,
+            "iat_saved_draws": 53.529483817501564,
+            "iat_sampler_time": 5.352948381749852,
+            "iat_min_chain": 31.90681197199504,
+            "iat_median_chain": 54.815629055481146,
+            "iat_max_chain": 144.47273657289003,
+            "ess": 597.8013931368705,
+            "rhat": 1.0848210662073465,
+            "mcse": 0.020443716028723573,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_second": 9.063815734177245,
+            "ess_per_gradient_eval": 0.0004670323383881801,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan",
+            "basin_id": 1,
+            "basin_transition_count": 507,
+            "no_basin_transition_chain_count": 0,
+            "unvisited_chain_count": 0,
+            "always_in_basin_chain_count": 0,
+            "unvisited": false
+          },
+          {
+            "kind": "energy",
+            "name": "energy",
+            "index": 0,
+            "mean": 0.3246206403083262,
+            "target": 0.06716288159709786,
+            "signed_bias": 0.25745775871122834,
+            "absolute_bias": 0.25745775871122834,
+            "sample_sd": 11.006243783130966,
+            "iat": 1.0169213053375188,
+            "iat_saved_draws": 1.0169213053375188,
+            "iat_sampler_time": 0.1016921305337461,
+            "iat_min_chain": 1.0,
+            "iat_median_chain": 1.0,
+            "iat_max_chain": 1.271082979767245,
+            "ess": 31467.52834466293,
+            "rhat": 1.0000203138875094,
+            "mcse": 0.06204514615996389,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_second": 477.1080860641659,
+            "ess_per_gradient_eval": 0.024584006519267912,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan"
+          },
+          {
+            "kind": "cv",
+            "name": "x",
+            "index": 0,
+            "mean": 0.023838845838927255,
+            "target": 0.005445131639781113,
+            "signed_bias": 0.018393714199146143,
+            "absolute_bias": 0.018393714199146143,
+            "sample_sd": 0.9916663647789665,
+            "iat": 52.27510989177745,
+            "iat_saved_draws": 52.27510989177745,
+            "iat_sampler_time": 5.227510989177447,
+            "iat_min_chain": 30.086153715723167,
+            "iat_median_chain": 53.21613645439453,
+            "iat_max_chain": 141.26177866193223,
+            "ess": 612.1460110987429,
+            "rhat": 1.05152121351208,
+            "mcse": 0.040080955958227575,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_second": 9.28130765620395,
+            "ess_per_gradient_eval": 0.00047823907117089284,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan"
+          }
+        ],
+        "method": "FLA",
         "seeds": [
           0,
           1,
@@ -744,6 +1001,7 @@
         "trace_start": 100.10000000000001,
         "trace_stop": 200.0,
         "trace_interval": 0.09999999999999432,
+        "wallclock_s": 56.9805165193975,
         "gradient_evals": 1280000.0,
         "potential_evals": 0.0,
         "score_quadrature_evals": 0.0,
@@ -760,6 +1018,7 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 0.0,
+        "worst_basin_ess_per_second": 0.0,
         "worst_basin_ess_per_gradient_eval": 0.0,
         "worst_basin_ess_per_potential_eval": "nan",
         "worst_basin_ess_per_score_quadrature_eval": "nan",
@@ -850,6 +1109,7 @@
             "finite_iat_chain_count": 0,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 0.0,
             "ess_per_gradient_eval": 0.0,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan",
@@ -882,6 +1142,7 @@
             "finite_iat_chain_count": 0,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 0.0,
             "ess_per_gradient_eval": 0.0,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan",
@@ -914,6 +1175,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 64.19735765475248,
             "ess_per_gradient_eval": 0.002857811404959604,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan"
@@ -940,6 +1202,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 68.65448893002937,
             "ess_per_gradient_eval": 0.0030562251879752587,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": "nan"
@@ -968,6 +1231,7 @@
         "trace_start": 100.10000000000001,
         "trace_stop": 200.0,
         "trace_interval": 0.09999999999999432,
+        "wallclock_s": 211.25756083149463,
         "gradient_evals": 1280000.0,
         "potential_evals": 0.0,
         "score_quadrature_evals": 163840000.0,
@@ -984,6 +1248,7 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 1647.7432586928103,
+        "worst_basin_ess_per_second": 7.799688930457262,
         "worst_basin_ess_per_gradient_eval": 0.001287299420853758,
         "worst_basin_ess_per_potential_eval": "nan",
         "worst_basin_ess_per_score_quadrature_eval": 1.0057026725419985e-05,
@@ -1074,6 +1339,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 7.799688930457262,
             "ess_per_gradient_eval": 0.001287299420853758,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 1.0057026725419985e-05,
@@ -1106,6 +1372,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 7.799688930457263,
             "ess_per_gradient_eval": 0.0012872994208537583,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 1.0057026725419987e-05,
@@ -1138,6 +1405,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 150.9601408949251,
             "ess_per_gradient_eval": 0.024915211834563,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 0.00019465009245752345
@@ -1164,6 +1432,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 8.102265191541312,
             "ess_per_gradient_eval": 0.0013372381106054219,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 1.0447172739104858e-05
@@ -1192,6 +1461,7 @@
         "trace_start": 100.10000000000001,
         "trace_stop": 200.0,
         "trace_interval": 0.09999999999999432,
+        "wallclock_s": 181.53377559315413,
         "gradient_evals": 1280000.0,
         "potential_evals": 0.0,
         "score_quadrature_evals": 20480000.0,
@@ -1208,6 +1478,7 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 1809.0774663178618,
+        "worst_basin_ess_per_second": 9.965514463668129,
         "worst_basin_ess_per_gradient_eval": 0.0014133417705608296,
         "worst_basin_ess_per_potential_eval": "nan",
         "worst_basin_ess_per_score_quadrature_eval": 8.833386066005185e-05,
@@ -1298,6 +1569,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 9.965514463668129,
             "ess_per_gradient_eval": 0.0014133417705608296,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 8.833386066005185e-05,
@@ -1330,6 +1602,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 9.965514463668129,
             "ess_per_gradient_eval": 0.0014133417705608296,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 8.833386066005185e-05,
@@ -1362,6 +1635,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 172.0033073076494,
             "ess_per_gradient_eval": 0.024394070148489964,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 0.0015246293842806227
@@ -1388,12 +1662,243 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 10.212725278905554,
             "ess_per_gradient_eval": 0.0014484020148245104,
             "ess_per_potential_eval": "nan",
             "ess_per_score_quadrature_eval": 9.05251259265319e-05
           }
         ],
         "method": "LSC-CP-RA",
+        "seeds": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "warmup_steps": 20,
+        "burn_in_steps": 20000,
+        "steps_per_draw": 20,
+        "dt": 0.005,
+        "equilibrium_initialized": false,
+        "initialization_method": "numerical_inverse_cdf:reference_draw_then_charged_kernel_settling"
+      },
+      "CP": {
+        "schema_version": 1,
+        "n_draws_per_chain": 1000,
+        "n_chains": 32,
+        "n_cv": 1,
+        "n_basins": 2,
+        "trace_start": 100.10000000000001,
+        "trace_stop": 200.0,
+        "trace_interval": 0.09999999999999432,
+        "wallclock_s": 157.15508916135877,
+        "gradient_evals": 1280000.0,
+        "potential_evals": 0.0,
+        "score_quadrature_evals": 0.0,
+        "observed_basin_ids": [
+          0,
+          1
+        ],
+        "basin_ids": [
+          0,
+          1
+        ],
+        "cv_names": [
+          "x"
+        ],
+        "worst_basin_name": "basin_1",
+        "worst_basin_ess": 1637.9096866750042,
+        "worst_basin_ess_per_second": 10.422250373281152,
+        "worst_basin_ess_per_gradient_eval": 0.001279616942714847,
+        "worst_basin_ess_per_potential_eval": "nan",
+        "worst_basin_ess_per_score_quadrature_eval": "nan",
+        "diagnostics": {
+          "label_transition_count": 1473,
+          "label_transition_count_per_chain": [
+            46,
+            51,
+            46,
+            38,
+            44,
+            38,
+            46,
+            47,
+            45,
+            41,
+            47,
+            32,
+            43,
+            53,
+            58,
+            45,
+            59,
+            47,
+            46,
+            41,
+            51,
+            47,
+            35,
+            47,
+            50,
+            40,
+            48,
+            46,
+            50,
+            55,
+            52,
+            39
+          ],
+          "no_label_transition_chain_count": 0,
+          "all_chains_no_label_transition": false,
+          "transition_basin_ids": [
+            0,
+            1
+          ],
+          "lag_one_transition_counts": [
+            [
+              15459,
+              740
+            ],
+            [
+              733,
+              15036
+            ]
+          ],
+          "lag_one_transition_probabilities": [
+            [
+              0.954318167788135,
+              0.04568183221186493
+            ],
+            [
+              0.04648360707717674,
+              0.9535163929228233
+            ]
+          ],
+          "any_constant_observable_chain": false
+        },
+        "observables": [
+          {
+            "kind": "basin",
+            "name": "basin_0",
+            "index": 0,
+            "mean": 0.50653125,
+            "target": 0.5,
+            "signed_bias": 0.0065312499999999885,
+            "absolute_bias": 0.0065312499999999885,
+            "sample_sd": 0.4999651529701903,
+            "iat": 19.537096740028908,
+            "iat_saved_draws": 19.537096740028908,
+            "iat_sampler_time": 1.9537096740027797,
+            "iat_min_chain": 13.82861728928756,
+            "iat_median_chain": 19.4447404978203,
+            "iat_max_chain": 43.84593009410412,
+            "ess": 1637.9096866750044,
+            "rhat": 1.0192732997784058,
+            "mcse": 0.012353634838250709,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_second": 10.422250373281154,
+            "ess_per_gradient_eval": 0.0012796169427148473,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan",
+            "basin_id": 0,
+            "basin_transition_count": 1473,
+            "no_basin_transition_chain_count": 0,
+            "unvisited_chain_count": 0,
+            "always_in_basin_chain_count": 0,
+            "unvisited": false
+          },
+          {
+            "kind": "basin",
+            "name": "basin_1",
+            "index": 1,
+            "mean": 0.49346875,
+            "target": 0.5,
+            "signed_bias": -0.0065312499999999885,
+            "absolute_bias": 0.0065312499999999885,
+            "sample_sd": 0.4999651529701903,
+            "iat": 19.53709674002891,
+            "iat_saved_draws": 19.53709674002891,
+            "iat_sampler_time": 1.95370967400278,
+            "iat_min_chain": 13.82861728928756,
+            "iat_median_chain": 19.4447404978203,
+            "iat_max_chain": 43.84593009410412,
+            "ess": 1637.9096866750042,
+            "rhat": 1.0192732997784058,
+            "mcse": 0.012353634838250709,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_second": 10.422250373281152,
+            "ess_per_gradient_eval": 0.001279616942714847,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan",
+            "basin_id": 1,
+            "basin_transition_count": 1473,
+            "no_basin_transition_chain_count": 0,
+            "unvisited_chain_count": 0,
+            "always_in_basin_chain_count": 0,
+            "unvisited": false
+          },
+          {
+            "kind": "energy",
+            "name": "energy",
+            "index": 0,
+            "mean": 0.5843961727331366,
+            "target": 0.06716288159709786,
+            "signed_bias": 0.5172332911360388,
+            "absolute_bias": 0.5172332911360388,
+            "sample_sd": 4.828131036424728,
+            "iat": 1.0313653949689319,
+            "iat_saved_draws": 1.0313653949689319,
+            "iat_sampler_time": 0.10313653949688732,
+            "iat_min_chain": 1.0,
+            "iat_median_chain": 1.0052486265034992,
+            "iat_max_chain": 1.3066982371716929,
+            "ess": 31026.831185240557,
+            "rhat": 1.0002803383986,
+            "mcse": 0.027410082143937458,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_second": 197.4281033519939,
+            "ess_per_gradient_eval": 0.024239711863469186,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan"
+          },
+          {
+            "kind": "cv",
+            "name": "x",
+            "index": 0,
+            "mean": -0.01239706459190803,
+            "target": 0.005445131639781113,
+            "signed_bias": -0.017842196231689145,
+            "absolute_bias": 0.017842196231689145,
+            "sample_sd": 1.0551541265041127,
+            "iat": 18.718417159556864,
+            "iat_saved_draws": 18.718417159556864,
+            "iat_sampler_time": 1.87184171595558,
+            "iat_min_chain": 12.838236792111728,
+            "iat_median_chain": 18.990374939376164,
+            "iat_max_chain": 39.00039722377451,
+            "ess": 1709.546257422845,
+            "rhat": 1.0130045788370194,
+            "mcse": 0.025519694638731945,
+            "constant_chain_count": 0,
+            "finite_iat_chain_count": 32,
+            "n_chains": 32,
+            "n_draws_per_chain": 1000,
+            "ess_per_second": 10.878083977716882,
+            "ess_per_gradient_eval": 0.0013355830136115977,
+            "ess_per_potential_eval": "nan",
+            "ess_per_score_quadrature_eval": "nan"
+          }
+        ],
+        "method": "CP",
         "seeds": [
           0,
           1,
@@ -1416,6 +1921,7 @@
         "trace_start": 100.10000000000001,
         "trace_stop": 200.0,
         "trace_interval": 0.09999999999999432,
+        "wallclock_s": 103.80155103746802,
         "gradient_evals": 2560000.0,
         "potential_evals": 2560000.0,
         "score_quadrature_evals": 0.0,
@@ -1432,6 +1938,7 @@
         ],
         "worst_basin_name": "basin_0",
         "worst_basin_ess": 1211.4553060997102,
+        "worst_basin_ess_per_second": 11.670878652501306,
         "worst_basin_ess_per_gradient_eval": 0.0004732247289451993,
         "worst_basin_ess_per_potential_eval": 0.0004732247289451993,
         "worst_basin_ess_per_score_quadrature_eval": "nan",
@@ -1522,6 +2029,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 11.670878652501306,
             "ess_per_gradient_eval": 0.0004732247289451993,
             "ess_per_potential_eval": 0.0004732247289451993,
             "ess_per_score_quadrature_eval": "nan",
@@ -1554,6 +2062,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 11.670878652501306,
             "ess_per_gradient_eval": 0.0004732247289451993,
             "ess_per_potential_eval": 0.0004732247289451993,
             "ess_per_score_quadrature_eval": "nan",
@@ -1586,6 +2095,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 197.4356126090633,
             "ess_per_gradient_eval": 0.008005516726114627,
             "ess_per_potential_eval": 0.008005516726114627,
             "ess_per_score_quadrature_eval": "nan"
@@ -1612,6 +2122,7 @@
             "finite_iat_chain_count": 32,
             "n_chains": 32,
             "n_draws_per_chain": 1000,
+            "ess_per_second": 11.628977568763913,
             "ess_per_gradient_eval": 0.00047152574555375706,
             "ess_per_potential_eval": 0.00047152574555375706,
             "ess_per_score_quadrature_eval": "nan"
@@ -1630,454 +2141,6 @@
         "dt": 0.005,
         "equilibrium_initialized": false,
         "initialization_method": "numerical_inverse_cdf:cold_draw_replicated_over_ladder_then_charged_settling"
-      },
-      "CP": {
-        "schema_version": 1,
-        "n_draws_per_chain": 1000,
-        "n_chains": 32,
-        "n_cv": 1,
-        "n_basins": 2,
-        "trace_start": 100.10000000000001,
-        "trace_stop": 200.0,
-        "trace_interval": 0.09999999999999432,
-        "gradient_evals": 1280000.0,
-        "potential_evals": 0.0,
-        "score_quadrature_evals": 0.0,
-        "observed_basin_ids": [
-          0,
-          1
-        ],
-        "basin_ids": [
-          0,
-          1
-        ],
-        "cv_names": [
-          "x"
-        ],
-        "worst_basin_name": "basin_0",
-        "worst_basin_ess": 1708.844532682276,
-        "worst_basin_ess_per_gradient_eval": 0.0013350347911580281,
-        "worst_basin_ess_per_potential_eval": "nan",
-        "worst_basin_ess_per_score_quadrature_eval": "nan",
-        "diagnostics": {
-          "label_transition_count": 1454,
-          "label_transition_count_per_chain": [
-            44,
-            37,
-            44,
-            36,
-            41,
-            47,
-            38,
-            60,
-            34,
-            41,
-            45,
-            46,
-            43,
-            45,
-            41,
-            50,
-            38,
-            49,
-            53,
-            50,
-            47,
-            40,
-            53,
-            64,
-            47,
-            52,
-            46,
-            52,
-            51,
-            37,
-            45,
-            38
-          ],
-          "no_label_transition_chain_count": 0,
-          "all_chains_no_label_transition": false,
-          "transition_basin_ids": [
-            0,
-            1
-          ],
-          "lag_one_transition_counts": [
-            [
-              15286,
-              730
-            ],
-            [
-              724,
-              15228
-            ]
-          ],
-          "lag_one_transition_probabilities": [
-            [
-              0.9544205794205795,
-              0.045579420579420576
-            ],
-            [
-              0.04538615847542628,
-              0.9546138415245737
-            ]
-          ],
-          "any_constant_observable_chain": false
-        },
-        "observables": [
-          {
-            "kind": "basin",
-            "name": "basin_0",
-            "index": 0,
-            "mean": 0.501,
-            "target": 0.5,
-            "signed_bias": 0.0010000000000000009,
-            "absolute_bias": 0.0010000000000000009,
-            "sample_sd": 0.5000068126664848,
-            "iat": 18.726103743195072,
-            "iat_saved_draws": 18.726103743195072,
-            "iat_sampler_time": 1.8726103743194007,
-            "iat_min_chain": 11.668148719020287,
-            "iat_median_chain": 18.10918091599818,
-            "iat_max_chain": 50.79737020941634,
-            "ess": 1708.844532682276,
-            "rhat": 1.0191150321884037,
-            "mcse": 0.012095522817564633,
-            "constant_chain_count": 0,
-            "finite_iat_chain_count": 32,
-            "n_chains": 32,
-            "n_draws_per_chain": 1000,
-            "ess_per_gradient_eval": 0.0013350347911580281,
-            "ess_per_potential_eval": "nan",
-            "ess_per_score_quadrature_eval": "nan",
-            "basin_id": 0,
-            "basin_transition_count": 1454,
-            "no_basin_transition_chain_count": 0,
-            "unvisited_chain_count": 0,
-            "always_in_basin_chain_count": 0,
-            "unvisited": false
-          },
-          {
-            "kind": "basin",
-            "name": "basin_1",
-            "index": 1,
-            "mean": 0.499,
-            "target": 0.5,
-            "signed_bias": -0.0010000000000000009,
-            "absolute_bias": 0.0010000000000000009,
-            "sample_sd": 0.5000068126664848,
-            "iat": 18.72610374319507,
-            "iat_saved_draws": 18.72610374319507,
-            "iat_sampler_time": 1.8726103743194005,
-            "iat_min_chain": 11.668148719020285,
-            "iat_median_chain": 18.10918091599818,
-            "iat_max_chain": 50.79737020941633,
-            "ess": 1708.8445326822762,
-            "rhat": 1.0191150321884037,
-            "mcse": 0.012095522817564633,
-            "constant_chain_count": 0,
-            "finite_iat_chain_count": 32,
-            "n_chains": 32,
-            "n_draws_per_chain": 1000,
-            "ess_per_gradient_eval": 0.0013350347911580283,
-            "ess_per_potential_eval": "nan",
-            "ess_per_score_quadrature_eval": "nan",
-            "basin_id": 1,
-            "basin_transition_count": 1454,
-            "no_basin_transition_chain_count": 0,
-            "unvisited_chain_count": 0,
-            "always_in_basin_chain_count": 0,
-            "unvisited": false
-          },
-          {
-            "kind": "energy",
-            "name": "energy",
-            "index": 0,
-            "mean": 0.6092917163322827,
-            "target": 0.0673042019647618,
-            "signed_bias": 0.5419875143675209,
-            "absolute_bias": 0.5419875143675209,
-            "sample_sd": 5.309091179317837,
-            "iat": 1.0291510077363581,
-            "iat_saved_draws": 1.0291510077363581,
-            "iat_sampler_time": 0.10291510077362996,
-            "iat_min_chain": 1.0,
-            "iat_median_chain": 1.0017232823028275,
-            "iat_max_chain": 1.2622563733248398,
-            "ess": 31093.59050270451,
-            "rhat": 1.0007408412801329,
-            "mcse": 0.030108196842570767,
-            "constant_chain_count": 0,
-            "finite_iat_chain_count": 32,
-            "n_chains": 32,
-            "n_draws_per_chain": 1000,
-            "ess_per_gradient_eval": 0.024291867580237898,
-            "ess_per_potential_eval": "nan",
-            "ess_per_score_quadrature_eval": "nan"
-          },
-          {
-            "kind": "cv",
-            "name": "x",
-            "index": 0,
-            "mean": -0.00026856374330481894,
-            "target": 0.0020218965096348435,
-            "signed_bias": -0.0022904602529396625,
-            "absolute_bias": 0.0022904602529396625,
-            "sample_sd": 1.0559895353171491,
-            "iat": 17.75705748965712,
-            "iat_saved_draws": 17.75705748965712,
-            "iat_sampler_time": 1.7757057489656112,
-            "iat_min_chain": 11.203483374578054,
-            "iat_median_chain": 18.103794142908498,
-            "iat_max_chain": 47.91095311011996,
-            "ess": 1802.1003771958785,
-            "rhat": 1.0122111458537144,
-            "mcse": 0.02487540301603151,
-            "constant_chain_count": 0,
-            "finite_iat_chain_count": 32,
-            "n_chains": 32,
-            "n_draws_per_chain": 1000,
-            "ess_per_gradient_eval": 0.00140789091968428,
-            "ess_per_potential_eval": "nan",
-            "ess_per_score_quadrature_eval": "nan"
-          }
-        ],
-        "method": "CP",
-        "seeds": [
-          0,
-          1,
-          2,
-          3
-        ],
-        "warmup_steps": 20,
-        "burn_in_steps": 20000,
-        "steps_per_draw": 20,
-        "dt": 0.005,
-        "equilibrium_initialized": false,
-        "initialization_method": "numerical_inverse_cdf:reference_draw_then_charged_biased_raw_cp_kernel_settling"
-      },
-      "FLA": {
-        "schema_version": 1,
-        "n_draws_per_chain": 1000,
-        "n_chains": 32,
-        "n_cv": 1,
-        "n_basins": 2,
-        "trace_start": 100.10000000000001,
-        "trace_stop": 200.0,
-        "trace_interval": 0.09999999999999432,
-        "gradient_evals": 1280000.0,
-        "potential_evals": 0.0,
-        "score_quadrature_evals": 0.0,
-        "observed_basin_ids": [
-          0,
-          1
-        ],
-        "basin_ids": [
-          0,
-          1
-        ],
-        "cv_names": [
-          "x"
-        ],
-        "worst_basin_name": "basin_0",
-        "worst_basin_ess": 642.5087129919738,
-        "worst_basin_ess_per_gradient_eval": 0.0005019599320249795,
-        "worst_basin_ess_per_potential_eval": "nan",
-        "worst_basin_ess_per_score_quadrature_eval": "nan",
-        "diagnostics": {
-          "label_transition_count": 518,
-          "label_transition_count_per_chain": [
-            24,
-            22,
-            9,
-            17,
-            16,
-            7,
-            13,
-            16,
-            14,
-            13,
-            15,
-            16,
-            11,
-            11,
-            16,
-            14,
-            20,
-            28,
-            17,
-            19,
-            18,
-            20,
-            12,
-            15,
-            16,
-            16,
-            12,
-            20,
-            11,
-            23,
-            21,
-            16
-          ],
-          "no_label_transition_chain_count": 0,
-          "all_chains_no_label_transition": false,
-          "transition_basin_ids": [
-            0,
-            1
-          ],
-          "lag_one_transition_counts": [
-            [
-              15816,
-              259
-            ],
-            [
-              259,
-              15634
-            ]
-          ],
-          "lag_one_transition_probabilities": [
-            [
-              0.9838880248833592,
-              0.016111975116640746
-            ],
-            [
-              0.01629648272824514,
-              0.9837035172717549
-            ]
-          ],
-          "any_constant_observable_chain": false
-        },
-        "observables": [
-          {
-            "kind": "basin",
-            "name": "basin_0",
-            "index": 0,
-            "mean": 0.50290625,
-            "target": 0.5,
-            "signed_bias": 0.002906249999999999,
-            "absolute_bias": 0.002906249999999999,
-            "sample_sd": 0.4999993661907292,
-            "iat": 49.80477206446809,
-            "iat_saved_draws": 49.80477206446809,
-            "iat_sampler_time": 4.980477206446526,
-            "iat_min_chain": 28.13752300331247,
-            "iat_median_chain": 47.22951809157861,
-            "iat_max_chain": 159.43701094107809,
-            "ess": 642.5087129919738,
-            "rhat": 1.073157670681779,
-            "mcse": 0.019725587324439454,
-            "constant_chain_count": 0,
-            "finite_iat_chain_count": 32,
-            "n_chains": 32,
-            "n_draws_per_chain": 1000,
-            "ess_per_gradient_eval": 0.0005019599320249795,
-            "ess_per_potential_eval": "nan",
-            "ess_per_score_quadrature_eval": "nan",
-            "basin_id": 0,
-            "basin_transition_count": 518,
-            "no_basin_transition_chain_count": 0,
-            "unvisited_chain_count": 0,
-            "always_in_basin_chain_count": 0,
-            "unvisited": false
-          },
-          {
-            "kind": "basin",
-            "name": "basin_1",
-            "index": 1,
-            "mean": 0.49709375,
-            "target": 0.5,
-            "signed_bias": -0.002906249999999999,
-            "absolute_bias": 0.002906249999999999,
-            "sample_sd": 0.4999993661907292,
-            "iat": 49.80477206446809,
-            "iat_saved_draws": 49.80477206446809,
-            "iat_sampler_time": 4.980477206446526,
-            "iat_min_chain": 28.13752300331247,
-            "iat_median_chain": 47.22951809157861,
-            "iat_max_chain": 159.43701094107809,
-            "ess": 642.5087129919738,
-            "rhat": 1.073157670681779,
-            "mcse": 0.019725587324439454,
-            "constant_chain_count": 0,
-            "finite_iat_chain_count": 32,
-            "n_chains": 32,
-            "n_draws_per_chain": 1000,
-            "ess_per_gradient_eval": 0.0005019599320249795,
-            "ess_per_potential_eval": "nan",
-            "ess_per_score_quadrature_eval": "nan",
-            "basin_id": 1,
-            "basin_transition_count": 518,
-            "no_basin_transition_chain_count": 0,
-            "unvisited_chain_count": 0,
-            "always_in_basin_chain_count": 0,
-            "unvisited": false
-          },
-          {
-            "kind": "energy",
-            "name": "energy",
-            "index": 0,
-            "mean": 0.20974265221595914,
-            "target": 0.06716288159709786,
-            "signed_bias": 0.1425797706188613,
-            "absolute_bias": 0.1425797706188613,
-            "sample_sd": 7.131763382990707,
-            "iat": 1.0363085052165832,
-            "iat_saved_draws": 1.0363085052165832,
-            "iat_sampler_time": 0.10363085052165244,
-            "iat_min_chain": 1.0,
-            "iat_median_chain": 1.0,
-            "iat_max_chain": 1.5788491088231913,
-            "ess": 30878.835635255313,
-            "rhat": 0.9998982467576779,
-            "mcse": 0.040585085746116974,
-            "constant_chain_count": 0,
-            "finite_iat_chain_count": 32,
-            "n_chains": 32,
-            "n_draws_per_chain": 1000,
-            "ess_per_gradient_eval": 0.024124090340043213,
-            "ess_per_potential_eval": "nan",
-            "ess_per_score_quadrature_eval": "nan"
-          },
-          {
-            "kind": "cv",
-            "name": "x",
-            "index": 0,
-            "mean": -0.005617053665076767,
-            "target": 0.005445131639781113,
-            "signed_bias": -0.01106218530485788,
-            "absolute_bias": 0.01106218530485788,
-            "sample_sd": 0.9901069932178485,
-            "iat": 48.77513391556036,
-            "iat_saved_draws": 48.77513391556036,
-            "iat_sampler_time": 4.877513391555759,
-            "iat_min_chain": 26.728743145779507,
-            "iat_median_chain": 45.64507891588818,
-            "iat_max_chain": 159.8441733834453,
-            "ess": 656.072007006654,
-            "rhat": 1.047450511269218,
-            "mcse": 0.03865506198816458,
-            "constant_chain_count": 0,
-            "finite_iat_chain_count": 32,
-            "n_chains": 32,
-            "n_draws_per_chain": 1000,
-            "ess_per_gradient_eval": 0.0005125562554739484,
-            "ess_per_potential_eval": "nan",
-            "ess_per_score_quadrature_eval": "nan"
-          }
-        ],
-        "method": "FLA",
-        "seeds": [
-          0,
-          1,
-          2,
-          3
-        ],
-        "warmup_steps": 20,
-        "burn_in_steps": 20000,
-        "steps_per_draw": 20,
-        "dt": 0.005,
-        "equilibrium_initialized": false,
-        "initialization_method": "numerical_inverse_cdf:reference_draw_then_charged_kernel_settling"
       }
     },
     "collection": {
@@ -2098,24 +2161,6 @@
         "dt": 0.005,
         "equilibrium_initialized": false,
         "initialization_method": "numerical_inverse_cdf:cold_draw_replicated_over_ladder_then_charged_settling"
-      },
-      "charged_settling_non_targeting_raw_cp_cpu": {
-        "n_draws": 1000,
-        "steps_per_draw": 20,
-        "warmup_steps": 20,
-        "burn_in_steps": 20000,
-        "dt": 0.005,
-        "equilibrium_initialized": false,
-        "initialization_method": "numerical_inverse_cdf:reference_draw_then_charged_biased_raw_cp_kernel_settling"
-      },
-      "charged_settling_non_targeting_fla": {
-        "n_draws": 1000,
-        "steps_per_draw": 20,
-        "warmup_steps": 20,
-        "burn_in_steps": 20000,
-        "dt": 0.005,
-        "equilibrium_initialized": false,
-        "initialization_method": "numerical_inverse_cdf:reference_draw_then_charged_kernel_settling"
       }
     },
     "protocol": {
@@ -2123,9 +2168,11 @@
       "charged_settling_non_pt_methods": [
         "ULA",
         "MALA",
+        "FLA",
         "BAOAB",
         "LSC-CP",
-        "LSC-CP-RA"
+        "LSC-CP-RA",
+        "CP"
       ],
       "settling_burn_steps": 20000,
       "pt_burn_steps": 20000,
@@ -2136,20 +2183,15 @@
       "cv_target_method": "unweighted_reference_sample",
       "reference_exact_for_mala": false,
       "reference_requires_settling": true,
-      "sir_reference_is_approximate": false,
-      "charged_settling_non_targeting_methods": [
-        "CP",
-        "FLA"
-      ]
+      "sir_reference_is_approximate": false
     },
     "excluded_non_targeting_methods": [],
     "non_targeting_mixing_diagnostics": {
-      "CP": {
-        "device": "cpu",
-        "interpretation": "biased-kernel mixing diagnostic; not target ESS",
-        "target_bias_reported_in_observable_rows": true
-      },
       "FLA": {
+        "interpretation": "biased-kernel mixing diagnostic; not target ESS",
+        "must_report_with_target_bias": true
+      },
+      "CP": {
         "interpretation": "biased-kernel mixing diagnostic; not target ESS",
         "must_report_with_target_bias": true
       }
@@ -2196,6 +2238,8 @@
   },
   "method_info": {
     "ULA": {
+      "wallclock_mean_s": 6.558021063916385,
+      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 384000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2207,6 +2251,8 @@
       "nonfinite_frac": 0.0
     },
     "MALA": {
+      "wallclock_mean_s": 12.426445290446281,
+      "wallclock_std_s": 0.0,
       "V_evals_per_step": 384000.0,
       "grad_evals_per_step": 384000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2221,6 +2267,8 @@
       "nonfinite_frac": 0.0
     },
     "FLA": {
+      "wallclock_mean_s": 8.426989678293467,
+      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 384000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2232,6 +2280,8 @@
       "nonfinite_frac": 0.0
     },
     "BAOAB": {
+      "wallclock_mean_s": 7.29797481931746,
+      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 384000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2243,6 +2293,8 @@
       "nonfinite_frac": 0.0
     },
     "PT": {
+      "wallclock_mean_s": 13.441228806041181,
+      "wallclock_std_s": 0.0,
       "V_evals_per_step": 768000.0,
       "grad_evals_per_step": 768000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2260,6 +2312,8 @@
       "nonfinite_frac": 0.0
     },
     "CP": {
+      "wallclock_mean_s": 24.856664480641484,
+      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 384000.0,
       "score_quad_evals_per_step": 0.0,
@@ -2282,6 +2336,8 @@
       "nonfinite_frac": 0.0
     },
     "LSC-CP": {
+      "wallclock_mean_s": 83.93620811961591,
+      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 384000.0,
       "score_quad_evals_per_step": 49152000.0,
@@ -2306,6 +2362,8 @@
       "nonfinite_frac": 0.0
     },
     "LSC-CP-RA": {
+      "wallclock_mean_s": 29.306253062561154,
+      "wallclock_std_s": 0.0,
       "V_evals_per_step": 0.0,
       "grad_evals_per_step": 384000.0,
       "score_quad_evals_per_step": 6144000.0,
@@ -2331,47 +2389,35 @@
     "gpu": "NVIDIA H200 NVL",
     "gpu_count_visible": 1,
     "cuda_available": true,
-    "torch": "2.13.0+cu130",
+    "torch": "2.13.0",
     "cuda": "13.0",
     "python": "3.12.13",
     "python_packages": {
-      "numpy": "2.4.6",
+      "numpy": "2.5.1",
       "scipy": "1.18.0",
-      "pandas": "3.0.3",
-      "matplotlib": "3.11.0",
+      "pandas": "3.0.5",
+      "matplotlib": "3.11.1",
       "nbformat": "5.10.4"
     },
-    "git_commit": "689e52013405f73e97035773943937c94265ebc0",
-    "git_sha": "689e52013405f73e97035773943937c94265ebc0",
-    "git_branch": "main",
+    "git_commit": "49768e5aef4cee39be9993f7760fac82162d05e2",
+    "git_sha": "49768e5aef4cee39be9993f7760fac82162d05e2",
+    "git_branch": "production",
     "git_dirty": true,
-    "git_status_porcelain": "M JCP_experiments/README.md\n M JCP_experiments/figures/e5_alanine/reference_convergence.pdf\n M JCP_experiments/figures/e5_alanine/reference_convergence.png\n M JCP_experiments/launch_production.py\n M JCP_experiments/notebooks/01_double_well.ipynb\n M JCP_experiments/notebooks/02_mog40.ipynb\n M JCP_experiments/notebooks/03_mb3well_10d.ipynb\n M JCP_experiments/notebooks/04_coupled_phi4.ipynb\n M JCP_experiments/notebooks/05_alanine_dipeptide.ipynb\n M JCP_experiments/src/e5_alanine/build_reference.py\n M JCP_experiments/tests/test_e5_p4_reference.py",
-    "cuda_visible_devices": "4",
-    "jcp_gpu": "4",
+    "git_status_porcelain": "?? campaign.log\n?? jcp_levy_sampling_release.egg-info/\n?? results/jcp_sampling/",
+    "cuda_visible_devices": "0",
+    "jcp_gpu": "0",
+    "gpu_uuid": "514c2f3b-34cc-98a9-dfa1-7671c8c08767",
     "gpu_compute_apps_at_start": [
-      "GPU-514c2f3b-34cc-98a9-dfa1-7671c8c08767, 2565387, 108574 MiB",
-      "GPU-7a3fde0b-37cf-0cd6-97e7-2385d6ebfaf2, 2565387, 530 MiB",
-      "GPU-7a3fde0b-37cf-0cd6-97e7-2385d6ebfaf2, 2572708, 108278 MiB",
-      "GPU-7eefb508-cc10-0308-89bc-5e8ec2d31a7b, 2565387, 530 MiB",
-      "GPU-28eb6e92-d5de-622d-a750-0bba6085a874, 2565387, 530 MiB",
-      "GPU-c8768979-ae7d-8ca1-a33d-2874c9d21fae, 2841822, 31472 MiB",
-      "GPU-c8768979-ae7d-8ca1-a33d-2874c9d21fae, 1995111, 5004 MiB",
-      "GPU-c8768979-ae7d-8ca1-a33d-2874c9d21fae, 2565387, 530 MiB",
-      "GPU-e003b5e1-3cce-0c27-5a6b-9f594c1b7682, 2841823, 32010 MiB",
-      "GPU-e003b5e1-3cce-0c27-5a6b-9f594c1b7682, 2565387, 530 MiB",
+      "GPU-514c2f3b-34cc-98a9-dfa1-7671c8c08767, 3790485, 5004 MiB",
+      "GPU-28eb6e92-d5de-622d-a750-0bba6085a874, 3832815, 108278 MiB",
+      "GPU-c8768979-ae7d-8ca1-a33d-2874c9d21fae, 3802922, 105012 MiB",
+      "GPU-e003b5e1-3cce-0c27-5a6b-9f594c1b7682, 3806737, 105012 MiB",
       "GPU-0693e45d-5be4-82d1-e0fa-e72261e24e3b, 3582921, 41890 MiB",
-      "GPU-0693e45d-5be4-82d1-e0fa-e72261e24e3b, 2841824, 31992 MiB",
-      "GPU-0693e45d-5be4-82d1-e0fa-e72261e24e3b, 2565387, 530 MiB",
-      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 2841825, 31888 MiB",
-      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 2505197, 2498 MiB",
-      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 2565387, 530 MiB"
-    ]
-  },
-  "release_policy": {
-    "resource_axes": [
-      "t",
-      "nfe"
+      "GPU-0693e45d-5be4-82d1-e0fa-e72261e24e3b, 1818590, 86162 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 3787915, 5878 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 3788091, 10934 MiB",
+      "GPU-b7477750-5992-8ae3-fde2-11bf70934062, 3788101, 5878 MiB"
     ],
-    "timing_status": "withheld_mixed_hardware_and_batching"
+    "gpu_compute_apps_on_own_device_at_start": []
   }
 }
