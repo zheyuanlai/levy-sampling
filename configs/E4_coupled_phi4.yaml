@@ -20,4 +20,4 @@ production:
   seeds: 16
   realized_atoms_per_step: 8
 metrics: [W2, MMD, basin_TV, worst_basin_ESS]
-resource_axes: [t, nfe]
+resource_axes: [t, nfe, wallclock]

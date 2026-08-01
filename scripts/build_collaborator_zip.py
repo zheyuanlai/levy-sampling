@@ -47,6 +47,8 @@ INCLUDE = (
     "results/mb3well_10d",
     "results/coupled_phi4",
     "figures/png",
+    "figures/tiff",
+    "figures/svg",
     "figures/pdf",
 )
 

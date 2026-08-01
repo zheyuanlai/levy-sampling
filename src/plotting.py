@@ -67,6 +67,20 @@ METRIC_LABEL = {
     "bin_chi2_M120": r"bin $\chi^2$ (M=120)",
 }
 
+
+def metric_label(metric: str, *, exact_w2: bool = True) -> str:
+    """Display label for `metric`, dimension-aware for the W2 column.
+
+    The internal CSV column is always named `W2`, but only the 1D example (E1)
+    computes an exact one-dimensional Wasserstein-2 distance; the higher
+    dimensional examples compute a fixed-projection SLICED Wasserstein-2
+    distance into the same column. Pass ``exact_w2=False`` there so the figure
+    announces the metric that was actually computed."""
+    if metric == "W2" and not exact_w2:
+        return r"$\mathrm{SW}_2$"
+    return METRIC_LABEL.get(metric, metric)
+
+
 X_AXIS = {
     "t": ("t", r"$t=n\,\Delta t$"),
     "nfe": ("nfe", "NFE"),
@@ -136,6 +150,22 @@ def _running_mean(y: np.ndarray, w: int) -> np.ndarray:
     return out
 
 
+def _log_band_floor(series: dict, pad: float = 0.5) -> float | None:
+    """Positive display floor for mean-minus-SD ribbons on a log y-axis.
+
+    On a log axis a `y - sd` lower edge that goes non-positive is clipped by
+    matplotlib to the floating-point minimum, which then sets the axis range
+    and flattens every curve into the top few pixels. The band is a display
+    element, not data, so its VISIBLE lower edge is clipped at a fraction of
+    the smallest positive plotted mean. The plotted means and the CSV values
+    are untouched."""
+    positive = [float(v) for _, y, _ in series.values() for v in np.asarray(y)
+                if np.isfinite(v) and v > 0.0]
+    if not positive:
+        return None
+    return pad * min(positive)
+
+
 def _series(rows, method, ykey):
     by_step: dict[int, dict[str, list[float]]] = {}
     for r in rows:
@@ -177,10 +207,11 @@ def _series_x(rows, method, ykey, xkey):
 def metric_single(rows: list[dict], metric: str, out_base: str,
                   xaxis: str = "t", logy: bool = True, floors: dict | None = None,
                   emc_target: float = 1.0, methods=METHODS,
-                  figsize=(4.4, 3.2), show: bool = True, smooth: int = 9,
+                  figsize=(4.4, 3.2), show: bool = True, smooth: int = 1,
                   label_overrides: dict | None = None,
                   xmax_mode: str | None = "baselines",
-                  logx: str | bool = "auto"):
+                  logx: str | bool = "auto",
+                  exact_w2: bool = True):
     """One metric, one figure (saved individually as png+pdf). Global log-y
     (except EMC, which is in [0,1]). `xaxis` in {'t','nfe','wallclock'}.
 
@@ -190,11 +221,15 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
     The t-axis stays linear (shared physical time, and x=0 is meaningful).
     Pass True/False to force it. On a log x-axis the x=0 frame is dropped.
 
-    `smooth` (default 9) applies a centered stationary running-average to each
-    method's seed-mean curve and its band, suppressing the checkpoint-to-
-    checkpoint Monte-Carlo jitter of the noisier estimators (W2/MMD/KSD) without
-    biasing the plateau level. The raw per-frame values remain in the CSV; set
-    smooth=1 to plot them unsmoothed.
+    `smooth` (default 1, i.e. OFF) applies a centered stationary running-average
+    to each method's seed-mean curve and its band, suppressing the checkpoint-
+    to-checkpoint Monte-Carlo jitter of the noisier estimators (W2/MMD/KSD)
+    without biasing the plateau level. Publication figures show the raw
+    checkpoint means, so the default is unsmoothed; pass smooth>1 for a
+    diagnostic look at a noisy estimator.
+
+    `exact_w2` selects the dimension-aware y label for the `W2` column: the
+    exact 1D W_2 in E1, the fixed-projection sliced W_2 in E2--E4.
 
     `xmax_mode="baselines"` (default; None disables): on the cost axes
     (nfe / wallclock) the scored LSC-CP method spends ~10-30x more per step
@@ -217,6 +252,8 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
         series[method] = (x, _running_mean(y, smooth), _running_mean(sd, smooth))
     plotted = bool(series)
     xmax_by_method = {m: float(v[0].max()) for m, v in series.items()}
+    use_logy = bool(logy) and metric not in ("EMC", "FES_outside_mass")
+    band_floor = _log_band_floor(series) if use_logy else None
 
     # Cost axes: the exact LSC-CP arm can cost orders of magnitude more per step
     # than a local baseline, so a linear axis squeezes every baseline onto the
@@ -240,7 +277,12 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
         # every figure regardless of which estimator produced the curve
         style_key = lov.get(method) if lov.get(method) in METHOD_STYLE else method
         st = METHOD_STYLE.get(style_key, dict(color="#444444", ls="-", marker="."))
-        ax.fill_between(x, y - sd, y + sd,
+        lower = y - sd
+        if band_floor is not None:
+            # display-only clip: a non-positive lower edge on a log axis is
+            # otherwise clipped to the float minimum and owns the whole range
+            lower = np.maximum(lower, band_floor)
+        ax.fill_between(x, lower, y + sd,
                         color=blend_toward_white(st["color"]), lw=0, zorder=1)
         ax.plot(x, y, color=st["color"], ls=st["ls"], marker=st["marker"],
                 markevery=max(1, len(x) // 8), markerfacecolor="white",
@@ -265,13 +307,13 @@ def metric_single(rows: list[dict], metric: str, out_base: str,
         # are scientifically meaningful and disappear on a log axis.
         ax.set_ylim(-0.02, 1.02)
     else:
-        if logy:
+        if use_logy:
             ax.set_yscale("log")
         fl = floors.get(metric, {}).get("mean")
         if fl:
             ax.axhline(fl, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
     ax.set_xlabel(xlabel)
-    ax.set_ylabel(METRIC_LABEL.get(metric, metric))
+    ax.set_ylabel(metric_label(metric, exact_w2=exact_w2))
     if plotted:
         handles, labels = ax.get_legend_handles_labels()
         fig.legend(handles, labels, ncol=min(4, len(labels)), loc="lower center",
@@ -345,11 +387,13 @@ def cdf_comparison(samples: dict, true_x, true_cdf, out_base: str,
 def metric_grid(rows: list[dict], out_base: str,
                 metrics=("W2", "MMD", "EMC"), floors: dict | None = None,
                 emc_target: float = 1.0, methods=METHODS,
-                figsize_per_panel=(3.4, 2.6), show: bool = True, smooth: int = 9,
-                label_overrides: dict | None = None):
+                figsize_per_panel=(3.4, 2.6), show: bool = True, smooth: int = 1,
+                label_overrides: dict | None = None, exact_w2: bool = True):
     """One row of panels (metric vs t), shared legend above the grid.
     Saves out_base + .png/.pdf and returns the figure (also shown inline).
-    `smooth` applies the same stationary running-average as `metric_single`."""
+    `smooth` applies the same stationary running-average as `metric_single`
+    and defaults to 1 (off) so publication panels show raw checkpoint means.
+    `exact_w2` selects the dimension-aware `W2` label (exact vs sliced)."""
     apply_style()
     floors = floors or {}
     lov = label_overrides or {}
@@ -383,7 +427,7 @@ def metric_grid(rows: list[dict], out_base: str,
                 ax.axhline(fl, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
             ax.set_ylim(bottom=0.0)
         ax.set_xlabel(r"$t = n\,\Delta t$")
-        ax.set_ylabel(METRIC_LABEL.get(metric, metric))
+        ax.set_ylabel(metric_label(metric, exact_w2=exact_w2))
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, ncol=len(labels), loc="lower center",
                bbox_to_anchor=(0.5, 1.005), frameon=False,

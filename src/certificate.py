@@ -114,11 +114,29 @@ def certificate_grid(potential, score_fn, nu_shifts: torch.Tensor,
     """Direct-form residual on a composite-GL grid over [lo, hi].
 
     The drift integrand p(x) S(x) . grad(phi)(x) is assembled IN LOG SPACE
-    from the score's (M, v) parts: exp(-beta V(x) + min(M, M_MAX)). In linear
-    fp64 arithmetic p underflows exactly where ||S|| is astronomical, and the
+    from the score's (M, v) parts: exp(-beta V(x) + M). In linear fp64
+    arithmetic p underflows exactly where ||S|| is astronomical, and the
     certificate would silently drop the order-one far-field contributions it
-    exists to check. The min(M, M_MAX) cap is kept so the measured residual
-    includes the deployed clipping policy."""
+    exists to check.
+
+    Two residuals are returned, and the difference between them matters:
+
+    * ``max_residual`` uses the UNCAPPED M. This is the gated quantity. It
+      measures the weak-stationarity identity int A_{eps,nu} phi dmu = 0 of the
+      score field itself, which is the mathematical statement the certificate
+      exists to check. Because p(x) e^{M(x)} ~ e^{-beta V(x - theta r)} is
+      order one in the far field, truncating M there deletes real mass from the
+      integral rather than regularising it.
+    * ``max_residual_capped_score`` repeats the integral with the deployed
+      M <- min(M, M_MAX) clip. It is REPORTED, not gated, and it answers a
+      different question: how much of the identity is carried by the region the
+      deployed cap truncates. On E1 it is ~1e-4 against ~5e-8 uncapped, and
+      that gap is a property of the integral, not of the sampler -- the
+      deployed step is tamed, so it saturates to -v/||v|| long before e^{M_MAX}
+      and differs from the uncapped step only by ``clip_tamed_step_defect``
+      (~1e-261 on E1). Gating on the capped integral would therefore reject a
+      score field whose deployed trajectories are unaffected.
+    """
     dev = nu_shifts.device
     X, wq = composite_gl_grid(lo, hi, n_panels, nodes_per_panel, dev)
     G = X.shape[0]
@@ -131,19 +149,23 @@ def certificate_grid(potential, score_fn, nu_shifts: torch.Tensor,
     v = torch.empty_like(X)
     for s0 in range(0, G, chunk):
         Mlog[s0:s0 + chunk], v[s0:s0 + chunk] = score_fn.log_parts(X[s0:s0 + chunk])
-    # UNCAPPED magnitude: the deployed drift caps M at M_MAX, but taming
-    # saturates (step -> -v/||v||) long before e^{M_MAX}, so the deployed
-    # tamed step is identical to the uncapped one up to O(e^{-M_MAX}); that
-    # saturation defect is reported separately below.
+    # Gated field: uncapped. Diagnostic field: the deployed M <- min(M, M_MAX).
     log_drift_mag = logp + Mlog                              # (G,) stable in log space
+    Mlog_capped = torch.minimum(
+        Mlog,
+        torch.as_tensor(m_max, dtype=Mlog.dtype, device=dev),
+    )
+    log_drift_mag_capped = logp + Mlog_capped
 
     w_nu = torch.exp(nu_logw)                                # (J,) sums to 1
     n_shift = nu_shifts.shape[0]
     results = {}
     for i, phi in enumerate(phis):
-        # drift: -sum_g wq_g e^{logp_g + min(M_g, cap)} (v_g . grad phi(x_g))
-        drift_term = -(wq * torch.exp(log_drift_mag)
-                       * (v * phi.grad(X)).sum(-1)).sum()
+        # drift: -sum_g wq_g e^{logp_g + M_g} (v_g . grad phi(x_g))
+        grad_dot = (v * phi.grad(X)).sum(-1)
+        drift_term = -(wq * torch.exp(log_drift_mag) * grad_dot).sum()
+        drift_term_capped = -(wq * torch.exp(log_drift_mag_capped)
+                              * grad_dot).sum()
         # jump: lam sum_j w_j sum_g pw_g [phi(x_g + r_j) - phi(x_g)]
         phi0_w = (pw * phi(X)).sum()
         jump_term = torch.zeros((), dtype=torch.float64, device=dev)
@@ -158,11 +180,18 @@ def certificate_grid(potential, score_fn, nu_shifts: torch.Tensor,
         jump_term = lam * (jump_term - phi0_w * w_nu.sum())
         results[f"phi_{i}"] = {
             "residual": float((torch.abs(drift_term + jump_term) / torch.abs(jump_term)).item()),
+            "residual_capped_score": float(
+                (torch.abs(drift_term_capped + jump_term)
+                 / torch.abs(jump_term)).item()),
             "jump_term": float(jump_term.item()),
             "drift_term": float(drift_term.item()),
+            "drift_term_capped_score": float(drift_term_capped.item()),
         }
     results["max_residual"] = max(v_["residual"] for k, v_ in results.items()
                                   if k.startswith("phi_"))
+    results["max_residual_capped_score"] = max(
+        v_["residual_capped_score"] for k, v_ in results.items()
+        if k.startswith("phi_"))
     # clipping saturation defect: where M > M_MAX the deployed tamed drift
     # step differs from the uncapped one by ~ 1/(dt e^{M_MAX} ||v||); report
     # its sup over the grid (0.0 when the cap never binds here).

@@ -19,16 +19,27 @@ Internal name `BAOAB` is the practical integrator for underdamped Langevin
 dynamics and is displayed as **ULD** in the paper. Internal name `CP` is
 displayed as **Raw-CP**.
 
-| Example | Notebook | Methods shown in the manuscript |
-|---|---|---|
-| E1 double well | `notebooks/01_double_well.ipynb` | ULA, ULD, PT, FLA, Raw-CP, LSC-CP, LSC-CP-RA |
-| E2 MoG40 | `notebooks/02_mog40.ipynb` | ULA, ULD, PT, FLA, LSC-CP, LSC-CP-RA |
-| E3 Müller--Brown 10D | `notebooks/03_mb3well_10d.ipynb` | ULA, ULD, PT, FLA, LSC-CP, LSC-CP-RA (4) |
-| E4 coupled two-component phi4 | `notebooks/04_coupled_phi4.ipynb` | ULA, ULD, PT, FLA, LSC-CP, LSC-CP-RA (8) |
+The **internal** method matrix (what every run computes and what the result
+files contain) is wider than the **manuscript display** matrix (what the
+figures draw). Nothing is deleted from `results/`; the display matrix simply
+selects the arms that answer each example's question.
+
+| Example | Notebook | Methods displayed in the manuscript | Scientific role |
+|---|---|---|---|
+| E1 double well | `notebooks/01_double_well.ipynb` | ULA, ULD, Raw-CP, LSC-CP, LSC-CP-RA | isolate the raw-jump stationarity bias |
+| E2 MoG40 | `notebooks/02_mog40.ipynb` | ULA, ULD, PT, LSC-CP, LSC-CP-RA | generic multimode transport |
+| E3 Müller--Brown 10D | `notebooks/03_mb3well_10d.ipynb` | ULA, ULD, PT, LSC-CP, LSC-CP-RA (4) | relay geometry after embedding |
+| E4 coupled two-component phi4 | `notebooks/04_coupled_phi4.ipynb` | ULA, ULD, PT, LSC-CP, LSC-CP-RA (8) | the coupled \(\phi^4\) chain |
+
+The internal matrix additionally runs FLA everywhere, PT in E1, and MALA; those
+curves stay in the CSV files and in `src/manuscript.py` but are not drawn.
+`scripts/replot_manuscript_figures.py:REPORT_METHODS` is the display matrix.
 
 The reported metrics are:
 
-- \(W_2\);
+- \(W_2\) in E1 (exact, one-dimensional) and \(\mathrm{SW}_2\) in E2--E4
+  (fixed-projection sliced Wasserstein-2). Both live in the CSV column named
+  `W2`; the figures are labeled with the metric actually computed;
 - MMD;
 - basin total variation;
 - worst-basin ESS.
@@ -38,10 +49,24 @@ FLA and E1 Raw-CP do not preserve the target, so their worst-basin ESS values
 are mixing diagnostics rather than target ESS. They must always be read
 together with their distributional bias metrics.
 
-Wall-clock results are deliberately withheld from this release because the
-frozen runs used mixed hardware and batching protocols. Only physical-time and
-NFE views are publication figures. Wall-clock comparisons may be added only
-after every method is rerun on the same declared GPU with one timing protocol.
+### Wall-clock protocol
+
+Wall-clock is a reported axis. Every method of an experiment is timed under one
+protocol:
+
+- one dedicated GPU per experiment, with no other compute process on that
+  device — each run manifest records
+  `hardware.gpu_compute_apps_on_own_device_at_start`, and
+  `scripts/validate_release.py` refuses a run that was contended;
+- one process, one visible device (`gpu_count_visible == 1`);
+- the identical batched ensemble shape (seeds × particles) for every method;
+- CUDA-synchronised timers around sampler work only — metrics, reference
+  sampling, plotting and I/O are outside the timed region;
+- 20 untimed warm-up steps on a throwaway sampler.
+
+Because seeds are batched, wall-clock is one number per method rather than a
+per-seed distribution, so the wall-clock axis carries no seed error bars by
+construction. The physical-time and NFE views are unaffected.
 
 ## Directory guide
 
@@ -57,8 +82,10 @@ notebooks/
   05_manuscript_plotting.ipynb   plots only; never runs a sampler
 scripts/                         validation, plotting, and archive tools
 results/                         frozen CSV/JSON results and samples
-figures/png/                     manuscript PNG files
-figures/pdf/                     manuscript PDF files
+figures/png/                     manuscript PNG files (600 dpi)
+figures/tiff/                    manuscript TIFF files (600 dpi, LZW)
+figures/svg/                     manuscript SVG files (vector)
+figures/pdf/                     manuscript PDF files (vector)
 ```
 
 The experiment notebooks are generated from
@@ -129,11 +156,12 @@ python scripts/replot_generated_samples.py --overwrite
 python scripts/validate_release.py --require-figures
 ```
 
-Outputs are written to `figures/png/` and `figures/pdf/`. For every example,
-the metric script writes individual \(W_2\), MMD, basin-TV, and worst-basin-ESS
-figures and a 2-by-2 combined figure against physical time and NFE. The
-generated-sample script writes density and scatter comparisons. E1 uses the
-manuscript display range \(x\in[-2,2]\).
+Outputs are written to `figures/png/`, `figures/tiff/`, `figures/svg/`, and
+`figures/pdf/`. For every example, the metric script writes individual
+\(W_2\)/\(\mathrm{SW}_2\), MMD, basin-TV, and worst-basin-ESS figures and a
+2-by-2 combined figure against physical time, NFE, and wall-clock time. The
+generated-sample script writes density and scatter comparisons in PNG and PDF.
+E1 uses the manuscript display range \(x\in[-2,2]\).
 
 ## 4. Regenerate the notebook source files
 
@@ -156,11 +184,17 @@ resolved method matrix and environment, and validates the release before
 starting the full notebooks. Launch the E1--E4 campaign with:
 
 ```bash
-./run_production.sh --gpus 0,1 --max-concurrent 2
+./run_production.sh --gpus 0 --max-concurrent 1
 ```
 
 GPU indices are examples; replace them with devices assigned to you. Passing
 `--gpus` explicitly opts those devices into the repository GPU guard.
+
+Because wall-clock is a reported axis, the published campaign is run with
+`--max-concurrent 1` on a single **idle** GPU, so no two experiments and no
+foreign process ever share a device with a timed sampler. Running on several
+GPUs at once is faster but produces timings that `scripts/validate_release.py`
+will reject.
 
 The launcher creates immutable run directories under:
 
@@ -202,8 +236,11 @@ python scripts/validate_release.py --require-figures
 
 ## Source of truth and provenance
 
-- `src/manuscript.py` is the single source of truth for the E1--E4 method
-  matrix and plot labels.
+- `src/manuscript.py` is the single source of truth for the E1--E4 **internal**
+  method matrix, plot labels, resource axes, and export formats.
+- `scripts/replot_manuscript_figures.py:REPORT_METHODS` is the single source of
+  truth for the **manuscript display** matrix — which of those methods each
+  figure draws.
 - `configs/*.yaml` records the human-readable production protocol.
 - Each `results/<experiment>/manifest.json` records the resolved parameters and
   provenance of the frozen result set.

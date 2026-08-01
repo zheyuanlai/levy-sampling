@@ -160,7 +160,7 @@ class ShellScore:
 
 # ================================================== random-atomic estimator
 class RandomAtomicShellScore:
-    """Unbiased single-atom estimator of the exact Levy score `ShellScore`.
+    """Unbiased single-atom estimator of the same quadrature score as `ShellScore`.
 
     Given ONE realised displacement R per particle -- drawn by the sampler from
     the SAME measure nu the jump uses (rho = nu/lambda, so the Radon-Nikodym
@@ -171,7 +171,11 @@ class RandomAtomicShellScore:
     with theta_p, w_p Gauss-Legendre nodes/probability-weights on [0,1]. This is
     the fixed-R integrand of the exact score, whose nu-average is S_{nu,beta}:
 
-      * unbiased:      E_{R~rho}[hat A_{eps,R}] = A_{eps,nu}     (Fubini);
+      * unbiased with respect to the declared theta quadrature:
+        E_{R~rho}[hat A_{eps,R}] = A_{eps,nu}                   (Fubini);
+        this is quadrature-level, not measure-level, unbiasedness -- the
+        finite implementation uses the declared theta nodes and the finite
+        score cap M_MAX;
       * atomwise mu-invariant: for EVERY fixed R, int A_{eps,R} phi dmu = 0
         (chord fundamental-theorem-of-calculus identity).
 

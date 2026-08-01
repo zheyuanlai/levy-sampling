@@ -90,7 +90,8 @@ def build_plotting_nb() -> nbf.NotebookNode:
 This notebook reads the frozen `results/` artifacts and regenerates every
 manuscript metric, density, and scatter figure. It never reruns a sampler.
 
-Outputs are written in both PNG and PDF under `figures/png/` and
+Outputs are written in four publication formats, one directory per format:
+`figures/png/` (600 dpi), `figures/tiff/` (600 dpi, LZW), `figures/svg/`, and
 `figures/pdf/`. BAOAB is labelled **ULD** in all figures."""),
         code(r"""from pathlib import Path
 import os
@@ -141,10 +142,12 @@ subprocess.run(sample_command, cwd=ROOT, env=os.environ.copy(), check=True)"""),
     check_results=True,
     require_figures=True,
 )
-png_files = sorted((ROOT / "figures" / "png").glob("*.png"))
-pdf_files = sorted((ROOT / "figures" / "pdf").glob("*.pdf"))
+from src.manuscript import FIGURE_FORMATS
+
 print("Final validation:", report["status"])
-print(f"Generated {len(png_files)} PNG and {len(pdf_files)} PDF files.")"""),
+for _ext in FIGURE_FORMATS:
+    _files = sorted((ROOT / "figures" / _ext).glob(f"*.{_ext}"))
+    print(f"figures/{_ext}: {len(_files)} files")"""),
     ])
 
 
@@ -390,7 +393,14 @@ if (_reference_basin_map_outside_mass
 CERTIFICATE_TOLERANCE = 1e-6
 certificate_result_path = os.path.join(RESULTS, "certificate_result.json")
 def persist_certificate_result(report, settings):
-    """Persist the measured deployed-quadrature certificate before asserting."""
+    """Persist the measured deployed-quadrature certificate before asserting.
+
+    The gate is the UNCAPPED weak-stationarity residual: it is the identity the
+    score field must satisfy. The same integral re-evaluated with the deployed
+    M <- min(M, M_MAX) clip is recorded alongside it as a diagnostic, together
+    with the clip's effect on the deployed tamed step; see the docstring of
+    src.certificate.certificate_grid.
+    """
     _max_residual = float(report["max_residual"])
     _payload = dict(
         schema_version=1,
@@ -399,6 +409,12 @@ def persist_certificate_result(report, settings):
         settings=dict(settings),
         tolerance=CERTIFICATE_TOLERANCE,
         max_residual=_max_residual,
+        gated_score_field="uncapped",
+        max_residual_capped_score=(
+            float(report["max_residual_capped_score"])
+            if "max_residual_capped_score" in report else None),
+        clip_tamed_step_defect=report.get("clip_tamed_step_defect"),
+        m_clip_fraction_grid=report.get("m_clip_fraction_grid"),
         passed=bool(_max_residual < CERTIFICATE_TOLERANCE),
         report=report,
         resolved_preflight_config_file=os.path.abspath(preflight_config_path),
@@ -628,13 +644,17 @@ for _ra in ("LSC-CP-RA", "LSC-CP-MA"):
         PLOT_LABELS[_ra] = _realised_label(_ra)
 print("plotted methods:", PLOT_METHODS, " labels:", PLOT_LABELS)
 
+# The CSV column is always "W2", but only the 1D example computes an exact
+# W_2; E2--E4 compute a fixed-projection sliced W_2 into the same column, so
+# the figures announce SW_2 there.
 fig = metric_grid(rows, os.path.join(FIGURES, EXPERIMENT + "_metrics"),
                   metrics=("W2", "MMD", "EMC"), floors=floors,
                   emc_target=emc_target, methods=PLOT_METHODS,
-                  label_overrides=PLOT_LABELS)
+                  label_overrides=PLOT_LABELS,
+                  exact_w2=(EXPERIMENT == "double_well"))
 print("saved:", os.path.join(FIGURES, EXPERIMENT + "_metrics") + ".{png,pdf}")
 
-# per-metric log-y single figures on t / NFE axes (all curves start
+# per-metric log-y single figures on t / NFE / wall-clock axes (all curves start
 # at the shared n=0 point; linear x so t=0 / NFE=0 is representable; the cost
 # axes are truncated at the largest non-LSC terminal x -- metric_single's
 # xmax_mode="baselines" -- so the 10-30x-per-step LSC-CP curve cannot squeeze
@@ -648,12 +668,13 @@ _single = [m for m in ("W2", "TV", "TV_density", "MMD",
                        "pdf_L1", "KDE_chi2", "W2_10d")
            if m in _present and not (m == "e_F" and "FES_RMSE_kBT" in _present)]
 for _m in _single:
-    for _axis in ("t", "nfe"):
+    for _axis in ("t", "nfe", "wallclock"):
         metric_single(rows, _m, os.path.join(FIGURES, f"{EXPERIMENT}_{_m}_{_axis}"),
                       xaxis=_axis, floors=floors, methods=PLOT_METHODS,
                       emc_target=emc_target, label_overrides=PLOT_LABELS,
+                      exact_w2=(EXPERIMENT == "double_well"),
                       show=False)
-print("saved per-metric log-y figures:", _single, "x {t, nfe}")
+print("saved per-metric log-y figures:", _single, "x {t, nfe, wallclock}")
 
 # ---- sample-space figures. Terminal samples are persisted FIRST and then read
 # ---- back, so these figures are exactly what a CSV-only replot reproduces.
@@ -982,7 +1003,7 @@ print(f"ULA committed events {barrier_report['event_count']}/"
 
 Two-atom symmetric shell: $r = \pm2 + \rho\,u$, $\rho\sim\mathrm{Unif}(-h,h)$, $h=0.2$, $w=(\tfrac12,\tfrac12)$, $\lambda=1$ — a $\pm2$ jump maps minimum to minimum. The stationary correction
 $$S_{\nu,\beta}(x) = -\lambda\!\int\!\nu(dr)\,r\!\int_0^1\! e^{-\beta[V(x-\theta r)-V(x)]}d\theta$$
-makes $\pi$ invariant for the jump diffusion *exactly at generator level, for any $\nu$*. It is approximated with Gauss–Legendre probability weights for expectations under the same declared continuous $\nu$ used by the jump sampler; finite quadrature is not literally that continuous measure, and the refinement/certificate gates control its error. We use **log-space accumulation**: the per-direction integrals span hundreds of orders of magnitude at $\beta=8$, so we assemble $\log I$ by log-sum-exp, extract the max exponent $M(x)$, form the $O(1)$ direction vector $v(x)$, and return $S = -\lambda e^{\min(M,600)}v$ — the drift is tamed, so only the direction matters when $\|S\|$ is astronomical. The weak stationarity residual $\mathcal R(\varphi)$ (drift term assembled in log space; domain one jump length beyond the support) certifies the correction; a deliberately tight box fails it."""),
+makes $\pi$ invariant for the jump diffusion *exactly at generator level, for any $\nu$*. It is approximated with Gauss–Legendre probability weights for expectations under the same declared continuous $\nu$ used by the jump sampler; finite quadrature is not literally that continuous measure, and the refinement/certificate gates control its error. We use **log-space accumulation**: the per-direction integrals span hundreds of orders of magnitude at $\beta=8$, so we assemble $\log I$ by log-sum-exp, extract the max exponent $M(x)$, form the $O(1)$ direction vector $v(x)$, and return $S = -\lambda e^{\min(M,600)}v$ — the drift is tamed, so only the direction matters when $\|S\|$ is astronomical. The weak stationarity residual $\mathcal R(\varphi)$ (drift term assembled in log space; domain one jump length beyond the support) certifies the correction; a deliberately tight box fails it. The gated residual uses the **uncapped** $M$, because $p\,e^{M}$ is order one in the far field and truncating it there would delete real mass from the identity rather than regularise it; the same integral under the deployed $\min(M,600)$ clip is reported next to it, together with the clip's effect on the deployed tamed step ($\sim e^{-600}$)."""),
         code('''DEFAULT_QUAD = dict(q_theta=C.Q_THETA, q_rho=C.Q_RHO)
 phis = make_phi_family(1, [0.0], 1.0, DEV)
 
@@ -993,7 +1014,11 @@ def cert_e1(q_theta, q_rho, lo=-5.2, hi=5.2):
                             phis, [lo], [hi], n_panels=120, nodes_per_panel=8)
 
 cert_report = cert_e1(**DEFAULT_QUAD)
-print(f"max R at default orders = {cert_report['max_residual']:.3e}")
+print(f"max R at default orders = {cert_report['max_residual']:.3e}"
+      f"  (capped-score diagnostic: "
+      f"{cert_report.get('max_residual_capped_score', float('nan')):.3e}, "
+      f"tamed-step defect from the cap: "
+      f"{cert_report.get('clip_tamed_step_defect', 0.0):.3e})")
 if cert_report["max_residual"] >= CERTIFICATE_TOLERANCE:
     print("default quadrature is not certified; refinement must select a passing order")
 tight = cert_e1(**DEFAULT_QUAD, lo=-1.3, hi=1.3)
@@ -1107,7 +1132,11 @@ def cert_e2(m_phi):
                             n_panels=120, nodes_per_panel=6, chunk=8192)
 
 cert_report = cert_e2(**DEFAULT_QUAD)
-print(f"max R at default orders = {cert_report['max_residual']:.3e}")
+print(f"max R at default orders = {cert_report['max_residual']:.3e}"
+      f"  (capped-score diagnostic: "
+      f"{cert_report.get('max_residual_capped_score', float('nan')):.3e}, "
+      f"tamed-step defect from the cap: "
+      f"{cert_report.get('clip_tamed_step_defect', 0.0):.3e})")
 if cert_report["max_residual"] >= CERTIFICATE_TOLERANCE:
     print("default quadrature is not certified; refinement must select a passing order")'''),
         code(CELL_LADDER),
@@ -1308,7 +1337,11 @@ def cert_e3(q_theta, q_rho):
                             n_panels=200, nodes_per_panel=10, chunk=8192)
 
 cert_report = cert_e3(**DEFAULT_QUAD)
-print(f"max R at default orders = {cert_report['max_residual']:.3e}")
+print(f"max R at default orders = {cert_report['max_residual']:.3e}"
+      f"  (capped-score diagnostic: "
+      f"{cert_report.get('max_residual_capped_score', float('nan')):.3e}, "
+      f"tamed-step defect from the cap: "
+      f"{cert_report.get('clip_tamed_step_defect', 0.0):.3e})")
 if cert_report["max_residual"] >= CERTIFICATE_TOLERANCE:
     print("default quadrature is not certified; refinement must select a passing order")'''
 
@@ -1487,6 +1520,8 @@ def cert_e4(q_theta, q_rho):
                                   nu_shifts_jump=shifts_j, nu_logw_jump=logw_j)
 
 cert_report = cert_e4(**DEFAULT_QUAD)
+# E4 uses the shifted importance-sampling form, which never forms M, so it has
+# no capped-score diagnostic.
 print(f"max R at default orders = {cert_report['max_residual']:.3e}")
 print("NOTE: the jump-aligned phis expose the theta-quadrature defect along "
       "the coherent path at Q_theta=16; the refinement gate below selects "

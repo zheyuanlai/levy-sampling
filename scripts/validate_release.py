@@ -6,6 +6,7 @@ import csv
 import json
 from pathlib import Path
 import sys
+from typing import Iterable
 
 import nbformat
 import yaml
@@ -18,6 +19,7 @@ if str(JCP_ROOT) not in sys.path:
 
 from src.manuscript import (  # noqa: E402
     EXPERIMENTS,
+    FIGURE_FORMATS,
     METRICS,
     RESOURCE_AXES,
 )
@@ -41,30 +43,34 @@ def _csv_methods(path: Path) -> set[str]:
         return {row["method"] for row in reader if row.get("method")}
 
 
-def _reject_wallclock_keys(value, *, path: str) -> None:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            normalized = str(key).lower()
-            if "wallclock" in normalized or normalized.endswith("_per_second"):
-                raise ReleaseValidationError(
-                    f"{path}: wall-clock result key remains: {key!r}"
-                )
-            _reject_wallclock_keys(child, path=path)
-    elif isinstance(value, list):
-        for child in value:
-            _reject_wallclock_keys(child, path=path)
-
-
-def _reject_wallclock_columns(path: Path) -> None:
+def _require_columns(path: Path, columns: Iterable[str]) -> None:
     with path.open(newline="", encoding="utf-8") as handle:
-        columns = set(csv.DictReader(handle).fieldnames or ())
-    forbidden = {
-        column for column in columns
-        if "wallclock" in column.lower() or column.endswith("_per_second")
-    }
-    if forbidden:
+        present = set(csv.DictReader(handle).fieldnames or ())
+    missing = sorted(set(columns) - present)
+    if missing:
+        raise ReleaseValidationError(f"{path} is missing columns {missing}")
+
+
+def _require_single_gpu_timing(manifest: dict, *, path: str) -> None:
+    """The wall-clock axis is only publishable when the run owned its device.
+
+    Every method is timed inside one process on one visible GPU. If the run
+    manifest recorded other compute processes on that GPU at start, the timings
+    are contended and must not be published as a comparison."""
+    environment = manifest.get("env") or manifest.get("environment") or {}
+    if not isinstance(environment, dict):
+        return
+    cotenants = environment.get("gpu_compute_apps_at_start")
+    if cotenants:
         raise ReleaseValidationError(
-            f"{path}: wall-clock-derived columns remain: {sorted(forbidden)}"
+            f"{path}: wall-clock results are contended; the run recorded "
+            f"co-tenant GPU processes at start: {cotenants}"
+        )
+    visible = environment.get("gpu_count_visible")
+    if visible not in (None, "", 1):
+        raise ReleaseValidationError(
+            f"{path}: expected exactly one visible GPU for the wall-clock "
+            f"timing protocol, manifest recorded {visible}"
         )
 
 
@@ -136,9 +142,7 @@ def _validate_results(root: Path, key: str) -> dict:
         _require(path)
 
     manifest = json.loads(required[0].read_text(encoding="utf-8"))
-    _reject_wallclock_keys(manifest, path=str(required[0]))
-    for csv_path in required[1:]:
-        _reject_wallclock_columns(csv_path)
+    _require_single_gpu_timing(manifest, path=str(required[0]))
     config = manifest.get("config") or {}
     for field in ("d", "N", "T", "dt", "beta", "seeds"):
         if field not in config:
@@ -150,7 +154,7 @@ def _validate_results(root: Path, key: str) -> dict:
         reader = csv.DictReader(handle)
         columns = set(reader.fieldnames or ())
         expected_columns = {
-            "method", "seed", "t", "nfe", *METRICS[:3]
+            "method", "seed", "t", "nfe", "wallclock_s", *METRICS[:3]
         }
         missing_columns = expected_columns - columns
         if missing_columns:
@@ -178,11 +182,14 @@ def _validate_results(root: Path, key: str) -> dict:
     ess_methods = set(spec.methods)
     stationarity_dir = directory / "stationarity"
     _require(stationarity_dir, "directory")
-    _reject_wallclock_columns(stationarity_dir / "all_methods_summary.csv")
+    # The wall-clock ESS view needs the per-second normalisation for every
+    # displayed method, produced by the same single-GPU run as the raw ESS.
+    _require_columns(stationarity_dir / "all_methods_summary.csv",
+                     ("worst_basin_ess", "worst_basin_ess_per_second"))
     for method in ess_methods:
         summary = stationarity_dir / f"{method}_summary.csv"
         _require(summary)
-        _reject_wallclock_columns(summary)
+        _require_columns(summary, ("worst_basin_ess_per_second",))
         with summary.open(newline="", encoding="utf-8") as handle:
             reader = csv.DictReader(handle)
             if "worst_basin_ess" not in set(reader.fieldnames or ()):
@@ -273,15 +280,9 @@ def validate_release(
         report["experiments"][key] = item
 
     if require_figures:
-        for extension in ("png", "pdf"):
+        for extension in FIGURE_FORMATS:
             directory = root / "figures" / extension
             _require(directory, "directory")
-            forbidden = sorted(directory.glob("*wallclock*"))
-            if forbidden:
-                raise ReleaseValidationError(
-                    "wall-clock figures remain: "
-                    + ", ".join(str(path) for path in forbidden)
-                )
             for key in EXPERIMENTS:
                 for axis in RESOURCE_AXES:
                     _require(directory / f"{key}_combined_{axis}.{extension}")

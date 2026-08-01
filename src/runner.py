@@ -1,10 +1,23 @@
-"""Checkpoint loops, timing provenance, CSV emission, and refinement tools.
+"""Checkpoint loops, defensible timing, CSV emission, dt refinement, and the
+ULA first-passage barrier verification.
 
-The current manuscript release does not report wall-clock comparisons because
-its frozen runs mix hardware and batching protocols. Timers remain available
-as run provenance. A future wall-clock benchmark must use ``run_experiment``
-with sequential seeds on one declared device; the batched production path is
-for throughput and its timings are informational only.
+Timing policy (the wall-clock axis is a reported result again):
+* every method of an experiment is timed inside ONE process, on ONE visible
+  GPU with no other compute process on that device -- the manifest records
+  ``gpu_compute_apps_on_own_device_at_start`` so the claim is checkable, and
+  ``scripts/validate_release.py`` refuses a contended run;
+* _cuda_synchronize() immediately before starting and stopping every timed
+  region; the timer covers ONLY sampler work (metrics, reference sampling,
+  plotting and I/O are outside it);
+* 20 untimed warm-up steps on a throwaway sampler absorb allocator/JIT
+  effects without touching the production chain;
+* ``run_experiment_batched`` gives every method the identical ensemble shape
+  (S seeds x N particles in one batch), so the comparison is like-for-like
+  throughput on a saturated device. It is a per-method timing, not a per-seed
+  one, so the wall-clock axis carries no seed error bars by construction.
+  ``run_experiment`` remains available for sequential per-seed timing.
+* PT's step advances all K replicas, so its wall-clock includes every replica
+  by construction.
 """
 from __future__ import annotations
 
@@ -185,7 +198,18 @@ def hardware_manifest() -> dict:
         except importlib_metadata.PackageNotFoundError:
             python_packages[package] = None
 
+    # nvidia-smi reports the whole node, so split its compute-app list into
+    # processes on THIS run's device and processes elsewhere. Only the former
+    # contend for our SMs, and only the former invalidate a wall-clock result.
+    own_uuid = None
+    if cuda_available:
+        try:
+            own_uuid = str(torch.cuda.get_device_properties(0).uuid)
+        except (AssertionError, AttributeError, RuntimeError):
+            own_uuid = None
     cotenants: list[str] = []
+    node_apps: list[str] = []
+    own_gpu_apps: list[str] | None = None
     if cuda_available:
         try:
             result = subprocess.run(
@@ -194,7 +218,16 @@ def hardware_manifest() -> dict:
                 capture_output=True, text=True, check=False, timeout=5,
             )
             if result.returncode == 0:
-                cotenants = [line for line in result.stdout.strip().splitlines() if line]
+                node_apps = [line for line in result.stdout.strip().splitlines()
+                             if line]
+                cotenants = node_apps
+                if own_uuid:
+                    own_pid = os.getpid()
+                    own_gpu_apps = [
+                        line for line in node_apps
+                        if own_uuid in line
+                        and str(own_pid) not in line.split(",")[1].strip()
+                    ]
         except (OSError, subprocess.SubprocessError):
             pass
 
@@ -216,8 +249,13 @@ def hardware_manifest() -> dict:
         "git_status_porcelain": porcelain if porcelain is not None else "unknown",
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
         "jcp_gpu": os.environ.get("JCP_GPU", ""),
-        # Shared node: other processes at run start (wall-clock caveat).
+        "gpu_uuid": own_uuid,
+        # Shared node: every compute process at run start (all devices).
         "gpu_compute_apps_at_start": cotenants,
+        # The wall-clock-relevant subset: OTHER processes on THIS device.
+        # ``None`` means the device UUID could not be resolved, so the check
+        # is unknown rather than clean.
+        "gpu_compute_apps_on_own_device_at_start": own_gpu_apps,
     }
 
 
@@ -315,9 +353,11 @@ def run_experiment_batched(methods, seeds, batched_factory, n_steps: int,
                            warmup: int = 20,
                            checkpoint_steps: list[int] | None = None
                            ) -> tuple[list[dict], dict]:
-    """Production loop with all seeds batched into one ensemble per method
-    (used since wall-clock curves are not reported); per-seed metric rows
-    are computed on contiguous blocks of n_per_seed particles.
+    """Production loop with all seeds batched into one ensemble per method;
+    per-seed metric rows are computed on contiguous blocks of n_per_seed
+    particles. Every method sees the identical batch shape on the same
+    dedicated device, so the recorded wall-clock is a like-for-like
+    per-method throughput comparison (one number per method, not per seed).
     checkpoint_steps (optional) overrides the uniform cadence with a fixed
     schedule of step indices, identical across methods."""
     all_rows: list[dict] = []
@@ -386,7 +426,9 @@ def run_experiment_batched(methods, seeds, batched_factory, n_steps: int,
                 row.update(row_diag)
                 all_rows.append(row)
         method_info[method] = {
-            "wallclock_mean_s": wall,        # batch wall-clock (informational)
+            # One batched timing per method: all seeds advance together, so
+            # there is no across-seed spread to report.
+            "wallclock_mean_s": wall,
             "wallclock_std_s": 0.0,
             "V_evals_per_step": (potential.n_V - nV0) / n_steps,
             "grad_evals_per_step": (potential.n_grad - ng0) / n_steps,

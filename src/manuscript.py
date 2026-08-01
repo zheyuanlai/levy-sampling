@@ -10,9 +10,13 @@ from dataclasses import dataclass
 
 
 METRICS: tuple[str, ...] = ("W2", "MMD", "TV", "worst_basin_ESS")
-# Wall-clock comparisons are withheld until every method has been rerun under
-# one declared hardware and batching protocol.
-RESOURCE_AXES: tuple[str, ...] = ("t", "nfe")
+# Wall-clock is reported again: every method in E1--E4 is now timed by one
+# protocol -- a single dedicated GPU with no co-tenants, the same batched
+# ensemble shape, CUDA-synchronized timers around sampler work only, and
+# untimed warm-up steps. See the timing policy in src/runner.py.
+RESOURCE_AXES: tuple[str, ...] = ("t", "nfe", "wallclock")
+# Publication export formats; one figures/<format>/ directory per entry.
+FIGURE_FORMATS: tuple[str, ...] = ("png", "tiff", "svg", "pdf")
 
 
 @dataclass(frozen=True)

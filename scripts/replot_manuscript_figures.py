@@ -1,17 +1,22 @@
 """Regenerate the manuscript metric figures from the frozen in-repo results.
 
-* E1--E4 use the manuscript method matrix agreed for the JCP paper.
+* E1--E4 use the manuscript DISPLAY matrix ``REPORT_METHODS``, a subset of the
+  internal method matrix in ``src.manuscript``. Nothing is deleted from the
+  result files; the omitted arms are simply not drawn.
 * BAOAB is displayed as ULD (underdamped Langevin dynamics).
-* Only W2, MMD, basin TV, and worst-basin ESS are plotted.
-* Every metric is exported individually for physical-time and NFE views.
+* Only W2, MMD, basin TV, and worst-basin ESS are plotted. The ``W2`` column is
+  an exact 1D W_2 in E1 and a fixed-projection sliced W_2 in E2--E4, and each
+  figure is labeled accordingly.
+* Every metric is exported individually for physical-time, NFE, and wall-clock
+  views.
 * Every experiment/axis also receives one 2-by-2 combined figure.
-* PNG and PDF outputs are separated into ``figures/png`` and ``figures/pdf``.
+* Outputs are separated by format into ``figures/{png,tiff,svg,pdf}``.
 
 The first three metrics are checkpoint time series.  Worst-basin ESS is only
 available as a post-settling stationarity statistic, so it is shown as a bar
-comparison: raw ESS in the t view and ESS per million NFE in the NFE view.
-The script never fabricates an ESS time series. Wall-clock plots are withheld
-until all methods have one common hardware and batching protocol.
+comparison: raw ESS in the t view, ESS per million NFE in the NFE view, and
+ESS per second in the wall-clock view. The script never fabricates an ESS
+time series.
 """
 from __future__ import annotations
 
@@ -45,6 +50,7 @@ if str(JCP_ROOT) not in sys.path:
     sys.path.insert(0, str(JCP_ROOT))
 from src.manuscript import (  # noqa: E402
     EXPERIMENTS as RELEASE_EXPERIMENTS,
+    FIGURE_FORMATS,
     RESOURCE_AXES,
 )
 
@@ -60,10 +66,43 @@ class ExperimentSpec:
     labels: dict[str, str]
 
 
+# Manuscript DISPLAY matrix. The internal method matrix in src/manuscript.py
+# and the result CSV files are unchanged; this selects which arms each figure
+# draws so that every panel answers one question:
+#   E1  isolate the raw-jump stationarity bias  (Raw-CP in, PT/FLA out)
+#   E2  generic multimode transport             (PT in, FLA out)
+#   E3  relay geometry after embedding          (PT in, FLA out)
+#   E4  the coupled phi^4 chain                 (PT in, FLA out)
+REPORT_METHODS: dict[str, tuple[str, ...]] = {
+    "double_well": ("ULA", "BAOAB", "CP", "LSC-CP", "LSC-CP-RA"),
+    "mog40": ("ULA", "BAOAB", "PT", "LSC-CP", "LSC-CP-RA"),
+    "mb3well_10d": ("ULA", "BAOAB", "PT", "LSC-CP", "LSC-CP-MA"),
+    "coupled_phi4": ("ULA", "BAOAB", "PT", "LSC-CP", "LSC-CP-MA"),
+}
+
+# Only the 1D example computes an exact W_2; the rest compute a fixed
+# projection sliced W_2 into the same CSV column.
+EXACT_W2 = {"double_well"}
+
+
+def _report_methods(key: str, available: tuple[str, ...]) -> tuple[str, ...]:
+    """Display subset for `key`, ordered as in the internal method matrix."""
+    selected = REPORT_METHODS.get(key)
+    if selected is None:
+        return available
+    unknown = sorted(set(selected) - set(available))
+    if unknown:
+        raise ValueError(
+            f"{key}: display matrix requests methods outside the release "
+            f"matrix: {unknown}"
+        )
+    return tuple(method for method in available if method in set(selected))
+
+
 EXPERIMENTS: dict[str, ExperimentSpec] = {
     key: ExperimentSpec(
         display_name=f"{spec.number}: {spec.title}",
-        methods=spec.methods,
+        methods=_report_methods(key, spec.methods),
         labels=spec.display_labels,
     )
     for key, spec in RELEASE_EXPERIMENTS.items()
@@ -107,10 +146,26 @@ METRIC_LABELS = {
     "worst_basin_ESS": "Worst-basin ESS",
 }
 
+
+def metric_label(metric: str, *, exact_w2: bool = True) -> str:
+    """Dimension-aware display label: exact W_2 in E1, sliced W_2 elsewhere."""
+    if metric == "W2" and not exact_w2:
+        return r"$\mathrm{SW}_2$"
+    return METRIC_LABELS[metric]
+
+
 X_AXIS = {
     "t": ("t", r"$t=n\,\Delta t$"),
     "nfe": ("nfe", "NFE"),
+    "wallclock": ("wallclock_s", "Wall-clock time (s)"),
 }
+
+COST_AXES = ("nfe", "wallclock")
+
+# Publication export formats come from src.manuscript (the release's single
+# source of truth); raster ones get RASTER_DPI, vector ones stay vector.
+RASTER_FORMATS: frozenset[str] = frozenset({"png", "tiff"})
+RASTER_DPI = 600
 
 ESS_AXIS = {
     "t": ("worst_basin_ess", "Worst-basin ESS", 1.0),
@@ -118,6 +173,11 @@ ESS_AXIS = {
         "worst_basin_ess_per_nfe",
         r"Worst-basin ESS per $10^6$ NFE",
         1.0e6,
+    ),
+    "wallclock": (
+        "worst_basin_ess_per_second",
+        r"Worst-basin ESS s$^{-1}$",
+        1.0,
     ),
 }
 
@@ -241,16 +301,9 @@ def _stationarity_summary(
         score = float(row.get("score_quadrature_evals") or 0.0)
         total_nfe = gradient + potential + score
         ess = float(row.get("worst_basin_ess") or 0.0)
-        # E1 Raw-CP stationarity was explicitly added on local CPU, whereas
-        # the frozen stationarity runs for the other methods used the original
-        # production hardware.  Its raw ESS and NFE-normalized ESS are valid,
-        # but a cross-hardware ESS/s bar would not be an apples-to-apples
-        # comparison.
-        ess_per_second = (
-            math.nan
-            if method == "CP"
-            else float(row.get("worst_basin_ess_per_second") or 0.0)
-        )
+        # Every method's stationarity trace is produced by the same run, on the
+        # one declared GPU, so ESS/s is an apples-to-apples comparison.
+        ess_per_second = float(row.get("worst_basin_ess_per_second") or 0.0)
         selected[method] = {
             "worst_basin_ess": ess,
             "worst_basin_ess_per_nfe": ess / total_nfe if total_nfe else math.nan,
@@ -267,25 +320,37 @@ def _plot_time_series(
     axis: str,
     floors: dict,
     *,
-    smooth: int = 9,
+    smooth: int = 1,
+    exact_w2: bool = True,
 ) -> None:
     xkey, xlabel = X_AXIS[axis]
     all_terminal_x: list[float] = []
+    # Publication panels show the raw checkpoint means (smooth=1). The band is
+    # a display element on a log axis: a non-positive mean-minus-SD edge is
+    # otherwise clipped to the float minimum and then owns the whole y range,
+    # so it is clipped at a positive data-scale display floor instead.
+    series = {}
     for method in spec.methods:
         x, y, sd = _series(rows, method, metric, xkey)
         if not len(x):
             continue
-        style = METHOD_STYLE[method]
         y = _running_mean(y, smooth)
         sd = _running_mean(sd, smooth)
-        if axis == "nfe":
+        if axis in COST_AXES:
             keep = x > 0
             x, y, sd = x[keep], y[keep], sd[keep]
         if not len(x):
             continue
+        series[method] = (x, y, sd)
+    positive = [float(v) for _, y, _ in series.values() for v in y
+                if np.isfinite(v) and v > 0.0]
+    band_floor = 0.5 * min(positive) if positive else np.finfo(float).tiny
+
+    for method, (x, y, sd) in series.items():
+        style = METHOD_STYLE[method]
         all_terminal_x.append(float(x[-1]))
-        lower = np.maximum(y - sd, np.finfo(float).tiny)
-        upper = np.maximum(y + sd, np.finfo(float).tiny)
+        lower = np.maximum(y - sd, band_floor)
+        upper = np.maximum(y + sd, band_floor)
         ax.fill_between(
             x,
             lower,
@@ -308,9 +373,9 @@ def _plot_time_series(
             zorder=3,
         )
 
-    if axis == "nfe" and all_terminal_x:
-        positive = [value for value in all_terminal_x if value > 0]
-        if positive and max(positive) / min(positive) >= 10:
+    if axis in COST_AXES and all_terminal_x:
+        terminal = [value for value in all_terminal_x if value > 0]
+        if terminal and max(terminal) / min(terminal) >= 10:
             ax.set_xscale("log")
     ax.set_yscale("log")
     floor = (floors.get(metric) or {}).get("mean")
@@ -323,7 +388,7 @@ def _plot_time_series(
             zorder=2,
         )
     ax.set_xlabel(xlabel)
-    ax.set_ylabel(METRIC_LABELS[metric])
+    ax.set_ylabel(metric_label(metric, exact_w2=exact_w2))
 
 
 def _plot_ess(
@@ -399,15 +464,25 @@ def _legend_handles(spec: ExperimentSpec) -> list[Line2D]:
 def _save_figure(
     fig,
     basename: str,
-    png_dir: Path,
-    pdf_dir: Path,
-) -> tuple[Path, Path]:
-    png_path = png_dir / f"{basename}.png"
-    pdf_path = pdf_dir / f"{basename}.pdf"
-    fig.savefig(png_path, dpi=300, bbox_inches="tight", facecolor="white")
-    fig.savefig(pdf_path, bbox_inches="tight", facecolor="white")
+    format_dirs: dict[str, Path],
+) -> tuple[Path, ...]:
+    """Write one figure in every publication format, one directory per format.
+
+    Raster formats are written at ``RASTER_DPI``; TIFF additionally uses
+    lossless LZW compression, which is what journal production systems ask for.
+    SVG and PDF stay vector with embedded (type-42) fonts."""
+    written: list[Path] = []
+    for extension, directory in format_dirs.items():
+        path = directory / f"{basename}.{extension}"
+        kwargs: dict = {"bbox_inches": "tight", "facecolor": "white"}
+        if extension in RASTER_FORMATS:
+            kwargs["dpi"] = RASTER_DPI
+        if extension == "tiff":
+            kwargs["pil_kwargs"] = {"compression": "tiff_lzw"}
+        fig.savefig(path, **kwargs)
+        written.append(path)
     plt.close(fig)
-    return png_path, pdf_path
+    return tuple(written)
 
 
 def _individual_figure(
@@ -418,12 +493,14 @@ def _individual_figure(
     summary: dict[str, dict[str, float]],
     metric: str,
     axis: str,
-    png_dir: Path,
-    pdf_dir: Path,
-) -> tuple[Path, Path]:
+    format_dirs: dict[str, Path],
+    *,
+    exact_w2: bool = True,
+) -> tuple[Path, ...]:
     fig, ax = plt.subplots(figsize=(5.4, 4.1))
     if metric in TIME_SERIES_METRICS:
-        _plot_time_series(ax, rows, spec, metric, axis, floors)
+        _plot_time_series(ax, rows, spec, metric, axis, floors,
+                          exact_w2=exact_w2)
         fig.legend(
             handles=_legend_handles(spec),
             loc="upper center",
@@ -436,12 +513,7 @@ def _individual_figure(
     else:
         _plot_ess(ax, summary, spec, axis)
         fig.tight_layout(pad=1.2)
-    return _save_figure(
-        fig,
-        f"{experiment}_{metric}_{axis}",
-        png_dir,
-        pdf_dir,
-    )
+    return _save_figure(fig, f"{experiment}_{metric}_{axis}", format_dirs)
 
 
 def _combined_figure(
@@ -451,13 +523,15 @@ def _combined_figure(
     floors: dict,
     summary: dict[str, dict[str, float]],
     axis: str,
-    png_dir: Path,
-    pdf_dir: Path,
-) -> tuple[Path, Path]:
+    format_dirs: dict[str, Path],
+    *,
+    exact_w2: bool = True,
+) -> tuple[Path, ...]:
     fig, axes = plt.subplots(2, 2, figsize=(11.2, 8.0))
     flat = axes.ravel()
     for panel, metric in zip(flat[:3], TIME_SERIES_METRICS):
-        _plot_time_series(panel, rows, spec, metric, axis, floors)
+        _plot_time_series(panel, rows, spec, metric, axis, floors,
+                          exact_w2=exact_w2)
     _plot_ess(flat[3], summary, spec, axis)
 
     for label, panel in zip(("a", "b", "c", "d"), flat):
@@ -480,12 +554,7 @@ def _combined_figure(
         handlelength=2.5,
     )
     fig.tight_layout(pad=1.0, rect=(0, 0, 1, 0.93))
-    return _save_figure(
-        fig,
-        f"{experiment}_combined_{axis}",
-        png_dir,
-        pdf_dir,
-    )
+    return _save_figure(fig, f"{experiment}_combined_{axis}", format_dirs)
 
 
 def regenerate(
@@ -511,10 +580,10 @@ def regenerate(
 
     if clean and figures_dir.exists():
         shutil.rmtree(figures_dir)
-    png_dir = figures_dir / "png"
-    pdf_dir = figures_dir / "pdf"
-    png_dir.mkdir(parents=True, exist_ok=True)
-    pdf_dir.mkdir(parents=True, exist_ok=True)
+    format_dirs = {extension: figures_dir / extension
+                   for extension in FIGURE_FORMATS}
+    for directory in format_dirs.values():
+        directory.mkdir(parents=True, exist_ok=True)
 
     apply_publication_style()
     outputs: list[Path] = []
@@ -534,6 +603,7 @@ def regenerate(
             spec.methods,
         )
 
+        exact_w2 = experiment in EXACT_W2
         for axis in AXES:
             for metric in METRICS:
                 outputs.extend(_individual_figure(
@@ -544,8 +614,8 @@ def regenerate(
                     summary,
                     metric,
                     axis,
-                    png_dir,
-                    pdf_dir,
+                    format_dirs,
+                    exact_w2=exact_w2,
                 ))
             outputs.extend(_combined_figure(
                 experiment,
@@ -554,12 +624,12 @@ def regenerate(
                 floors,
                 summary,
                 axis,
-                png_dir,
-                pdf_dir,
+                format_dirs,
+                exact_w2=exact_w2,
             ))
         per_experiment[experiment] = {
             "methods": list(spec.methods),
-            "labels": spec.labels,
+            "labels": {method: spec.labels[method] for method in spec.methods},
             "stationarity_methods": sorted(summary),
         }
 
@@ -567,21 +637,26 @@ def regenerate(
     # Validate the files generated by this function, not every file already in
     # the shared manuscript directories. Density/scatter figures intentionally
     # coexist there when ``--no-clean`` is used.
-    png_outputs = sorted(path for path in outputs if path.suffix == ".png")
-    pdf_outputs = sorted(path for path in outputs if path.suffix == ".pdf")
-    if len(png_outputs) != expected_per_format:
-        raise RuntimeError(
-            f"expected {expected_per_format} PNGs, found {len(png_outputs)}"
-        )
-    if len(pdf_outputs) != expected_per_format:
-        raise RuntimeError(
-            f"expected {expected_per_format} PDFs, found {len(pdf_outputs)}"
-        )
+    by_format = {
+        extension: sorted(path for path in outputs
+                          if path.suffix == f".{extension}")
+        for extension in FIGURE_FORMATS
+    }
+    for extension, paths in by_format.items():
+        if len(paths) != expected_per_format:
+            raise RuntimeError(
+                f"expected {expected_per_format} {extension.upper()} figures, "
+                f"found {len(paths)}"
+            )
     return {
         "results_dir": str(results_dir),
         "figures_dir": str(figures_dir),
-        "png_count": len(png_outputs),
-        "pdf_count": len(pdf_outputs),
+        "formats": list(FIGURE_FORMATS),
+        "count_per_format": expected_per_format,
+        "counts": {extension: len(paths)
+                   for extension, paths in by_format.items()},
+        "png_count": len(by_format["png"]),
+        "pdf_count": len(by_format["pdf"]),
         "per_experiment": per_experiment,
         "outputs": [str(path) for path in outputs],
     }
@@ -599,7 +674,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--figures-dir",
         type=Path,
         default=DEFAULT_FIGURES_DIR,
-        help="output directory; PNG/PDF subdirectories are created here",
+        help="output directory; one subdirectory per format is created here",
     )
     parser.add_argument(
         "--no-clean",
@@ -616,11 +691,10 @@ def main(argv: list[str] | None = None) -> int:
         args.figures_dir,
         clean=not args.no_clean,
     )
-    print(
-        "Regenerated manuscript figures: "
-        f"{result['png_count']} PNG + {result['pdf_count']} PDF in "
-        f"{result['figures_dir']}"
-    )
+    counts = ", ".join(f"{count} {extension.upper()}"
+                       for extension, count in result["counts"].items())
+    print(f"Regenerated manuscript figures: {counts} in "
+          f"{result['figures_dir']}")
     return 0
 
 
