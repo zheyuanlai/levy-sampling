@@ -21,6 +21,7 @@ from src.manuscript import (  # noqa: E402
     EXPERIMENTS,
     FIGURE_FORMATS,
     METRICS,
+    REALISED_ARMS,
     RESOURCE_AXES,
 )
 
@@ -168,6 +169,17 @@ def _validate_results(root: Path, key: str) -> dict:
     if missing_methods:
         raise ReleaseValidationError(
             f"{required[1]} is missing release methods {sorted(missing_methods)}"
+        )
+
+    # Exactly one realised-displacement arm per experiment. A foreign arm means
+    # results from two different estimators have been spliced into one file --
+    # E3/E4 carried stray single-atom LSC-CP-RA columns this way, alongside a
+    # manifest that had never been gated on them.
+    foreign_arms = (REALISED_ARMS & time_series_methods) - {spec.realised_arm}
+    if foreign_arms:
+        raise ReleaseValidationError(
+            f"{required[1]} carries a foreign realised arm {sorted(foreign_arms)}; "
+            f"{key} runs only {spec.realised_arm!r}"
         )
 
     position_methods = _csv_methods(required[3])

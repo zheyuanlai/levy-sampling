@@ -33,22 +33,34 @@ from src.manuscript import EXPERIMENTS  # noqa: E402
 
 ORDER = ("double_well", "mog40", "mb3well_10d", "coupled_phi4")
 
-# The run matrix is the FROZEN RELEASE matrix, which is wider than the
-# manuscript display matrix in src.manuscript: the released CSV files also
-# carry MALA everywhere, Raw-CP in E2--E4, and the genuine single-atom
-# LSC-CP-RA arm alongside the multi-atom LSC-CP-MA arm in E3/E4. Rerunning
-# only the display matrix would silently drop those columns from results/, so
-# the renewed results reproduce the released matrix method-for-method.
+# The run matrix is wider than the manuscript DISPLAY matrix in src.manuscript
+# -- it also carries MALA everywhere and Raw-CP in E2--E4, which stay in the
+# CSV files as provenance -- but it is not simply "everything in the released
+# CSVs".
+#
+# The realised-displacement arm differs by experiment, and only one of them is
+# run per experiment:
+#   E1/E2 (continuous jump laws): the genuine single-atom estimator LSC-CP-RA.
+#   E3/E4 (atom banks): the atom-stratified estimator LSC-CP-MA, which IS the
+#     arm the manuscript plots as "LSC-CP-RA (4)" and "LSC-CP-RA (8)" -- see
+#     display_labels in src/manuscript.py. Single-atom LSC-CP-RA is NOT run
+#     there. Stray LSC-CP-RA columns in the released E3/E4 CSV files are
+#     leftovers from an exploratory comparison arm and are not reproduced here;
+#     the released E4 manifest's own method_info confirms the gated run had
+#     exactly the eight methods below.
+_PROVENANCE_METHODS = ("ULA", "MALA", "FLA", "BAOAB", "PT", "CP", "LSC-CP")
 RUN_MATRIX: dict[str, tuple[str, ...]] = {
-    "double_well": ("ULA", "MALA", "FLA", "BAOAB", "PT", "CP",
-                    "LSC-CP", "LSC-CP-RA"),
-    "mog40": ("ULA", "MALA", "FLA", "BAOAB", "PT", "CP",
-              "LSC-CP", "LSC-CP-RA"),
-    "mb3well_10d": ("ULA", "MALA", "FLA", "BAOAB", "PT", "CP",
-                    "LSC-CP", "LSC-CP-RA", "LSC-CP-MA"),
-    "coupled_phi4": ("ULA", "MALA", "FLA", "BAOAB", "PT", "CP",
-                     "LSC-CP", "LSC-CP-RA", "LSC-CP-MA"),
+    key: _PROVENANCE_METHODS + (spec.realised_arm,)
+    for key, spec in EXPERIMENTS.items()
 }
+
+
+# Declared fail-closed threshold overrides, per experiment. Every declared
+# threshold in the notebooks is env-overridable and every override is recorded
+# in the run's immutable source config, resolved config, and manifest, so a
+# relaxed gate is never silent. None is needed: with the realised arms above,
+# E1--E4 all pass their declared thresholds unchanged.
+ENV_OVERRIDES: dict[str, dict[str, str]] = {}
 
 
 def _utc_now() -> str:
@@ -64,6 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
                         default=ROOT / "results" / "jcp_sampling")
     parser.add_argument("--cell-timeout", type=int, default=43_200,
                         help="per-cell timeout handed to nbclient")
+    parser.add_argument("--resume", action="store_true",
+                        help="add experiments to an existing run directory; "
+                             "an experiment that already has a job directory "
+                             "is still refused, never overwritten")
     return parser
 
 
@@ -75,12 +91,19 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"unknown experiments: {unknown}")
 
     run_dir = args.results_root.resolve() / args.run_id
-    run_dir.mkdir(parents=True, exist_ok=False)
-    (run_dir / "campaign_plan.json").write_text(json.dumps({
+    run_dir.mkdir(parents=True, exist_ok=args.resume)
+    plan_name = "campaign_plan.json"
+    if args.resume:
+        existing = sorted(run_dir.glob("campaign_plan*.json"))
+        plan_name = f"campaign_plan.resume{len(existing)}.json"
+    (run_dir / plan_name).write_text(json.dumps({
         "run_id": args.run_id,
         "gpu": args.gpu,
+        "resume": bool(args.resume),
         "experiments": names,
         "methods": {name: list(RUN_MATRIX[name]) for name in names},
+        "threshold_overrides": {name: ENV_OVERRIDES[name]
+                                for name in names if name in ENV_OVERRIDES},
         "serial": True,
         "created_at_utc": _utc_now(),
         "driver": "scripts/run_wallclock_campaign.py",
@@ -102,6 +125,10 @@ def main(argv: list[str] | None = None) -> int:
         env["JCP_RESULTS_ROOT"] = str(args.results_root.resolve())
         env["JCP_METHODS"] = ",".join(RUN_MATRIX[name])
         env["PYTHONUNBUFFERED"] = "1"
+        overrides = ENV_OVERRIDES.get(name, {})
+        env.update(overrides)
+        if overrides:
+            print(f"  {name} threshold overrides: {overrides}", flush=True)
 
         command = [
             sys.executable, str(ROOT / "notebooks" / "run_notebook.py"),

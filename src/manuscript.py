@@ -19,6 +19,10 @@ RESOURCE_AXES: tuple[str, ...] = ("t", "nfe", "wallclock")
 FIGURE_FORMATS: tuple[str, ...] = ("png", "tiff", "svg", "pdf")
 
 
+# The realised-displacement estimators. Exactly ONE is valid per experiment.
+REALISED_ARMS: frozenset[str] = frozenset({"LSC-CP-RA", "LSC-CP-MA"})
+
+
 @dataclass(frozen=True)
 class ManuscriptExperiment:
     number: str
@@ -28,6 +32,28 @@ class ManuscriptExperiment:
     config: str
     methods: tuple[str, ...]
     display_labels: dict[str, str]
+    # The one realised-displacement arm this experiment runs. E1/E2 have
+    # continuous jump laws and use the genuine single-atom estimator
+    # LSC-CP-RA. E3/E4 have atom banks and use the atom-stratified estimator
+    # LSC-CP-MA, which is what the manuscript plots as "LSC-CP-RA (4)" and
+    # "LSC-CP-RA (8)" -- single-atom LSC-CP-RA is NOT part of E3/E4. Stray
+    # LSC-CP-RA columns in older E3/E4 result files were an exploratory arm;
+    # validate_release.py refuses them.
+    realised_arm: str
+
+    def __post_init__(self) -> None:
+        if self.realised_arm not in REALISED_ARMS:
+            raise ValueError(
+                f"{self.key}: realised_arm must be one of {sorted(REALISED_ARMS)}")
+        if self.realised_arm not in self.methods:
+            raise ValueError(
+                f"{self.key}: realised_arm {self.realised_arm!r} is not in the "
+                f"method matrix {self.methods}")
+        foreign = (REALISED_ARMS & set(self.methods)) - {self.realised_arm}
+        if foreign:
+            raise ValueError(
+                f"{self.key}: method matrix carries a foreign realised arm "
+                f"{sorted(foreign)}; only {self.realised_arm!r} is valid here")
 
     @property
     def methods_csv(self) -> str:
@@ -54,6 +80,7 @@ EXPERIMENTS: dict[str, ManuscriptExperiment] = {
         notebook="01_double_well.ipynb",
         config="E1_double_well.yaml",
         methods=("ULA", "BAOAB", "PT", "FLA", "CP", "LSC-CP", "LSC-CP-RA"),
+        realised_arm="LSC-CP-RA",
         display_labels={
             **_COMMON_LABELS,
             "LSC-CP-RA": "LSC-CP-RA",
@@ -66,6 +93,7 @@ EXPERIMENTS: dict[str, ManuscriptExperiment] = {
         notebook="02_mog40.ipynb",
         config="E2_mog40.yaml",
         methods=("ULA", "BAOAB", "PT", "FLA", "LSC-CP", "LSC-CP-RA"),
+        realised_arm="LSC-CP-RA",
         display_labels={
             **_COMMON_LABELS,
             "LSC-CP-RA": "LSC-CP-RA",
@@ -78,6 +106,7 @@ EXPERIMENTS: dict[str, ManuscriptExperiment] = {
         notebook="03_mb3well_10d.ipynb",
         config="E3_mb3well_10d.yaml",
         methods=("ULA", "BAOAB", "PT", "FLA", "LSC-CP", "LSC-CP-MA"),
+        realised_arm="LSC-CP-MA",
         display_labels={
             **_COMMON_LABELS,
             "LSC-CP-MA": "LSC-CP-RA (4)",
@@ -90,6 +119,7 @@ EXPERIMENTS: dict[str, ManuscriptExperiment] = {
         notebook="04_coupled_phi4.ipynb",
         config="E4_coupled_phi4.yaml",
         methods=("ULA", "BAOAB", "PT", "FLA", "LSC-CP", "LSC-CP-MA"),
+        realised_arm="LSC-CP-MA",
         display_labels={
             **_COMMON_LABELS,
             "LSC-CP-MA": "LSC-CP-RA (8)",
