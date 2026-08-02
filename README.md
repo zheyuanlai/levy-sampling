@@ -20,20 +20,28 @@ dynamics and is displayed as **ULD** in the paper. Internal name `CP` is
 displayed as **Raw-CP**.
 
 The **internal** method matrix (what every run computes and what the result
-files contain) is wider than the **manuscript display** matrix (what the
-figures draw). Nothing is deleted from `results/`; the display matrix simply
-selects the arms that answer each example's question.
+files contain) is slightly wider than the **manuscript display** matrix (what
+the figures draw). Nothing is deleted from `results/`.
 
-| Example | Notebook | Methods displayed in the manuscript | Scientific role |
-|---|---|---|---|
-| E1 double well | `notebooks/01_double_well.ipynb` | ULA, ULD, Raw-CP, LSC-CP, LSC-CP-RA | isolate the raw-jump stationarity bias |
-| E2 MoG40 | `notebooks/02_mog40.ipynb` | ULA, ULD, PT, LSC-CP, LSC-CP-RA | generic multimode transport |
-| E3 Müller--Brown 10D | `notebooks/03_mb3well_10d.ipynb` | ULA, ULD, PT, LSC-CP, LSC-CP-RA (4) | relay geometry after embedding |
-| E4 coupled two-component phi4 | `notebooks/04_coupled_phi4.ipynb` | ULA, ULD, PT, LSC-CP, LSC-CP-RA (8) | the coupled \(\phi^4\) chain |
+| Example | Notebook | Methods displayed in the manuscript |
+|---|---|---|
+| E1 double well | `notebooks/01_double_well.ipynb` | ULA, ULD, PT, FLA, Raw-CP, LSC-CP, LSC-CP-RA |
+| E2 MoG40 | `notebooks/02_mog40.ipynb` | ULA, ULD, PT, FLA, LSC-CP, LSC-CP-RA |
+| E3 Müller--Brown 10D | `notebooks/03_mb3well_10d.ipynb` | ULA, ULD, PT, FLA, LSC-CP, LSC-CP-RA (4) |
+| E4 coupled two-component phi4 | `notebooks/04_coupled_phi4.ipynb` | ULA, ULD, PT, FLA, LSC-CP, LSC-CP-RA (8) |
 
-The internal matrix additionally runs FLA everywhere, PT in E1, and MALA; those
-curves stay in the CSV files and in `src/manuscript.py` but are not drawn.
-`scripts/replot_manuscript_figures.py:REPORT_METHODS` is the display matrix.
+Every competing method an experiment runs is drawn. The internal matrix also
+runs MALA, which tracks ULA to within ~0.5% on every metric and would plot as a
+second line underneath it, and Raw-CP outside E1, where it is not a comparator
+but the geometric-bias diagnostic E1 exists to isolate. Both stay in the CSV
+files. `scripts/replot_manuscript_figures.py:REPORT_METHODS` is the display
+matrix.
+
+FLA is drawn everywhere on purpose: it is the *uncorrected nonlocal* baseline
+and therefore the natural comparator for a corrected nonlocal method. On E1 it
+reaches a lower \(W_2\) than LSC-CP (0.096 against 0.111, \(z=3.0\)) while
+delivering roughly a third of its worst-basin ESS (598 against 1648), which is
+the comparison a reader needs both halves of.
 
 The reported metrics are:
 

@@ -68,16 +68,26 @@ class ExperimentSpec:
 
 # Manuscript DISPLAY matrix. The internal method matrix in src/manuscript.py
 # and the result CSV files are unchanged; this selects which arms each figure
-# draws so that every panel answers one question:
-#   E1  isolate the raw-jump stationarity bias  (Raw-CP in, PT/FLA out)
-#   E2  generic multimode transport             (PT in, FLA out)
-#   E3  relay geometry after embedding          (PT in, FLA out)
-#   E4  the coupled phi^4 chain                 (PT in, FLA out)
+# draws.
+#
+# Every competing method an experiment runs is drawn. The only omissions are
+# MALA, which tracks ULA to within ~0.5% on every metric and would plot as a
+# second line under it, and Raw-CP outside E1, where it is not a comparator but
+# the geometric-bias diagnostic E1 exists to isolate.
+#
+# FLA in particular is always drawn. It is the UNCORRECTED nonlocal baseline,
+# so it is the natural comparator for a corrected nonlocal method, and it is
+# competitive where it matters: on E1 it beats LSC-CP on W2 (0.096 vs 0.111,
+# z = 3.0), MMD and basin TV, and on E4 it is the nearest non-LSC method
+# (0.194 against PT's 0.364). PT is drawn on E1 for the same reason -- it sits
+# essentially on the W2 bias floor there (0.064 against a floor of 0.061).
+# Dropping either would remove exactly the curves a reader most needs in order
+# to judge the method, and both are recoverable from the CSV files anyway.
 REPORT_METHODS: dict[str, tuple[str, ...]] = {
-    "double_well": ("ULA", "BAOAB", "CP", "LSC-CP", "LSC-CP-RA"),
-    "mog40": ("ULA", "BAOAB", "PT", "LSC-CP", "LSC-CP-RA"),
-    "mb3well_10d": ("ULA", "BAOAB", "PT", "LSC-CP", "LSC-CP-MA"),
-    "coupled_phi4": ("ULA", "BAOAB", "PT", "LSC-CP", "LSC-CP-MA"),
+    "double_well": ("ULA", "BAOAB", "PT", "FLA", "CP", "LSC-CP", "LSC-CP-RA"),
+    "mog40": ("ULA", "BAOAB", "PT", "FLA", "LSC-CP", "LSC-CP-RA"),
+    "mb3well_10d": ("ULA", "BAOAB", "PT", "FLA", "LSC-CP", "LSC-CP-MA"),
+    "coupled_phi4": ("ULA", "BAOAB", "PT", "FLA", "LSC-CP", "LSC-CP-MA"),
 }
 
 # Only the 1D example computes an exact W_2; the rest compute a fixed
