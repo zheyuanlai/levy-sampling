@@ -1,0 +1,106 @@
+schema_version: 2
+id: E1
+slug: double_well
+display_name: "E1: double well (1D)"
+target:
+  builder: src.targets.build_e1_target
+  dimension: 1
+  beta: 8.0
+  # V(x) = (x^2 - 1)^2; minima at +-1, saddle at 0, barrier 1.
+  potential: double_well_1d
+
+jump_law:
+  kind: shell
+  # +-2 maps one minimum onto the other.
+  atoms: [[2.0], [-2.0]]
+  weights: [0.5, 0.5]
+  h: 0.2
+  intensity: 1.0
+
+boundary:
+  # The target lives on R; the finite box is a numerical overflow guard only and
+  # is enforced by the shared reject rule (out-of-box proposals keep the state).
+  kind: rect
+  rule: reject
+  lo: [-5.2]
+  hi: [5.2]
+
+initial_condition:
+  kind: gaussian_blob
+  center: [-1.0]
+  sigma: 0.05
+
+protocol:
+  particles: 6000
+  seeds: 8
+  final_time: 100.0
+  initial_dt: 0.005
+
+taming:
+  # Section 5.4: cap 1.0 for every method on E1 (both the local family and the
+  # CP/LSC family), stored as a resolved number, not as a rule.
+  default_cap: 1.0
+  cp_cap: 1.0
+
+score:
+  q_theta: 16
+  q_rho: 8
+  m_max: 600.0
+
+checkpoints:
+  dense:
+    count: 60
+    fraction: 0.05
+  sparse:
+    count: 160
+  include_initial: true
+  include_terminal: true
+
+plot_snapshots:
+  time_values: [1.0, 5.0, 25.0, 100.0]
+  max_points_per_seed: 2000
+
+reference:
+  builder: src.references.e1.build_reference
+  method: grid_inverse_cdf_1d
+  bounds: [-5.2, 5.2]
+  n_grid: 200001
+  sample_bank_size: 200000
+  # One-off refinement validation (section 8, E1).
+  validation:
+    grid_sizes: [100001, 200001, 400001]
+    wide_bounds: [-8.0, 8.0]
+    moment_orders: [1, 2, 3, 4]
+    self_w2_replicates: 20
+
+metrics:
+  primary: [W2_exact_1d, MMD2_biased, KS]
+  secondary: [MMD2_unbiased, basin_mass, moments, CDF_L2]
+  mmd:
+    kernel: rbf
+    bandwidth_rule: median_heuristic_on_reference_bank
+    bandwidth_reference_points: 4096
+  basins:
+    kind: sign_partition
+    labels: ["left", "right"]
+
+calibration:
+  # Hard stability gates. A configuration that trips one of these is not a
+  # valid production setting at any timestep on the grid; the calibration
+  # records the diagnosis instead of silently picking something unstable.
+  stability:
+    max_nonfinite_fraction: 0.0
+    max_boundary_reject_fraction: 0.02
+    report_score_clip_fraction: true
+  dt:
+    grid_rule: dyadic_halving
+    max_halvings: 4
+    tolerance: 0.05
+  mala:
+    target_acceptance: [0.4, 0.75]
+  pt:
+    beta_min: 1.0
+    target_swap_acceptance: [0.2, 0.4]
+    pilot_steps: 20000
+    k_initial: 8
+    k_cap: 64

@@ -1,0 +1,39 @@
+schema_version: 2
+method: PT
+# Parallel tempering with tamed MALA inside every replica.
+#
+#   Y_k = X_k + dt b_c(X_k) + sqrt(2 dt / beta_k) xi_k
+#
+# The within-replica acceptance uses replica k's own beta_k and the actual tamed
+# forward and reverse proposal densities, with b_c(Y_k) recomputed at Y_k.
+# Taming changes only the local kernel. The swap acceptance is unchanged:
+#
+#   alpha_swap = 1 ^ exp[(beta_i - beta_j) (V(X_i) - V(X_j))].
+streams: [init_gen, diffusion_gen, mh_uniform_gen]
+parameters:
+  n_swap: 10
+tame_variants: [false, true]
+proposal:
+  kind: tamed_gaussian_per_replica
+  reverse_drift_evaluated_at: proposal_point
+  covariance: isotropic_2dt_over_beta_k
+ladder:
+  spacing: geometric
+  # Canonical and tamed PT tune their ladders separately; the canonical ladder
+  # is never reused for tamed PT.
+  per_tame_variant: true
+  target_swap_acceptance: [0.2, 0.4]
+  burn_fraction: 0.5
+calibration:
+  dt:
+    criteria: [replica_acceptance, swap_acceptance, round_trip, stability]
+    tolerance: 0.05
+    max_halvings: 6
+  per_tame_variant: true
+diagnostics:
+  - replica_acceptance_rate
+  - swap_acceptance_rate
+  - round_trip_rate
+  - boundary_reject_count
+  - nonfinite_count
+metrics_use_replica: cold

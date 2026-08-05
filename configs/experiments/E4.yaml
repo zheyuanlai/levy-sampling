@@ -1,0 +1,159 @@
+schema_version: 2
+id: E4
+slug: coupled_quartic_chain
+display_name: "E4: one-dimensional two-component coupled quartic chain (24D)"
+target:
+  builder: src.targets.build_e4_target
+  dimension: 24
+  beta: 8.0
+  potential: coupled_quartic_chain
+  # Periodic chain of N_s = 12 sites q_i in R^2:
+  #   V(q) = kappa/(2 delta) sum_i ||q_{i+1}-q_i||^2 + delta sum_i W(q_i),
+  #   W(v) = (vx^2-1)^2 + (vy^2-1)^2 + c_xy vx vy + h_x vx + h_y vy,
+  #   delta = 1/N_s.
+  # This is a two-component coupled quartic chain, not a scalar phi^4 model.
+  n_sites: 12
+  kappa: 2.5
+  site_coefficients:
+    cxy: -0.0125
+    hx: 0.0075
+    hy: 0.015
+
+order_parameter:
+  # Two-component magnetization m = (1/N_s) sum_i q_i.
+  kind: mean_site_vector
+  components: [mx, my]
+
+jump_law:
+  kind: shell_phase_edges
+  # 8 edge atoms of the phase square; the two diagonal pairs are dropped because
+  # their coherent chords cross the field-zero hilltop at the centre.
+  drop_diagonals: true
+  weights_uniform: true
+  h_rule: 0.1_times_min_atom_norm
+  intensity: 1.0
+  # The jump displacement carries no extra Gaussian jitter. That option is gone
+  # from the configuration rather than defaulted to zero: it was only ever
+  # half-supported, because the deterministic LSC quadrature has no matching
+  # rule for a jittered law. Any unrecognised key here is now an error, so a
+  # stale config cannot reintroduce it silently.
+
+boundary:
+  kind: rect_from_laplace_envelope
+  rule: reject
+  tail_probability: 1.0e-8
+
+initial_condition:
+  kind: gaussian_blob_at_phase
+  phase: "--"
+  sigma: 0.05
+
+protocol:
+  particles: 1000
+  seeds: 8
+  final_time: 100.0
+  initial_dt: 0.002
+
+taming:
+  default_cap: 1.0
+  cp_cap_rule: two_h
+  cp_cap: null
+
+score:
+  q_theta: 16
+  q_rho: 8
+  m_max: 600.0
+  # The chain admits an exact moment-based V(x - r) - V(x) for homogeneous
+  # shifts. Its measured cost enters FEE through a calibrated equivalent, never
+  # as a pretend count of generic V() calls.
+  structured_fast_path: true
+
+checkpoints:
+  dense:
+    count: 60
+    fraction: 0.05
+  sparse:
+    count: 160
+  include_initial: true
+  include_terminal: true
+
+plot_snapshots:
+  time_values: [1.0, 10.0, 40.0, 100.0]
+  max_points_per_seed: 2000
+
+reference:
+  builder: src.references.e4.build_reference
+  method: multistart_pt_mala_with_snis_crosscheck
+  acceptance: configs/experiments/E4_reference_acceptance.yaml
+  pt_mala:
+    n_runs: 4
+    init_phases: ["--", "-+", "+-", "++"]
+    chains_per_run: 8
+    beta_min: 1.0
+    n_replicas: 12
+    swap_interval: 10
+    dt: 0.002
+    burn_in_steps: 200000
+    total_steps: 2000000
+    thinning: 200
+    seed_base: 20260805
+  snis:
+    n_runs: 4
+    proposals_per_run: 500000
+    seed_base: 31337
+    hessian_regularization: 1.0e-6
+  bootstrap:
+    replicates: 2000
+    seed: 90210
+  fallback_annealed_smc:
+    enabled: false
+    n_particles: 100000
+    n_temperatures: 64
+
+metrics:
+  # Main text is fixed to these five.
+  primary:
+    - phase_weight_JS
+    - order_parameter_SW2
+    - order_parameter_MMD2_biased
+    - energy_per_site_MAE
+    - susceptibility_relative_frobenius
+  secondary:
+    - order_parameter_MMD2_unbiased
+    - coherence_mean_error
+    - correlation_relative_L2
+    - kink_density_error
+    - heat_capacity_error
+    - binder_cumulant_error
+    - marginal_KS_mx
+    - marginal_KS_my
+    - marginal_KS_m_norm
+    - phase_occupancy_profile
+  mmd:
+    kernel: rbf
+    bandwidth_rule: median_heuristic_on_reference_bank
+    bandwidth_reference_points: 4096
+  sw2:
+    n_projections: 512
+    projection_seed: 777
+
+calibration:
+  # Hard stability gates. A configuration that trips one of these is not a
+  # valid production setting at any timestep on the grid; the calibration
+  # records the diagnosis instead of silently picking something unstable.
+  stability:
+    max_nonfinite_fraction: 0.0
+    max_boundary_reject_fraction: 0.02
+    report_score_clip_fraction: true
+  dt:
+    grid_rule: dyadic_halving
+    max_halvings: 4
+    tolerance: 0.05
+  mala:
+    target_acceptance: [0.4, 0.75]
+  pt:
+    beta_min: 1.0
+    target_swap_acceptance: [0.2, 0.4]
+    pilot_steps: 20000
+    k_initial: 8
+    k_cap: 64

@@ -1,316 +1,240 @@
-# JCP E1--E4 reproducibility release
+# LSC-CP: Lévy-score-corrected compound-Poisson sampling
 
-This directory contains the manuscript code and frozen numerical outputs for
-the four examples used in the JCP paper on Lévy-score-corrected
-compound-Poisson (LSC-CP) sampling.
+Code and configuration for the four benchmark examples used in the paper on
+Lévy-score-corrected compound-Poisson (LSC-CP) sampling of Boltzmann
+distributions.
 
-The release has three independent workflows:
+Open a run notebook, run all cells, and the experiment executes from zero on
+whatever hardware you have. There is one default configuration per experiment,
+no profile to choose, no GPU to pin, and no pre-existing results required.
 
-1. **Review the code and frozen results on CPU.**
-2. **Regenerate every manuscript figure from the frozen results on CPU.**
-3. **Rerun the full stochastic experiments on CUDA GPUs.**
+## Run and plot are separate
 
-The first two workflows are the recommended starting point for a collaborator.
-They do not rerun any sampler.
+Each experiment has two notebooks.
 
-## Manuscript experiment matrix
-
-Internal name `BAOAB` is the practical integrator for underdamped Langevin
-dynamics and is displayed as **ULD** in the paper. Internal name `CP` is
-displayed as **Raw-CP**.
-
-The **internal** method matrix (what every run computes and what the result
-files contain) is slightly wider than the **manuscript display** matrix (what
-the figures draw). Nothing is deleted from `results/`.
-
-| Example | Notebook | Methods displayed in the manuscript |
+| Experiment | Run | Plot |
 |---|---|---|
-| E1 double well | `notebooks/01_double_well.ipynb` | ULA, ULD, PT, FLA, Raw-CP, LSC-CP, LSC-CP-RA |
-| E2 MoG40 | `notebooks/02_mog40.ipynb` | ULA, ULD, PT, FLA, LSC-CP, LSC-CP-RA |
-| E3 Müller--Brown 10D | `notebooks/03_mb3well_10d.ipynb` | ULA, ULD, PT, FLA, LSC-CP, LSC-CP-RA (4) |
-| E4 coupled two-component phi4 | `notebooks/04_coupled_phi4.ipynb` | ULA, ULD, PT, FLA, LSC-CP, LSC-CP-RA (8) |
+| E1 double well (1D) | `notebooks/E1_double_well_run.ipynb` | `notebooks/E1_double_well_plot.ipynb` |
+| E2 40-mode Gaussian mixture (2D) | `notebooks/E2_mog40_run.ipynb` | `notebooks/E2_mog40_plot.ipynb` |
+| E3 extended Müller–Brown (10D) | `notebooks/E3_muller_brown_run.ipynb` | `notebooks/E3_muller_brown_plot.ipynb` |
+| E4 coupled quartic chain (24D) | `notebooks/E4_coupled_quartic_chain_run.ipynb` | `notebooks/E4_coupled_quartic_chain_plot.ipynb` |
 
-Every competing method an experiment runs is drawn. The internal matrix also
-runs MALA, which tracks ULA to within ~0.5% on every metric and would plot as a
-second line underneath it, and Raw-CP outside E1, where it is not a comparator
-but the geometric-bias diagnostic E1 exists to isolate. Both stay in the CSV
-files. `scripts/replot_manuscript_figures.py:REPORT_METHODS` is the display
-matrix.
+The **run** notebook builds or reuses the reference, calibrates each variant,
+runs it, computes every official metric, and saves the result. It does no
+typesetting.
 
-FLA is drawn everywhere on purpose: it is the *uncorrected nonlocal* baseline
-and therefore the natural comparator for a corrected nonlocal method. On E1 it
-reaches a lower \(W_2\) than LSC-CP (0.096 against 0.111, \(z=3.0\)) while
-delivering roughly a third of its worst-basin ESS (598 against 1648), which is
-the comparison a reader needs both halves of.
+The **plot** notebook only reads saved results. It never calls a sampler, a
+tuner, a refinement, or a reference builder, and it never recomputes an
+official metric. Scatter, CDF, histogram, and KDE panels are display renderings
+of saved snapshots; they cannot override a number in `metrics_timeseries.csv`.
 
-The reported metrics are:
+A notebook cell is thin — it calls `src/`:
 
-- \(W_2\) in E1 (exact, one-dimensional) and \(\mathrm{SW}_2\) in E2--E4
-  (fixed-projection sliced Wasserstein-2). Both live in the CSV column named
-  `W2`; the figures are labeled with the metric actually computed;
-- MMD;
-- basin total variation;
-- worst-basin ESS.
+```python
+from src.pipeline import load_experiment, run_variants_and_save
 
-The first three are lower-is-better. Worst-basin ESS is higher-is-better.
-FLA and E1 Raw-CP do not preserve the target, so their worst-basin ESS values
-are mixing diagnostics rather than target ESS. They must always be read
-together with their distributional bias metrics.
+experiment = load_experiment("E3")
+experiment.ensure_reference()
 
-### Wall-clock protocol
-
-Wall-clock is a reported axis. Every method of an experiment is timed under one
-protocol:
-
-- one dedicated GPU per experiment, with no other compute process on that
-  device — each run manifest records
-  `hardware.gpu_compute_apps_on_own_device_at_start`, and
-  `scripts/validate_release.py` refuses a run that was contended;
-- one process, one visible device (`gpu_count_visible == 1`);
-- the identical batched ensemble shape (seeds × particles) for every method;
-- CUDA-synchronised timers around sampler work only — metrics, reference
-  sampling, plotting and I/O are outside the timed region;
-- 20 untimed warm-up steps on a throwaway sampler.
-
-Because seeds are batched, wall-clock is one number per method rather than a
-per-seed distribution, so the wall-clock axis carries no seed error bars by
-construction. The physical-time and NFE views are unaffected.
-
-## Directory guide
-
-```text
-configs/                         human-readable E1--E4 run specifications
-src/                             shared algorithms and experiment builders
-notebooks/
-  00_environment_check.ipynb     CPU-safe installation/release checks
-  01_double_well.ipynb           E1, all manuscript methods
-  02_mog40.ipynb                 E2, all manuscript methods
-  03_mb3well_10d.ipynb           E3, all manuscript methods
-  04_coupled_phi4.ipynb          E4, all manuscript methods
-  05_manuscript_plotting.ipynb   plots only; never runs a sampler
-scripts/                         validation, plotting, and archive tools
-results/                         frozen CSV/JSON results and samples
-figures/png/                     manuscript PNG files (600 dpi)
-figures/tiff/                    manuscript TIFF files (600 dpi, LZW)
-figures/svg/                     manuscript SVG files (vector)
-figures/pdf/                     manuscript PDF files (vector)
+run_variants_and_save(experiment=experiment, method="FLA", variants=[
+    {"alpha": 1.6}, {"alpha": 1.7}, {"alpha": 1.8},
+])
 ```
 
-The experiment notebooks are generated from
-`notebooks/build_notebooks.py`. Algorithm implementations live under `src/`;
-the notebooks orchestrate them and record provenance rather than maintaining
-four copies of each method.
+Notebooks are source files. Edit them directly; nothing regenerates them.
 
-## 1. Create the environment
+## Methods
 
-The tested release baseline is Python 3.12 with PyTorch 2.6 or newer. A newer
-CUDA build of PyTorch may be used for production runs.
+`configs/registry.yaml` is the single source of truth for method identity,
+display names, colours, markers, and which methods each experiment enables.
+This README, the configuration, the notebooks, the plot legends, and the
+validator all read it.
 
-From this directory:
+| Internal name | Displayed as | Notes |
+|---|---|---|
+| `ULA` | ULA | overdamped Langevin, Euler–Maruyama |
+| `MALA` | MALA | Metropolis-adjusted, correct tamed proposal density |
+| `FLA` | FLA | fractional Langevin; the *uncorrected* nonlocal comparator |
+| `ULD` | ULD | underdamped Langevin. BAOAB is its integrator, never its name |
+| `PT` | PT | parallel tempering, tamed MALA within each replica |
+| `Raw-CP` | Raw-CP | compound Poisson with no score correction |
+| `LSC-CP` | LSC-CP | full deterministic score quadrature |
+| `LSC-CP-RA` | LSC-CP-RA, LSC-CP-RA (A=4), … | iid random-atomic estimator family |
+
+`LSC-CP-RA` is **one** estimator family. Its parameter `A` is the size of a
+Monte Carlo bank drawn iid from the full normalized jump law
+`rho = nu / lambda`; the same bank builds the score and the compound-Poisson
+increment, and it is refreshed every step. `A = 1, 4, 8` are variants of that
+one method, run from a single notebook cell and saved separately.
+
+### Canonical and tamed
+
+Every method that supports taming runs two variants by default: canonical
+(`tame: false`) and tamed (`tame: true`). MALA and PT implement the actual
+tamed proposal density, with the reverse drift recomputed at the proposal
+point, rather than switching taming off to sidestep the question.
+
+The two variants are calibrated separately — separate timestep, separate
+acceptance, and for PT a separately tuned ladder. They share named random
+streams, which is common-random-number pairing and **not** pathwise coupling:
+when they calibrate to different timesteps they are not two discretisations of
+one continuous-time path.
+
+A variant with no admissible timestep is recorded as `uncalibratable` with a
+diagnosis, and the remaining variants keep running. That is a result about the
+method, and it is not hidden.
+
+## Results layout
+
+```text
+results/E3_muller_brown/
+  reference/                     built once, reused by every method
+  protocols/<target-hash>/...    calibration cache
+  fee_calibration/               measured per-configuration oracle costs
+  runs/
+    FLA/
+      <run-id>/
+        resolved_config.yaml     the fully expanded config actually used
+        calibration.json
+        metrics_timeseries.csv   every official seed-level metric
+        cost_timeseries.csv      raw oracle counters and derived FEE
+        terminal_samples.npz
+        sample_snapshots/
+        diagnostics.json
+        stationarity.npz         optional
+        manifest.json
+        COMPLETE
+  catalog.csv                    derived index, rebuildable at any time
+```
+
+Each variant writes its own directory, atomically: everything goes to a
+temporary directory, then the manifest carrying file hashes, then an atomic
+rename, then `COMPLETE`. Workers never touch a shared index, so variants can run
+concurrently without coordinating, and a reader never sees a half-written run.
+
+`catalog.csv` is derived. Rebuild it whenever you like:
+
+```bash
+python scripts/build_catalog.py results/E3_muller_brown/
+```
+
+Only runs with a manifest, a `COMPLETE` marker, a known schema version, matching
+file hashes, and no invalid marker are admitted.
+
+## Cost accounting
+
+Cost is measured, not assumed. Every sampler reaches the potential only through
+a counted oracle (`value`, `force`, `value_and_force`), and each call updates a
+counter as it happens. Nothing reconstructs a cost from `steps × particles`, so
+a caching change moves the recorded numbers by itself.
+
+The reported cost is force-equivalent evaluations:
+
+```text
+N_FEE = N_F + rho * N_V_eq^extra,        rho = C_V / C_F
+```
+
+`C_V` and `C_F` are both *amortized wall time per configuration*, measured by a
+microbenchmark frozen per device, dtype, software version, and target
+implementation. Runs may share a FEE axis only when their
+`fee_calibration_hash` matches; the plotter refuses to merge mismatched
+calibrations without an explicit compatibility record.
+
+FEE is an oracle-cost proxy, deliberately not a full cost model: it excludes
+communication, host–device transfers, framework overhead, random number
+generation, accept/reject logic, and parallel efficiency. Whole-algorithm
+wall-clock is not a reported scientific metric.
+
+Every official curve is produced against both simulation time and FEE. The
+extra-potential axis is a *diagnostic restricted to the LSC estimators* — full
+LSC-CP against LSC-CP-RA(A) — titled "LSC score potential-evaluation cost". It
+is never a claim about total computational cost, and methods with no extra
+potential evaluations are not admitted to it.
+
+Distribution snapshots (scatter, CDF, histogram) are compared at matched
+simulation time only, always from an actually saved checkpoint. Sample positions
+are never interpolated in time or in budget.
+
+## Reproducibility
+
+Each `(experiment, method family, pairing group, seed, stream)` owns its own
+generator, seeded by a stable keyed hash. Draws are produced one seed block at a
+time with a per-seed shape that does not depend on the batch, so running seed 3
+alone is bitwise identical to seed 3 inside an eight-seed campaign, and adding
+or removing seeds or whole methods leaves existing streams untouched.
+
+## Running without Jupyter
+
+```bash
+python scripts/run_experiment.py E3
+python scripts/run_experiment.py E3 --methods FLA,LSC-CP-RA --device cpu
+python scripts/build_reference.py E4          # exits nonzero if gates fail
+python scripts/build_catalog.py --all results/
+python scripts/validate_release.py            # source-package checks
+```
+
+CPU and CUDA are both supported execution paths. `--device auto` (the default)
+picks CUDA when it is available and CPU otherwise. There is no GPU allow-list,
+no pinned index, and no environment variable that can forbid a run; the device
+is recorded as provenance only.
+
+## Source package versus frozen release
+
+The **source** package is what you need to run everything from zero: `src/`,
+`configs/`, `notebooks/`, `scripts/`, `tests/`, this README, and the environment
+lock. It does not require `results/`, `figures/`, or `cache/` to exist, and
+nothing checks for them before running.
+
+The **frozen release** additionally carries `results/`, `figures/`,
+`resolved_configs/`, `manifests/`, and `executed_notebooks/`. Only release
+validation requires those:
+
+```bash
+python scripts/build_release.py --source dist/source.zip
+python scripts/build_release.py --frozen dist/release.zip
+python scripts/validate_release.py --release
+```
+
+## References
+
+Each experiment builds its reference once and reuses it for every method and
+every parameter value.
+
+- **E1** — high-precision one-dimensional inverse-CDF reference, with a one-off
+  validation over grid refinement, a widened box, moments, partition mass, and
+  a reference-versus-reference sampling floor.
+- **E2** — exact mixture sampling. The mode descriptor is a hard assignment by
+  component log-density, `a(x) = argmax_k log N(x; mu_k, I)`. Under that
+  descriptor the true masses `p*_k` need not equal `1/40`, so they are estimated
+  from a large frozen bank and frozen, together with the reference coverage line
+  `EMC*`. Entropic mode coverage is the normalized entropy of the occupancy
+  vector, `EMC = -sum_k p_k log p_k / log K`; `exp(H)/K` is a different quantity
+  and is reported separately as the effective mode fraction.
+- **E3** — the collective variable is the *latent* pair
+  `z_{1:2} = (x B^{-T})_{1:2}`, never the first two sampling coordinates. The
+  primary reference is the 2D CV grid density; reference CV samples drawn from
+  it are used for two-sample metrics and scatter panels.
+- **E4** — multi-start long-run PT-MALA is the primary reference, cross-checked
+  against a Laplace-mixture self-normalized importance sampler. Acceptance gates
+  are frozen in `configs/experiments/E4_reference_acceptance.yaml` and produce a
+  per-gate `reference_validation.json`. A failing gate exits nonzero and the
+  result is not promoted; the escalation order is to extend the PT run, then
+  improve the proposal, and only then consider the optional annealed SMC
+  fallback. Averaging the two references, or picking whichever looks better, is
+  not an option.
+
+## Environment
 
 ```bash
 conda env create -f environment.yml
 conda activate jcp-levy-release
-python -m pip install -e .
+python -m pytest tests/ -q
 ```
 
-If an existing environment is used instead, install the package and development
-dependencies with:
+## Scope
 
-```bash
-python -m pip install -e '.[dev]'
-```
-
-## 2. Validate the unpacked release on CPU
-
-Run the structural, frozen-result, and figure validator:
-
-```bash
-python scripts/validate_release.py --require-figures
-```
-
-The same validation is available interactively in
-`notebooks/00_environment_check.ipynb`.
-
-To execute it non-interactively while preserving a clean source notebook:
-
-```bash
-mkdir -p executed_notebooks
-python notebooks/run_notebook.py \
-  notebooks/00_environment_check.ipynb \
-  --output-notebook executed_notebooks/00_environment_check.ipynb \
-  --status-path executed_notebooks/00_environment_check.status.json \
-  --timeout 1800
-```
-
-## 3. Regenerate all manuscript figures on CPU
-
-The plotting notebook reads only committed files below `results/`.
-
-```bash
-mkdir -p executed_notebooks
-python notebooks/run_notebook.py \
-  notebooks/05_manuscript_plotting.ipynb \
-  --output-notebook executed_notebooks/05_manuscript_plotting.ipynb \
-  --status-path executed_notebooks/05_manuscript_plotting.status.json \
-  --timeout 7200
-```
-
-Equivalent direct commands are:
-
-```bash
-python scripts/replot_manuscript_figures.py --no-clean
-python scripts/replot_generated_samples.py --overwrite
-python scripts/validate_release.py --require-figures
-```
-
-Outputs are written to `figures/png/`, `figures/tiff/`, `figures/svg/`, and
-`figures/pdf/`. For every example, the metric script writes individual
-\(W_2\)/\(\mathrm{SW}_2\), MMD, basin-TV, and worst-basin-ESS figures and a
-2-by-2 combined figure against physical time, NFE, and wall-clock time. The
-generated-sample script writes density and scatter comparisons in PNG and PDF.
-E1 uses the manuscript display range \(x\in[-2,2]\).
-
-## 4. Regenerate the notebook source files
-
-Notebook regeneration does not execute any experiment:
-
-```bash
-python notebooks/build_notebooks.py
-python scripts/validate_release.py
-```
-
-Do not edit generated `.ipynb` files without making the corresponding change in
-`notebooks/build_notebooks.py`, or the next regeneration will overwrite it.
-
-## 5. Full CUDA production rerun
-
-Full experiment runs are expensive and require Linux, CUDA, and sufficient GPU
-memory. Use the bounded launcher instead of executing production notebooks
-directly. The launcher restricts every child to one visible GPU, records the
-resolved method matrix and environment, and validates the release before
-starting the full notebooks. Launch the E1--E4 campaign with:
-
-```bash
-./run_production.sh --gpus 0 --max-concurrent 1
-```
-
-GPU indices are examples; replace them with devices assigned to you. Passing
-`--gpus` explicitly opts those devices into the repository GPU guard.
-
-### Running without a GPU
-
-The same campaign runs on CPU when no CUDA device is visible — same code path,
-same float64 numerics, just far slower. Nothing needs to be passed: `src/device.py`
-resolves the device once, and the module defaults, notebooks, and launcher all
-read it from there.
-
-```bash
-./run_production.sh --gpus cpu --max-concurrent 1
-```
-
-`--gpus cpu` (equivalently `JCP_GPU=cpu`) claims no device: `gpu_guard` hides
-every GPU rather than pinning one, so it is not subject to the 4–7 allow-list.
-It is also the launcher's default when the host has no GPU at all.
-
-Two caveats. Wall-clock is a reported axis, so CPU timings are not comparable
-to the published GPU numbers and `scripts/validate_release.py` will reject
-them for a release run. And a `torch.Generator` seeded on CPU does not
-reproduce the CUDA stream for the same seed, so a CPU run is internally
-reproducible and statistically valid but is not bitwise comparable to the GPU
-run of that seed; `hardware_manifest()` records the resolved `device` for every
-run.
-
-Because wall-clock is a reported axis, the published campaign is run with
-`--max-concurrent 1` on a single **idle** GPU, so no two experiments and no
-foreign process ever share a device with a timed sampler. Running on several
-GPUs at once is faster but produces timings that `scripts/validate_release.py`
-will reject.
-
-The launcher creates immutable run directories under:
-
-```text
-results/jcp_sampling/<run-id>/
-```
-
-It refuses to overwrite an existing run ID. Use `--run-id` to assign a stable
-name and `--experiments` to run a comma-separated subset. Use
-`python launch_production.py --help` for the complete interface.
-
-Production stochastic results are expected to agree within Monte Carlo
-uncertainty, not bit-for-bit across different GPU architectures or PyTorch
-versions. Every run records package, hardware, seed, configuration, and Git
-provenance in its manifest.
-
-### 5a. Bootstrapping a new release contract
-
-The launcher gates on `scripts/validate_release.py --require-figures` before it
-starts, so it cannot run when the frozen results predate a change to the
-release contract itself — as when the wall-clock columns and figures were
-reinstated. `scripts/run_wallclock_campaign.py` is the driver for that case. It
-issues the same `notebooks/run_notebook.py` command with the same
-one-visible-GPU child environment, strictly one experiment at a time:
-
-```bash
-python scripts/run_wallclock_campaign.py --gpu 0 --run-id <run-id>
-```
-
-Its `RUN_MATRIX` pins the full released method matrix, which is wider than the
-manuscript display matrix — the released CSV files also carry MALA in every
-experiment, Raw-CP in E2--E4, and the single-atom LSC-CP-RA arm alongside the
-multi-atom arm in E3/E4. Use the launcher for ordinary reruns.
-
-### 5b. Promote a run into the frozen release
-
-Runs write immutable artifacts; `results/<experiment>/` is the published tree.
-The promotion step is fail-closed — it refuses a run that did not finish
-successfully, that is missing any released file, or whose manifest shows a
-contended GPU:
-
-```bash
-python scripts/promote_run.py --run-id <run-id>
-python scripts/replot_manuscript_figures.py
-python scripts/validate_release.py --require-figures
-```
-
-## 6. Build the collaborator archive
-
-The archive builder validates both the research tree and the staged standalone
-copy, excludes caches and macOS metadata, and writes `SHA256SUMS` inside the
-archive:
-
-```bash
-python scripts/build_collaborator_zip.py \
-  --output dist/JCP_levy_sampler_code.zip
-```
-
-The output path must not already exist. This fail-closed behavior prevents an
-old review package from being silently replaced.
-
-After unpacking the zip, the collaborator should start with:
-
-```bash
-conda env create -f environment.yml
-conda activate jcp-levy-release
-python -m pip install -e .
-python scripts/validate_release.py --require-figures
-```
-
-## Source of truth and provenance
-
-- `src/manuscript.py` is the single source of truth for the E1--E4 **internal**
-  method matrix, plot labels, resource axes, and export formats.
-- `scripts/replot_manuscript_figures.py:REPORT_METHODS` is the single source of
-  truth for the **manuscript display** matrix — which of those methods each
-  figure draws.
-- `configs/*.yaml` records the human-readable production protocol.
-- Each `results/<experiment>/manifest.json` records the resolved parameters and
-  provenance of the frozen result set.
-- `results/*/metrics_timeseries.csv` contains the metric trajectories.
-- `results/*/stationarity/*_summary.csv` contains worst-basin ESS diagnostics.
-- `results/*/positions.csv` is the only sampler output used by the generated
-  density/scatter figures.
-
-Raw-CP is present only in E1 because it does not follow the target geometry.
-Free-energy metrics may remain in historical CSV files for provenance, but the
-manuscript plotting workflow uses only the four declared metrics above.
+This is equilibrium sampling. The jumps provide nonlocal inter-basin transport
+and the Lévy score preserves the target; the resulting trajectories are not
+physical reaction kinetics. E4 reports static equilibrium observables only — no
+first-passage times, transition counts, round trips, or kinetic transition
+matrices.

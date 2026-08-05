@@ -1,0 +1,109 @@
+schema_version: 2
+id: E2
+slug: mog40
+display_name: "E2: 40-mode Gaussian mixture (2D)"
+target:
+  builder: src.targets.build_e2_target
+  dimension: 2
+  beta: 8.0
+  potential: mog40
+  # pi is an equal-weight mixture of N(mu_k, I_2) for every beta, because the
+  # potential carries a 1/beta prefactor.
+  n_components: 40
+  center_range: [-40.0, 40.0]
+  center_seed: 0
+
+jump_law:
+  kind: annulus
+  # Encodes only a plausible mode-spacing scale; no mode locations.
+  inner_radius: 10.0
+  outer_radius: 14.0
+  intensity: 1.0
+
+boundary:
+  kind: rect
+  rule: reject
+  lo: [-65.0, -65.0]
+  hi: [65.0, 65.0]
+
+initial_condition:
+  kind: gaussian_blob_at_component
+  component: 0
+  sigma: 0.5
+
+protocol:
+  particles: 2500
+  seeds: 8
+  final_time: 100.0
+  initial_dt: 0.01
+
+taming:
+  default_cap: 1.0
+  cp_cap: 1.0
+
+score:
+  # The annulus rule is limited by its angular order: q_rho saturates by 4,
+  # while m_phi 32 -> 64 cuts the median relative score error by ~2 orders.
+  q_theta: 16
+  q_rho: 4
+  m_phi: 64
+  m_max: 600.0
+
+checkpoints:
+  dense:
+    count: 60
+    fraction: 0.05
+  sparse:
+    count: 160
+  include_initial: true
+  include_terminal: true
+
+plot_snapshots:
+  time_values: [1.0, 10.0, 50.0, 100.0]
+  max_points_per_seed: 2000
+
+reference:
+  builder: src.references.e2.build_reference
+  method: exact_gaussian_mixture
+  sample_bank_size: 4000000
+  bank_seed: 424242
+  # Hard-assignment (Voronoi in component log-density) descriptor masses. The
+  # latent mixture weights are 1/40, but the descriptor masses p*_k are not,
+  # so they are estimated once from a large exact bank and frozen.
+  descriptor:
+    kind: argmax_component_log_density
+    n_components: 40
+
+metrics:
+  # Main text is fixed to three mode metrics; everything else is supplement.
+  primary: [EMC, mode_weight_JS, per_mode_occupancy]
+  secondary: [SW2, MMD2_biased, MMD2_unbiased, mode_count_above_threshold, max_occupancy_error]
+  mmd:
+    kernel: rbf
+    bandwidth_rule: median_heuristic_on_reference_bank
+    bandwidth_reference_points: 4096
+  sw2:
+    n_projections: 512
+    projection_seed: 777
+
+calibration:
+  # Hard stability gates. A configuration that trips one of these is not a
+  # valid production setting at any timestep on the grid; the calibration
+  # records the diagnosis instead of silently picking something unstable.
+  stability:
+    max_nonfinite_fraction: 0.0
+    max_boundary_reject_fraction: 0.02
+    report_score_clip_fraction: true
+  dt:
+    grid_rule: dyadic_halving
+    max_halvings: 4
+    tolerance: 0.05
+  mala:
+    target_acceptance: [0.4, 0.75]
+  pt:
+    # The hot replica must diffuse across the mode cloud: beta_min = 4T/L^2.
+    beta_min: 0.025
+    target_swap_acceptance: [0.2, 0.4]
+    pilot_steps: 20000
+    k_initial: 8
+    k_cap: 64

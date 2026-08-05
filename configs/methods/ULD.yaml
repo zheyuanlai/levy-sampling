@@ -1,0 +1,24 @@
+schema_version: 2
+method: ULD
+# Underdamped (kinetic) Langevin dynamics. ULD is the method name used in every
+# figure legend, table, and caption; BAOAB is only the numerical integrator and
+# appears solely in implementation or integrator notes.
+implementation_note: BAOAB splitting, unit mass, exact Ornstein-Uhlenbeck O-step
+streams: [init_gen, diffusion_gen]
+parameters:
+  gamma: 1.0
+tame_variants: [false, true]
+integrator:
+  name: BAOAB
+  # The trailing force is cached as the next step's leading B, so the oracle
+  # counters see one force call per step -- and they see it because the sampler
+  # actually calls the target, not because a formula assumes it does.
+  force_cached_across_steps: true
+calibration:
+  dt:
+    criteria: [observable_bias, stability]
+    tolerance: 0.05
+    max_halvings: 4
+diagnostics:
+  - nonfinite_count
+  - boundary_reject_count

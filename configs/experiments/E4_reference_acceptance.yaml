@@ -1,0 +1,81 @@
+# Frozen acceptance gates for the E4 reference. The reference builder writes a
+# per-gate pass/fail record to reference_validation.json and only sets
+# reference_validated: true when every primary gate passes. A failing gate makes
+# reference construction exit nonzero; the result must not be promoted.
+schema_version: 1
+experiment: E4
+
+observables:
+  # The observable set F used for the block-length rule and the R-hat/ESS gates.
+  continuous: [energy_per_site, mx, my, coherence]
+  indicators: [phase_--, phase_-+, phase_+-, phase_++]
+
+uncertainty:
+  # Non-overlapping blocks with L_block >= 2 * max_f tau_int(f) over F.
+  block_rule: non_overlapping
+  block_length_multiplier: 2.0
+  min_effective_blocks: 20
+  # Relative susceptibility/correlation SEs come from a hierarchical bootstrap
+  # applied directly to the whole-statistic difference, never from combining
+  # elementwise standard errors.
+  bootstrap:
+    kind: hierarchical
+    replicates: 2000
+    seed: 90210
+    resample_units: [pt_blocks, snis_runs]
+
+pt_mala_gates:
+  min_independent_runs: 4
+  init_from_each_refined_phase: true
+  every_cold_chain_visits_all_phases: true
+  min_entry_events_per_phase: 10
+  entry_event_min_consecutive_checkpoints: 5
+  max_split_rhat: 1.01
+  rhat_kind: rank_normalized_split
+  min_bulk_ess: 1000
+  min_tail_ess: 400
+  min_phase_indicator_ess: 500
+  max_block_mcse_fraction_of_sd: 0.05
+  max_half_run_difference_in_combined_se: 2.0
+
+snis_gates:
+  min_independent_runs: 4
+  min_total_ess: 2000
+  min_ess_fraction: 0.005
+  max_normalized_weight: 0.01
+  # N_eff,s = (sum_{i in s} wbar_i)^2 / sum_{i in s} wbar_i^2
+  min_weighted_effective_count_per_phase: 200
+  require_coverage:
+    all_four_phases: true
+    nonzero_kink_configurations: true
+    coherence_upper_decile: true
+  max_run_difference_in_combined_se: 2.0
+
+cross_check_gates:
+  phase_probability:
+    absolute_floor: 0.01
+    combined_se_multiplier: 2.0
+  energy_per_site:
+    relative_floor: 0.01
+    combined_se_multiplier: 2.0
+    scale_rule: max_abs_value_sd_or_1e-12
+  magnetization:
+    absolute_floor: 0.01
+    combined_se_multiplier: 2.0
+  susceptibility:
+    relative_frobenius_floor: 0.03
+    combined_se_multiplier: 2.0
+  coherence_mean:
+    relative_floor: 0.02
+    combined_se_multiplier: 2.0
+    scale_rule: max_abs_value_sd_or_1e-12
+  two_point_correlation:
+    relative_l2_floor: 0.03
+    combined_se_multiplier: 2.0
+
+on_failure:
+  # Escalation order. Averaging the two references, or picking whichever looks
+  # nicer, is not permitted.
+  - extend_pt_length_and_temperature_mixing
+  - improve_snis_proposal
+  - enable_annealed_smc_fallback

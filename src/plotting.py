@@ -1,612 +1,1738 @@
-"""Figures: one grid per experiment, metric vs t = n*dt only.
+"""Read-only manuscript figures.
 
-Conventions (per project owner):
-* primary metrics W2, MMD, EMC in a single-row grid; linear y axes;
-* simple legend labels (ULA, MALA, FLA, BAOAB, PT, Raw-CP, LSC-CP) placed
-  OUTSIDE the axes so they never cover curves;
-* saved as .png (600 dpi) and .pdf only, and displayed inline.
+This module reads saved run artifacts and draws them. It never runs a sampler,
+never builds a reference, never tunes a step size, and never recomputes an
+official metric: every number that reaches an axis already exists in a run's
+``metrics_timeseries.csv``, ``cost_timeseries.csv``, ``manifest.json``, or a
+saved ``sample_snapshots/*.npz``.
+
+IMPORT RULE (a test asserts the import graph): ``src.plotting`` must not import
+or call ``src.samplers``, ``src.factory``, ``src.pipeline``, ``src.calibration``,
+``src.references``, ``src.score``, or ``src.targets`` -- directly or through a
+helper. Permitted imports are the standard library, numpy, matplotlib, yaml,
+``src.catalog``, and ``src.results``. ``src.config`` is permitted by policy for
+``load_registry``/``load_yaml`` only, but is deliberately NOT imported here:
+importing it pulls ``src.targets`` into the process and would break the rule
+above. The registry and the plot configuration are plain YAML, so
+:func:`load_registry` and :func:`load_plot_config` read them directly.
+
+Scatter, CDF, histogram, and KDE panels are display-only renderings of saved
+snapshots. They never override or restate the numbers in
+``metrics_timeseries.csv``.
 """
 from __future__ import annotations
 
-import os
+from dataclasses import dataclass, field
+from pathlib import Path
+import csv
+import math
+import warnings
+
+import numpy as np
+import yaml
 
 import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 
-from .config import METHODS
+from .catalog import select_runs
+from .results import json_safe, read_manifest
 
-# Okabe-Ito colour-blind-safe palette; distinct linestyle + marker per method
-METHOD_STYLE: dict[str, dict] = {
-    "ULA":    dict(color="#0072B2", ls="-",  marker="o"),
-    "MALA":   dict(color="#56B4E9", ls="--", marker="s"),
-    "FLA":    dict(color="#009E73", ls="-.", marker="^"),
-    "BAOAB":  dict(color="#E69F00", ls=":",  marker="v"),
-    "PT":     dict(color="#CC79A7", ls=(0, (3, 1, 1, 1, 1, 1)), marker="D"),
-    "CP":     dict(color="#D55E00", ls=(0, (5, 2)), marker="X"),
-    # Every experiment now plots TWO LSC arms, so they must be visually
-    # distinct: BLACK is always the exact deterministic-quadrature score, PURPLE
-    # is always the realised-displacement estimator (single-atom RA on E1/E2,
-    # atom-stratified MA on E3/E4). Before both arms shared a figure, LSC-CP-MA
-    # was styled identically to LSC-CP and the two curves would now coincide.
-    "LSC-CP": dict(color="#000000", ls="-",  marker="*"),
-    # realised-displacement estimator variants
-    "CP-RA":     dict(color="#D55E00", ls=(0, (1, 1)), marker="P"),
-    "LSC-CP-RA": dict(color="#7030A0", ls="-",  marker="*"),
-    "LSC-CP-MA": dict(color="#7030A0", ls=(0, (4, 1, 1, 1)), marker="p"),
+__all__ = [
+    "RunData", "Snapshot",
+    "apply_style", "load_plot_config", "load_registry", "figure_spec",
+    "load_runs", "method_style", "seed_aggregate",
+    "check_fee_comparability", "check_extra_potential_eligibility",
+    "select_snapshot", "tame_view_filters",
+    "shared_limits", "points_per_panel", "assert_panels_consistent",
+    "curve_figure", "twin_axis_cdf_figure", "contour_scatter_grid",
+    "snapshot_matrix", "mode_metric_panel", "supplement_panels",
+    "save_figure", "figure_provenance",
+]
+
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_DIR = REPOSITORY_ROOT / "configs"
+
+#: Which saved column each x axis reads. A figure plots simulation time, the
+#: force-equivalent cost, or the LSC score potential-evaluation count, and each
+#: of those is a column some run already wrote.
+X_AXIS_COLUMNS = {
+    "simulation_time": "t",
+    "fee": "n_fee_per_particle",
+    "extra_potential": "n_extra_potential_equivalent_per_particle",
 }
 
-SIMPLE_LABELS: dict[str, str] = {
-    "ULA": "ULA", "MALA": "MALA", "FLA": "FLA", "BAOAB": "BAOAB",
-    "PT": "PT", "CP": "Raw-CP", "LSC-CP": "LSC-CP",
-    # MA is the A-atom generalisation of RA, so it reads as "LSC-CP-RA"; each
-    # experiment appends its atom count via label_overrides, e.g. E3 -> (4).
-    "CP-RA": "Raw-CP (RA)", "LSC-CP-RA": "LSC-CP-RA", "LSC-CP-MA": "LSC-CP-RA",
+DEFAULT_X_AXIS_LABELS = {
+    "simulation_time": r"simulation time $t$",
+    "fee": r"force-equivalent cost $N_{\mathrm{FEE}}$ / particle",
+    "extra_potential": r"$N_{V,\mathrm{eq}}^{\mathrm{extra}}$ / particle",
 }
 
-METRIC_LABEL = {
-    "W2": r"$W_2$", "MMD": "MMD", "EMC": "EMC", "TV": "TV",
-    "TV_density": "density TV", "W2_10d": r"sliced $W_2$ (10D)",
-    "EJS": "EJS",
-    "FES_RMSE_kBT": r"FES RMSE  [$k_BT$]",
-    "FES_outside_mass": "FES outside-grid mass",
-    "basin_KL_target": (
-        r"$D_{\mathrm{KL}}(p^\star_{\mathrm{basin}}"
-        r"\Vert\,\hat p_{\mathrm{basin}})$"
-    ),
-    "e_F": r"FES RMSE  [$k_BT$]",  # legacy alias
-    "basin_rel_max": "max basin rel. mass err", "basin_L1": r"basin $L_1$",
-    "V_mean_err": r"$|\langle V\rangle-\langle V\rangle_\pi|$",
-    "V_var_err": r"$|\mathrm{Var}(V)-\mathrm{Var}_\pi(V)|$",
-    "E_overlap_deficit": "energy overlap deficit", "KSD": "KSD",
-    "W1_cdf": r"$W_1$  ($\int|\hat F-F^\star|$)", "CDF_sup": "CDF sup (KS)",
-    "cdf_L2": r"CDF $L_2$", "pdf_L1": r"pdf $L_1$", "pdf_L2": r"pdf $L_2$",
-    "KDE_chi2": r"KDE $\chi^2$", "well_TV": "well TV",
-    "bin_chi2_M40": r"bin $\chi^2$ (M=40)", "bin_chi2_M80": r"bin $\chi^2$ (M=80)",
-    "bin_chi2_M120": r"bin $\chi^2$ (M=120)",
+DEFAULT_UNCERTAINTY = {
+    "unit": "seed",
+    "estimator": "seed_bootstrap",
+    "interval": 0.95,
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 5150,
 }
 
+#: The extra-potential axis counts LSC score potential evaluations only. The
+#: title is fixed so no figure can quietly promote it to a total cost.
+EXTRA_POTENTIAL_TITLE = "LSC score potential-evaluation cost"
 
-def metric_label(metric: str, *, exact_w2: bool = True) -> str:
-    """Display label for `metric`, dimension-aware for the W2 column.
+#: Phrases an extra-potential axis label may not contain.
+_FULL_COST_CLAIMS = ("total cost", "total computational", "full cost",
+                     "full computational", "wall clock", "wall-clock",
+                     "computational cost")
 
-    The internal CSV column is always named `W2`, but only the 1D example (E1)
-    computes an exact one-dimensional Wasserstein-2 distance; the higher
-    dimensional examples compute a fixed-projection SLICED Wasserstein-2
-    distance into the same column. Pass ``exact_w2=False`` there so the figure
-    announces the metric that was actually computed."""
-    if metric == "W2" and not exact_w2:
-        return r"$\mathrm{SW}_2$"
-    return METRIC_LABEL.get(metric, metric)
+#: The integrator name that must never reach a reader. ULD is the method.
+_FORBIDDEN_DISPLAY_TOKEN = "BAOAB"
 
-
-X_AXIS = {
-    "t": ("t", r"$t=n\,\Delta t$"),
-    "nfe": ("nfe", "NFE"),
-    "wallclock": ("wallclock_s", "wall-clock (s)"),
-}
-
-# Terminal-cost ratio (slowest / fastest method) above which a cost axis is
-# drawn on a log scale. Measured spreads on the delivered runs reach 104x
-# (E2 wall-clock) and 32x (E1 NFE), so 10x is comfortably below the real cases.
-LOGX_SPREAD = 10.0
+_MARKER_SIZE = 3.2
+_SCATTER_SIZE = 2.0
+_SCATTER_ALPHA = 0.35
+_BACKGROUND_ALPHA = 0.35
+_BAND_ALPHA = 0.18
 
 
-def apply_style() -> None:
-    plt.rcParams.update({
+# ------------------------------------------------------------------- style
+def apply_style(*, backend: str | None = "Agg", **overrides) -> dict:
+    """Apply the manuscript rcParams. Notebooks call this; importing does not.
+
+    Returns the parameters that were set, so a caller can restore them.
+    """
+    if backend is not None:
+        matplotlib.use(backend, force=False)
+    params = {
         "figure.dpi": 110,
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.03,
         "font.family": "serif",
         "font.serif": ["STIXGeneral", "Times New Roman", "DejaVu Serif"],
         "mathtext.fontset": "stix",
         "font.size": 9,
-        "axes.labelsize": 10,
+        "axes.titlesize": 9,
+        "axes.labelsize": 9,
+        "axes.linewidth": 0.7,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
         "xtick.labelsize": 8,
         "ytick.labelsize": 8,
-        "legend.fontsize": 9,
-        "axes.linewidth": 0.7,
-        "lines.linewidth": 1.3,
-        "lines.markersize": 4,
         "xtick.direction": "in",
         "ytick.direction": "in",
-        "axes.grid": True,
-        "grid.linestyle": ":",
-        "grid.linewidth": 0.4,
-        "grid.color": "#cccccc",
+        "legend.fontsize": 8,
+        "legend.frameon": False,
+        "lines.linewidth": 1.3,
+        "lines.markersize": _MARKER_SIZE,
         "pdf.fonttype": 42,
-        "savefig.bbox": "tight",
-        "savefig.pad_inches": 0.02,
-    })
+        "ps.fonttype": 42,
+        "image.cmap": "Greys",
+    }
+    params.update(overrides)
+    matplotlib.rcParams.update(params)
+    return params
 
 
-def blend_toward_white(color: str, keep: float = 0.30) -> tuple:
-    rgb = matplotlib.colors.to_rgb(color)
-    return tuple(keep * c + (1.0 - keep) * 1.0 for c in rgb)
+def _new_figure(width: float, height: float) -> Figure:
+    """A Figure with an Agg canvas, built without touching pyplot's registry."""
+    figure = Figure(figsize=(width, height), constrained_layout=True)
+    FigureCanvasAgg(figure)
+    return figure
 
 
-def _running_mean(y: np.ndarray, w: int) -> np.ndarray:
-    """Centered running mean, window w.
-
-    LEFT edge uses symmetric-TRUNCATED windows (radius i at index i), so the
-    first point is returned EXACTLY: all methods share the identical n=0
-    ensemble, and an asymmetric partial window there would average in each
-    method's own early transient -- fast converters get dragged down, slow
-    ones don't, and the shared start visibly splits apart in the figures.
-    The same asymmetry bias applies throughout the steep (non-stationary)
-    early descent, which the growing symmetric window avoids.
-
-    RIGHT edge keeps edge-normalized partial windows: the tail is stationary,
-    where a partial-window mean is unbiased -- and it is exactly where the
-    checkpoint-to-checkpoint Monte-Carlo jitter needs suppressing."""
-    if w is None or w <= 1 or len(y) < 2:
-        return y
-    w = min(int(w), len(y))
-    k = np.ones(w)
-    num = np.convolve(y, k, mode="same")
-    den = np.convolve(np.ones_like(y), k, mode="same")
-    out = num / den
-    for i in range(min(w // 2, len(y))):
-        out[i] = y[: 2 * i + 1].mean()
-    return out
+# ------------------------------------------------------- configuration input
+def load_plot_config(path) -> dict:
+    """Read a figure specification such as ``configs/plots/manuscript.yaml``."""
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"plot configuration not found: {path}")
+    with path.open(encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    if not isinstance(config, dict):
+        raise ValueError(f"plot configuration {path} is not a mapping")
+    return config
 
 
-def _log_band_floor(series: dict, pad: float = 0.5) -> float | None:
-    """Positive display floor for mean-minus-SD ribbons on a log y-axis.
-
-    On a log axis a `y - sd` lower edge that goes non-positive is clipped by
-    matplotlib to the floating-point minimum, which then sets the axis range
-    and flattens every curve into the top few pixels. The band is a display
-    element, not data, so its VISIBLE lower edge is clipped at a fraction of
-    the smallest positive plotted mean. The plotted means and the CSV values
-    are untouched."""
-    positive = [float(v) for _, y, _ in series.values() for v in np.asarray(y)
-                if np.isfinite(v) and v > 0.0]
-    if not positive:
-        return None
-    return pad * min(positive)
+def load_registry(config_dir=DEFAULT_CONFIG_DIR) -> dict:
+    """Read ``registry.yaml``: the one source of method identity and style."""
+    path = Path(config_dir) / "registry.yaml"
+    if not path.is_file():
+        raise FileNotFoundError(f"registry not found: {path}")
+    with path.open(encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
 
 
-def _series(rows, method, ykey):
-    by_step: dict[int, dict[str, list[float]]] = {}
-    for r in rows:
-        if r["method"] != method or ykey not in r or r[ykey] == "":
-            continue
-        # coerce step to int: rows may come from CSV (strings) -- a lexicographic
-        # sort of string steps would connect points out of order
-        e = by_step.setdefault(int(float(r["step"])), {"x": [], "y": []})
-        e["x"].append(float(r["t"]))
-        e["y"].append(float(r[ykey]))
-    steps = sorted(by_step)
-    x = np.array([np.mean(by_step[s]["x"]) for s in steps])
-    y = np.array([np.mean(by_step[s]["y"]) for s in steps])
-    sd = np.array([np.std(by_step[s]["y"], ddof=1) if len(by_step[s]["y"]) > 1 else 0.0
-                   for s in steps])
-    return x, y, sd
+def figure_spec(plot_config: dict, experiment: str, figure: str) -> dict:
+    """One figure's specification with the file-level defaults folded in."""
+    if experiment not in plot_config:
+        raise KeyError(
+            f"plot configuration has no experiment {experiment!r}; it defines "
+            f"{sorted(k for k in plot_config if isinstance(plot_config[k], dict) and 'figures' in plot_config[k])}")
+    figures = plot_config[experiment].get("figures") or {}
+    if figure not in figures:
+        raise KeyError(f"{experiment} defines no figure {figure!r}; it defines "
+                       f"{sorted(figures)}")
+    spec = dict(figures[figure])
+    spec.setdefault("name", figure)
+    spec.setdefault("experiment", experiment)
+    spec.setdefault("experiment_key",
+                    plot_config[experiment].get("experiment_key"))
+    for key, value in (plot_config.get("defaults") or {}).items():
+        spec.setdefault(key, value)
+    return spec
 
 
-def _series_x(rows, method, ykey, xkey):
-    """Per-checkpoint (mean, sd) of ykey vs a chosen x column (t / nfe /
-    wallclock_s), aggregated over seeds. Includes the n=0 (step 0) frame."""
-    by_step: dict[int, dict[str, list[float]]] = {}
-    for r in rows:
-        if r["method"] != method or ykey not in r or r[ykey] == "":
-            continue
-        if r.get(xkey, "") == "":
-            continue
-        e = by_step.setdefault(int(float(r["step"])), {"x": [], "y": []})
-        e["x"].append(float(r[xkey]))
-        e["y"].append(float(r[ykey]))
-    steps = sorted(by_step)
-    x = np.array([np.mean(by_step[s]["x"]) for s in steps])
-    y = np.array([np.mean(by_step[s]["y"]) for s in steps])
-    sd = np.array([np.std(by_step[s]["y"], ddof=1) if len(by_step[s]["y"]) > 1 else 0.0
-                   for s in steps])
-    return x, y, sd
-
-
-def metric_single(rows: list[dict], metric: str, out_base: str,
-                  xaxis: str = "t", logy: bool = True, floors: dict | None = None,
-                  emc_target: float = 1.0, methods=METHODS,
-                  figsize=(4.4, 3.2), show: bool = True, smooth: int = 1,
-                  label_overrides: dict | None = None,
-                  xmax_mode: str | None = "baselines",
-                  logx: str | bool = "auto",
-                  exact_w2: bool = True):
-    """One metric, one figure (saved individually as png+pdf). Global log-y
-    (except EMC, which is in [0,1]). `xaxis` in {'t','nfe','wallclock'}.
-
-    `logx="auto"` puts the cost axes (nfe / wallclock) on a log scale whenever
-    the terminal cost spans more than LOGX_SPREAD across methods, which is the
-    normal case once the exact LSC-CP arm is plotted alongside a local baseline.
-    The t-axis stays linear (shared physical time, and x=0 is meaningful).
-    Pass True/False to force it. On a log x-axis the x=0 frame is dropped.
-
-    `smooth` (default 1, i.e. OFF) applies a centered stationary running-average
-    to each method's seed-mean curve and its band, suppressing the checkpoint-
-    to-checkpoint Monte-Carlo jitter of the noisier estimators (W2/MMD/KSD)
-    without biasing the plateau level. Publication figures show the raw
-    checkpoint means, so the default is unsmoothed; pass smooth>1 for a
-    diagnostic look at a noisy estimator.
-
-    `exact_w2` selects the dimension-aware y label for the `W2` column: the
-    exact 1D W_2 in E1, the fixed-projection sliced W_2 in E2--E4.
-
-    `xmax_mode="baselines"` (default; None disables): on the cost axes
-    (nfe / wallclock) the scored LSC-CP method spends ~10-30x more per step
-    than any baseline, so its curve would stretch the x-range and squeeze
-    every other method against the y-axis. Truncate the x-axis at the largest
-    terminal x among the plotted NON-LSC methods (usually PT) -- the LSC-CP
-    curve is clipped there, past its equilibration plateau. The t-axis is
-    never truncated (shared physical time)."""
-    apply_style()
-    floors = floors or {}
-    lov = label_overrides or {}
-    xkey, xlabel = X_AXIS[xaxis]
-    fig, ax = plt.subplots(figsize=figsize)
-
-    series = {}
-    for method in methods:
-        x, y, sd = _series_x(rows, method, metric, xkey)
-        if len(x) == 0:
-            continue
-        series[method] = (x, _running_mean(y, smooth), _running_mean(sd, smooth))
-    plotted = bool(series)
-    xmax_by_method = {m: float(v[0].max()) for m, v in series.items()}
-    use_logy = bool(logy) and metric not in ("EMC", "FES_outside_mass")
-    band_floor = _log_band_floor(series) if use_logy else None
-
-    # Cost axes: the exact LSC-CP arm can cost orders of magnitude more per step
-    # than a local baseline, so a linear axis squeezes every baseline onto the
-    # y-axis. Truncating at the slowest baseline (the old behaviour) hid the
-    # LSC-CP tail instead. Use a log x-axis whenever the terminal-cost spread is
-    # wide; it shows every curve in full.
-    use_logx = bool(logx) if isinstance(logx, bool) else False
-    if logx == "auto" and xaxis in ("nfe", "wallclock") and len(xmax_by_method) > 1:
-        finite = [v for v in xmax_by_method.values() if v > 0]
-        use_logx = bool(finite) and (max(finite) / min(finite)) > LOGX_SPREAD
-
-    for method, (x, y, sd) in series.items():
-        if use_logx:
-            # x = 0 is the shared pre-run origin and has no place on a log axis
-            keep = x > 0
-            x, y, sd = x[keep], y[keep], sd[keep]
-            if len(x) == 0:
-                continue
-        # a method relabeled to a canonical name adopts that name's style, so
-        # the exact arm is black and the realised-displacement arm purple in
-        # every figure regardless of which estimator produced the curve
-        style_key = lov.get(method) if lov.get(method) in METHOD_STYLE else method
-        st = METHOD_STYLE.get(style_key, dict(color="#444444", ls="-", marker="."))
-        lower = y - sd
-        if band_floor is not None:
-            # display-only clip: a non-positive lower edge on a log axis is
-            # otherwise clipped to the float minimum and owns the whole range
-            lower = np.maximum(lower, band_floor)
-        ax.fill_between(x, lower, y + sd,
-                        color=blend_toward_white(st["color"]), lw=0, zorder=1)
-        ax.plot(x, y, color=st["color"], ls=st["ls"], marker=st["marker"],
-                markevery=max(1, len(x) // 8), markerfacecolor="white",
-                markeredgecolor=st["color"], markeredgewidth=0.6,
-                label=lov.get(method, SIMPLE_LABELS.get(method, method)), zorder=3)
-    if use_logx:
-        ax.set_xscale("log")
-    elif (xmax_mode == "baselines" and xaxis in ("nfe", "wallclock")
-            and len(xmax_by_method) > 1):
-        base_max = max((v for m, v in xmax_by_method.items()
-                        if not m.startswith("LSC-CP")), default=0.0)
-        if base_max > 0.0 and max(xmax_by_method.values()) > base_max:
-            # set BOTH limits: with only `right`, matplotlib keeps the auto
-            # left margin computed for the untruncated LSC range (negative
-            # and huge). All curves share the n=0 start at x=0.
-            ax.set_xlim(-0.02 * base_max, 1.02 * base_max)
-    if metric == "EMC":
-        ax.axhline(emc_target, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
-        ax.set_ylim(-0.02, 1.05)
-    elif metric == "FES_outside_mass":
-        # A probability diagnostic belongs on a bounded linear scale; zeros
-        # are scientifically meaningful and disappear on a log axis.
-        ax.set_ylim(-0.02, 1.02)
-    else:
-        if use_logy:
-            ax.set_yscale("log")
-        fl = floors.get(metric, {}).get("mean")
-        if fl:
-            ax.axhline(fl, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(metric_label(metric, exact_w2=exact_w2))
-    if plotted:
-        handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels, ncol=min(4, len(labels)), loc="lower center",
-                   bbox_to_anchor=(0.5, 1.005), frameon=False,
-                   handlelength=1.9, columnspacing=1.0)
-    fig.tight_layout()
-    os.makedirs(os.path.dirname(out_base), exist_ok=True)
-    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
-    fig.savefig(out_base + ".pdf", bbox_inches="tight")
-    if show:
-        _display_inline(fig)
-    plt.close(fig)
-    return fig
-
-
-def _display_inline(fig) -> None:
-    """Show the figure in notebook output under the Agg backend: plt.show()
-    is a no-op there, and display(fig) only emits a text repr unless the
-    matplotlib-inline backend is active, so render PNG bytes explicitly."""
+# ---------------------------------------------------------------- csv input
+def _column_array(values) -> np.ndarray:
+    """One CSV column as a typed numpy array. No pandas: it may be absent."""
+    cleaned = ["" if value is None else str(value).strip() for value in values]
+    tokens = {value.lower() for value in cleaned}
+    if (tokens - {""}) and not (tokens - {"", "true", "false"}):
+        return np.array([value.lower() == "true" for value in cleaned],
+                        dtype=bool)
     try:
-        import io
-        from IPython.display import Image, display
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=140, bbox_inches="tight")
-        display(Image(data=buf.getvalue()))
-    except Exception:
-        plt.show()
+        return np.array([np.nan if value == "" else float(value)
+                         for value in cleaned], dtype=float)
+    except ValueError:
+        return np.array(cleaned, dtype=object)
 
 
-def cdf_comparison(samples: dict, true_x, true_cdf, out_base: str,
-                   methods=METHODS, xlabel: str = r"$x$",
-                   max_points: int = 4000, show: bool = True):
-    """1D empirical CDF of each method's terminal sample vs the true CDF,
-    all on a single plot. `samples`: method -> 1D array; true CDF on a dense
-    grid. Saved as .png/.pdf; legend outside the axes."""
-    apply_style()
-    fig, ax = plt.subplots(figsize=(4.6, 3.2))
-    ax.plot(np.asarray(true_x), np.asarray(true_cdf), color="#888888",
-            lw=2.4, ls="-", label="true", zorder=1)
-    for method in methods:
-        if method not in samples:
-            continue
-        xs = np.sort(np.asarray(samples[method]).reshape(-1))
-        cdf = np.arange(1, xs.size + 1) / xs.size
-        if xs.size > max_points:                      # thin for plotting only
-            idx = np.linspace(0, xs.size - 1, max_points).astype(int)
-            xs, cdf = xs[idx], cdf[idx]
-        st = METHOD_STYLE[method]
-        ax.plot(xs, cdf, color=st["color"], ls=st["ls"], lw=1.1,
-                marker=st["marker"], markevery=max(1, xs.size // 10),
-                markerfacecolor="white", markeredgecolor=st["color"],
-                markeredgewidth=0.6, markersize=3.5,
-                label=SIMPLE_LABELS[method], zorder=2)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel("CDF")
-    ax.set_ylim(-0.02, 1.02)
-    handles, labels = ax.get_legend_handles_labels()
-    fig.legend(handles, labels, ncol=4, loc="lower center",
-               bbox_to_anchor=(0.5, 1.005), frameon=False,
-               handlelength=1.9, columnspacing=1.0)
-    fig.tight_layout()
-    os.makedirs(os.path.dirname(out_base), exist_ok=True)
-    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
-    fig.savefig(out_base + ".pdf", bbox_inches="tight")
-    if show:
-        _display_inline(fig)
-    plt.close(fig)
-    return fig
-
-
-def metric_grid(rows: list[dict], out_base: str,
-                metrics=("W2", "MMD", "EMC"), floors: dict | None = None,
-                emc_target: float = 1.0, methods=METHODS,
-                figsize_per_panel=(3.4, 2.6), show: bool = True, smooth: int = 1,
-                label_overrides: dict | None = None, exact_w2: bool = True):
-    """One row of panels (metric vs t), shared legend above the grid.
-    Saves out_base + .png/.pdf and returns the figure (also shown inline).
-    `smooth` applies the same stationary running-average as `metric_single`
-    and defaults to 1 (off) so publication panels show raw checkpoint means.
-    `exact_w2` selects the dimension-aware `W2` label (exact vs sliced)."""
-    apply_style()
-    floors = floors or {}
-    lov = label_overrides or {}
-    n = len(metrics)
-    fig, axes = plt.subplots(1, n, figsize=(figsize_per_panel[0] * n,
-                                            figsize_per_panel[1]))
-    if n == 1:
-        axes = [axes]
-    for ax, metric in zip(axes, metrics):
-        for method in methods:
-            x, y, sd = _series(rows, method, metric)
-            if len(x) == 0:
-                continue
-            y = _running_mean(y, smooth)
-            sd = _running_mean(sd, smooth)
-            style_key = (lov.get(method)
-                         if lov.get(method) in METHOD_STYLE else method)
-            st = METHOD_STYLE.get(style_key, dict(color="#444444", ls="-", marker="."))
-            ax.fill_between(x, y - sd, y + sd,
-                            color=blend_toward_white(st["color"]), lw=0, zorder=1)
-            ax.plot(x, y, color=st["color"], ls=st["ls"], marker=st["marker"],
-                    markevery=max(1, len(x) // 8), markerfacecolor="white",
-                    markeredgecolor=st["color"], markeredgewidth=0.6,
-                    label=lov.get(method, SIMPLE_LABELS.get(method, method)), zorder=3)
-        if metric == "EMC":
-            ax.axhline(emc_target, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
-            ax.set_ylim(-0.02, 1.05)
-        else:
-            fl = floors.get(metric, {}).get("mean")
-            if fl:
-                ax.axhline(fl, color="#666666", ls=(0, (2, 2)), lw=0.8, zorder=2)
-            ax.set_ylim(bottom=0.0)
-        ax.set_xlabel(r"$t = n\,\Delta t$")
-        ax.set_ylabel(metric_label(metric, exact_w2=exact_w2))
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, ncol=len(labels), loc="lower center",
-               bbox_to_anchor=(0.5, 1.005), frameon=False,
-               handlelength=1.9, columnspacing=1.1)
-    fig.tight_layout()
-    os.makedirs(os.path.dirname(out_base), exist_ok=True)
-    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
-    fig.savefig(out_base + ".pdf", bbox_inches="tight")
-    if show:
-        _display_inline(fig)
-    plt.close(fig)
-    return fig
-
-
-# ======================================================== CSV-only sample figures
-REFERENCE_KEY = "reference"
-
-
-def load_positions_csv(path: str) -> dict[str, np.ndarray]:
-    """method -> (n, k) array, as written by runner.write_positions_csv.
-
-    This is the only input the density-overlay and free-energy figures need, so
-    they regenerate from the run's CSVs with no in-memory state.
-    """
-    import csv as _csv
-    blocks: dict[str, list] = {}
-    with open(path, newline="", encoding="utf-8") as handle:
-        reader = _csv.DictReader(handle)
-        cvs = [c for c in reader.fieldnames or [] if c.startswith("cv")]
-        if not cvs:
-            raise ValueError(f"{path} has no cv columns")
+def _read_csv_columns(path: Path) -> dict:
+    """Read a saved timeseries CSV into a dict of numpy arrays."""
+    if not path.is_file():
+        raise FileNotFoundError(f"missing saved timeseries: {path}")
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        names = list(reader.fieldnames or [])
+        raw = {name: [] for name in names}
         for row in reader:
-            vals = [row[c] for c in cvs]
-            blocks.setdefault(row["method"], []).append(
-                [float(v) for v in vals if v != ""])
-    return {m: np.asarray(v, dtype=float) for m, v in blocks.items()}
+            for name in names:
+                raw[name].append(row.get(name))
+    return {name: _column_array(values) for name, values in raw.items()}
 
 
-def _shared_extent(positions: dict, pad: float = 0.04):
-    ref = positions[REFERENCE_KEY]
-    lo, hi = ref.min(axis=0), ref.max(axis=0)
-    span = np.maximum(hi - lo, 1e-12)
-    return lo - pad * span, hi + pad * span
+# ------------------------------------------------------------------ run data
+@dataclass
+class Snapshot:
+    """One saved ``sample_snapshots/checkpoint_*.npz``, exactly as written.
 
-
-def density_overlay(positions: dict, method: str, out_base: str, *,
-                    bins: int = 110, figsize=(4.0, 3.4), show: bool = True,
-                    label_overrides: dict | None = None):
-    """One method's terminal sample against the reference -- one method, one
-    figure (no grid). 1-D draws both densities as step histograms; 2-D draws the
-    reference as filled contours with the sample scattered on top, so a sampler
-    that misses a mode or leaks off-support is visible directly."""
-    apply_style()
-    lov = label_overrides or {}
-    name = lov.get(method, SIMPLE_LABELS.get(method, method))
-    ref, emp = positions[REFERENCE_KEY], positions[method]
-    lo, hi = _shared_extent(positions)
-    fig, ax = plt.subplots(figsize=figsize)
-    if ref.shape[1] == 1:
-        edges = np.linspace(lo[0], hi[0], bins + 1)
-        for data, color, lab, lw in ((ref, "#666666", "reference", 1.0),
-                                     (emp, "#000000", name, 1.4)):
-            h, _ = np.histogram(data[:, 0], bins=edges, density=True)
-            ax.step(0.5 * (edges[1:] + edges[:-1]), h, where="mid",
-                    color=color, lw=lw, label=lab)
-        ax.set_xlabel(r"$x$")
-        ax.set_ylabel("density")
-        ax.legend(frameon=False, fontsize=8)
-    else:
-        hr, xe, ye = np.histogram2d(
-            ref[:, 0], ref[:, 1], bins=bins,
-            range=[[lo[0], hi[0]], [lo[1], hi[1]]], density=True)
-        ax.contourf(0.5 * (xe[1:] + xe[:-1]), 0.5 * (ye[1:] + ye[:-1]), hr.T,
-                    levels=10, cmap="Greys", zorder=1)
-        ax.scatter(emp[:, 0], emp[:, 1], s=1.4, lw=0, alpha=0.28,
-                   color="#D55E00", zorder=2, rasterized=True)
-        ax.set_xlim(lo[0], hi[0])
-        ax.set_ylim(lo[1], hi[1])
-        ax.set_xlabel(r"$s_1$")
-        ax.set_ylabel(r"$s_2$")
-        ax.set_title(f"{name}  vs reference (shaded)", fontsize=9)
-    fig.tight_layout()
-    os.makedirs(os.path.dirname(out_base), exist_ok=True)
-    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
-    fig.savefig(out_base + ".pdf", bbox_inches="tight")
-    if show:
-        _display_inline(fig)
-    plt.close(fig)
-    return fig
-
-
-def _fes_from_samples(data, edges, beta, floor_counts=0.5):
-    """beta*F = -log p, shifted so min = 0. Empty cells get a pseudocount so an
-    unvisited basin has a finite (large) free energy rather than +inf."""
-    if len(edges) == 1:
-        counts, _ = np.histogram(data[:, 0], bins=edges[0])
-    else:
-        counts, _, _ = np.histogram2d(data[:, 0], data[:, 1], bins=edges)
-    p = (counts + floor_counts) / (counts + floor_counts).sum()
-    f = -np.log(p) / float(beta)
-    return f - np.nanmin(f)
-
-
-def fes_profile_1d(positions: dict, out_base: str, *, beta: float,
-                   methods=None, bins: int = 60, figsize=(4.6, 3.3),
-                   show: bool = True, label_overrides: dict | None = None):
-    """True free-energy profile plus the profile each sampler produces."""
-    apply_style()
-    lov = label_overrides or {}
-    lo, hi = _shared_extent(positions)
-    edges = [np.linspace(lo[0], hi[0], bins + 1)]
-    centres = 0.5 * (edges[0][1:] + edges[0][:-1])
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(centres, _fes_from_samples(positions[REFERENCE_KEY], edges, beta),
-            color="#666666", lw=2.2, ls="-", label="true FES", zorder=2)
-    for method in (methods if methods is not None else
-                   [m for m in positions if m != REFERENCE_KEY]):
-        if method not in positions:
-            continue
-        st = METHOD_STYLE.get(method, dict(color="#444444", ls="-", marker="."))
-        ax.plot(centres, _fes_from_samples(positions[method], edges, beta),
-                color=st["color"], ls=st["ls"], lw=1.1, zorder=3,
-                label=lov.get(method, SIMPLE_LABELS.get(method, method)))
-    ax.set_xlabel(r"$x$")
-    ax.set_ylabel(r"$F(x)\ [k_BT]$")
-    handles, labels = ax.get_legend_handles_labels()
-    fig.legend(handles, labels, ncol=min(4, len(labels)), loc="lower center",
-               bbox_to_anchor=(0.5, 1.005), frameon=False, handlelength=1.9,
-               columnspacing=1.0)
-    fig.tight_layout()
-    os.makedirs(os.path.dirname(out_base), exist_ok=True)
-    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
-    fig.savefig(out_base + ".pdf", bbox_inches="tight")
-    if show:
-        _display_inline(fig)
-    plt.close(fig)
-    return fig
-
-
-def fes_ceiling(positions: dict, *, beta: float, bins: int = 90,
-                percentile: float = 99.0) -> float:
-    """Shared colour ceiling for a set of 2-D free-energy maps.
-
-    Taken from the REFERENCE surface so every method's figure is drawn on the
-    same scale and the maps are visually comparable; a per-figure autoscale
-    would make a sampler that missed a basin look like it matched the target.
+    ``t``, ``checkpoint_step``, and ``n_fee`` are the REALISED values of the
+    checkpoint that was saved, never the time a figure asked for.
     """
-    lo, hi = _shared_extent(positions)
-    edges = [np.linspace(lo[j], hi[j], bins + 1) for j in range(2)]
-    return float(np.nanpercentile(
-        _fes_from_samples(positions[REFERENCE_KEY], edges, beta), percentile))
+
+    run_id: str
+    method: str
+    variant_label: str
+    path: Path
+    requested_time: float
+    t: float
+    checkpoint_step: int
+    n_fee: float
+    n_fee_per_particle: float
+    arrays: dict = field(repr=False)
+
+    def coordinates(self, name: str = "x") -> np.ndarray:
+        if name not in self.arrays:
+            raise KeyError(f"{self.path} saved no array {name!r}; it saved "
+                           f"{sorted(self.arrays)}")
+        return np.asarray(self.arrays[name])
+
+    def describe(self) -> dict:
+        return json_safe({
+            "run_id": self.run_id, "method": self.method,
+            "variant_label": self.variant_label,
+            "requested_time": self.requested_time, "realised_t": self.t,
+            "checkpoint_step": self.checkpoint_step, "n_fee": self.n_fee,
+            "n_fee_per_particle": self.n_fee_per_particle,
+            "source": str(self.path),
+        })
 
 
-def fes_map_2d(positions: dict, method: str, out_base: str, *, beta: float,
-               bins: int = 90, fmax: float | None = None, figsize=(4.2, 3.4),
-               show: bool = True, label_overrides: dict | None = None):
-    """One free-energy surface per figure. `method` may be REFERENCE_KEY to draw
-    the true surface. `fmax` clips the colour range so every method shares one
-    scale -- pass the same value for all figures of an experiment."""
-    apply_style()
-    lov = label_overrides or {}
-    name = ("true FES" if method == REFERENCE_KEY
-            else lov.get(method, SIMPLE_LABELS.get(method, method)))
-    lo, hi = _shared_extent(positions)
-    edges = [np.linspace(lo[0], hi[0], bins + 1),
-             np.linspace(lo[1], hi[1], bins + 1)]
-    f = _fes_from_samples(positions[method], edges, beta)
-    fig, ax = plt.subplots(figsize=figsize)
-    mesh = ax.pcolormesh(edges[0], edges[1], f.T, cmap="viridis",
-                         vmin=0.0, vmax=fmax, shading="auto", rasterized=True)
-    fig.colorbar(mesh, ax=ax, label=r"$F\ [k_BT]$")
-    ax.set_xlabel(r"$s_1$")
-    ax.set_ylabel(r"$s_2$")
-    ax.set_title(name, fontsize=9)
-    fig.tight_layout()
-    os.makedirs(os.path.dirname(out_base), exist_ok=True)
-    fig.savefig(out_base + ".png", dpi=600, bbox_inches="tight")
-    fig.savefig(out_base + ".pdf", bbox_inches="tight")
-    if show:
-        _display_inline(fig)
-    plt.close(fig)
-    return fig
+@dataclass
+class RunData:
+    """One saved run directory, read once and held in memory.
+
+    Snapshots and terminal samples load lazily: a curve figure never opens a
+    sample file at all.
+    """
+
+    run_dir: Path
+    manifest: dict
+    metrics: dict = field(repr=False)
+    cost: dict = field(repr=False)
+    resolved_config: dict = field(repr=False)
+    _snapshot_cache: dict = field(default_factory=dict, repr=False)
+    _terminal: dict = field(default=None, repr=False)
+
+    # -- identity ---------------------------------------------------------
+    @property
+    def run_id(self) -> str:
+        return str(self.manifest.get("run_id", self.run_dir.name))
+
+    @property
+    def method(self) -> str:
+        return str(self.manifest.get("method"))
+
+    @property
+    def variant_label(self) -> str:
+        return str(self.manifest.get("variant_label", self.method))
+
+    @property
+    def variant_hash(self) -> str:
+        return str(self.manifest.get("variant_hash", ""))
+
+    @property
+    def parameters(self) -> dict:
+        return dict(self.manifest.get("parameters") or {})
+
+    @property
+    def tame(self) -> bool:
+        return bool(self.parameters.get("tame",
+                                        self.manifest.get("tame", False)))
+
+    @property
+    def seeds(self) -> tuple:
+        return tuple(self.manifest.get("seeds") or ())
+
+    @property
+    def fee_calibration_hash(self):
+        value = self.manifest.get("fee_calibration_hash")
+        return None if value is None else str(value)
+
+    @property
+    def fee_cost_unit(self):
+        return self.manifest.get("fee_cost_unit")
+
+    # -- lazy sample accessors --------------------------------------------
+    def snapshot_paths(self) -> list:
+        directory = self.run_dir / "sample_snapshots"
+        if not directory.is_dir():
+            return []
+        return sorted(directory.glob("checkpoint_*.npz"))
+
+    def snapshot_times(self) -> list:
+        return [float(self._snapshot_payload(path)["t"])
+                for path in self.snapshot_paths()]
+
+    def _snapshot_payload(self, path: Path) -> dict:
+        key = str(path)
+        if key not in self._snapshot_cache:
+            with np.load(path, allow_pickle=False) as handle:
+                self._snapshot_cache[key] = {name: handle[name]
+                                             for name in handle.files}
+        return self._snapshot_cache[key]
+
+    def snapshot(self, t, *, policy: str = "nearest_below") -> Snapshot:
+        """The saved snapshot matched to simulation time ``t``."""
+        return select_snapshot(self, t, policy=policy)
+
+    def terminal(self) -> dict:
+        """The saved ``terminal_samples.npz`` as a dict of arrays."""
+        if self._terminal is None:
+            path = self.run_dir / "terminal_samples.npz"
+            if not path.is_file():
+                raise FileNotFoundError(f"missing terminal samples: {path}")
+            with np.load(path, allow_pickle=False) as handle:
+                self._terminal = {name: handle[name] for name in handle.files}
+        return self._terminal
+
+    def has_extra_potential(self) -> bool:
+        """Whether this run ever paid an LSC score potential evaluation."""
+        for source, column in (
+                (self.cost, "n_extra_potential_equivalent"),
+                (self.cost, "n_extra_potential_equivalent_per_particle"),
+                (self.metrics, "n_extra_potential_equivalent_per_particle")):
+            values = source.get(column)
+            if values is None:
+                continue
+            values = np.asarray(values, dtype=float)
+            if values.size and np.nanmax(np.abs(values)) > 0.0:
+                return True
+        return False
+
+
+def _read_run(run_dir) -> RunData:
+    run_dir = Path(run_dir)
+    manifest = read_manifest(run_dir)
+    if manifest is None:
+        raise FileNotFoundError("missing or unreadable manifest: "
+                                f"{run_dir / 'manifest.json'}")
+    if not (run_dir / "COMPLETE").is_file():
+        raise FileNotFoundError(f"run is not marked COMPLETE: {run_dir}")
+    resolved = {}
+    resolved_path = run_dir / "resolved_config.yaml"
+    if resolved_path.is_file():
+        with resolved_path.open(encoding="utf-8") as handle:
+            resolved = yaml.safe_load(handle) or {}
+    return RunData(
+        run_dir=run_dir,
+        manifest=manifest,
+        metrics=_read_csv_columns(run_dir / "metrics_timeseries.csv"),
+        cost=_read_csv_columns(run_dir / "cost_timeseries.csv"),
+        resolved_config=resolved,
+    )
+
+
+def _matches_parameters(row: dict, parameters: dict) -> bool:
+    for key, wanted in (parameters or {}).items():
+        if key == "tame":
+            got = str(row.get("tame", "")).strip().lower() in ("true", "1",
+                                                               "yes")
+            if bool(got) != bool(wanted):
+                return False
+            continue
+        got = row.get(f"param_{key}")
+        if got is None or str(got) == "":
+            return False
+        try:
+            if not math.isclose(float(got), float(wanted), rel_tol=1e-9,
+                                abs_tol=1e-12):
+                return False
+        except (TypeError, ValueError):
+            if str(got) != str(wanted):
+                return False
+    return True
+
+
+def _variant_filter(row: dict, variants) -> bool:
+    """Apply the plot config's ``variants:`` block to one catalog row."""
+    if variants is None:
+        return True
+    if isinstance(variants, dict):
+        wanted = variants.get(row.get("method"))
+        if wanted is None:
+            return False
+        return any(_matches_parameters(row, entry or {}) for entry in wanted)
+    labels = [item for item in variants if isinstance(item, str)]
+    dicts = [item for item in variants if isinstance(item, dict)]
+    if labels and row.get("variant_label") in labels:
+        return True
+    return any(_matches_parameters(row, entry) for entry in dicts)
+
+
+def load_runs(experiment_dir, *, methods=None, variants=None, tame=None,
+              latest_only: bool = True) -> list:
+    """Load every completed run of one experiment that passes the filters.
+
+    Manifests are scanned directly rather than through ``catalog.csv``: this
+    module is read-only and must not create or refresh a derived index.
+
+    ``variants`` may be a list of variant labels, a list of parameter dicts, or
+    the plot config's ``{method: [parameters, ...]}`` mapping.
+    """
+    experiment_dir = Path(experiment_dir)
+    if not experiment_dir.is_dir():
+        raise FileNotFoundError(
+            f"experiment directory not found: {experiment_dir}")
+    if methods is None:
+        rows = select_runs(experiment_dir, tame=tame, latest_only=latest_only,
+                           from_manifests=True)
+    else:
+        rows = []
+        for method in methods:
+            rows.extend(select_runs(experiment_dir, method=method, tame=tame,
+                                    latest_only=latest_only,
+                                    from_manifests=True))
+    rows = [row for row in rows if _variant_filter(row, variants)]
+    if not rows:
+        raise ValueError(
+            "no completed runs matched: experiment_dir="
+            f"{experiment_dir}, methods={methods}, variants={variants}, "
+            f"tame={tame}, latest_only={latest_only}. Check that the runs "
+            "finished (COMPLETE marker present) and that the method names "
+            "match configs/registry.yaml.")
+    order = {name: index for index, name in enumerate(methods or [])}
+    runs = [_read_run(row["run_directory"]) for row in rows]
+    runs.sort(key=lambda run: (order.get(run.method, len(order)), run.method,
+                               run.variant_label, run.tame))
+    return runs
+
+
+# --------------------------------------------------------------- run styling
+def _guard_display_text(text) -> str:
+    """Bar the integrator name from any reader-visible string.
+
+    ULD is the method; BAOAB is only its integrator and must never reach a
+    legend, a tick label, or a title.
+    """
+    if _FORBIDDEN_DISPLAY_TOKEN.lower() in str(text).lower():
+        raise ValueError(
+            f"{_FORBIDDEN_DISPLAY_TOKEN!r} reached a reader-visible string "
+            f"({text!r}). BAOAB is the integrator; the method is ULD. Fix the "
+            "label at its source (configs/registry.yaml display_name).")
+    return str(text)
+
+
+def _display_name(registry: dict, method: str) -> str:
+    """Registry display name for a method, with the integrator name barred."""
+    entry = (registry.get("methods") or {}).get(method)
+    if entry is None:
+        raise KeyError(f"registry has no method {method!r}; it knows "
+                       f"{sorted(registry.get('methods') or {})}")
+    return _guard_display_text(entry.get("display_name", method))
+
+
+def _format_number(value):
+    return f"{value:g}" if isinstance(value, float) else value
+
+
+def _variant_label(registry: dict, method: str, parameters: dict) -> str:
+    """Legend label for one variant, following the registry's own rules."""
+    entry = registry["methods"][method]
+    base = _display_name(registry, method)
+    template = entry.get("variant_label_template")
+    defaults = entry.get("variant_label_default_when") or {}
+    hyperparameters = {key: value for key, value in (parameters or {}).items()
+                       if key != "tame"}
+    if template is not None:
+        if not all(hyperparameters.get(key) == value
+                   for key, value in defaults.items()):
+            base = template.format(**hyperparameters)
+    else:
+        extras = ", ".join(f"{key}={_format_number(value)}"
+                           for key, value in sorted(hyperparameters.items()))
+        if extras:
+            base = f"{base} {extras}"
+    tame = bool((parameters or {}).get("tame"))
+    return f"{base}, {'tamed' if tame else 'canonical'}"
+
+
+def method_style(registry: dict, method: str, *, tame: bool,
+                 hyperparameter_index: int = 0, parameters=None,
+                 variant_label=None) -> dict:
+    """Colour, line style, marker, and legend label for one variant.
+
+    The colour belongs to the method and is identical in every experiment; the
+    tame flag chooses the line style; the marker cycles through
+    ``style.hyperparameter_markers`` so several hyperparameter values of one
+    method stay one colour. The label is the variant label, hyperparameter
+    value included.
+    """
+    entry = (registry.get("methods") or {}).get(method)
+    if entry is None:
+        raise KeyError(f"registry has no method {method!r}; it knows "
+                       f"{sorted(registry.get('methods') or {})}")
+    style = registry.get("style") or {}
+    markers = list(style.get("hyperparameter_markers")
+                   or [entry.get("marker", "o")])
+    if variant_label is not None:
+        label = _guard_display_text(variant_label)
+    elif parameters is not None:
+        label = _guard_display_text(
+            _variant_label(registry, method, {**parameters, "tame": tame}))
+    else:
+        label = _guard_display_text(
+            f"{_display_name(registry, method)}, "
+            f"{'tamed' if tame else 'canonical'}")
+    return {
+        "color": entry.get("color", "#333333"),
+        "linestyle": (style.get("tamed_linestyle", "--") if tame
+                      else style.get("canonical_linestyle", "-")),
+        "marker": markers[int(hyperparameter_index) % len(markers)],
+        "label": label,
+    }
+
+
+def _hyperparameter_key(run: RunData) -> tuple:
+    return tuple(sorted((key, str(value))
+                        for key, value in run.parameters.items()
+                        if key != "tame"))
+
+
+def _hyperparameter_indices(runs) -> dict:
+    """Stable marker index per variant, ordered by hyperparameter value.
+
+    Canonical and tamed runs of the same hyperparameters share an index, so a
+    paired view shows one marker per hyperparameter value rather than two.
+    """
+    by_method = {}
+    for run in runs:
+        keys = by_method.setdefault(run.method, [])
+        key = _hyperparameter_key(run)
+        if key not in keys:
+            keys.append(key)
+    for keys in by_method.values():
+        keys.sort()
+    return {run.run_id: by_method[run.method].index(_hyperparameter_key(run))
+            for run in runs}
+
+
+def _run_style(registry: dict, run: RunData, indices: dict) -> dict:
+    return method_style(registry, run.method, tame=run.tame,
+                        hyperparameter_index=indices.get(run.run_id, 0),
+                        variant_label=run.variant_label)
+
+
+def tame_view_filters(view: str):
+    """The run filter for one tame view.
+
+    Returns a predicate over :class:`RunData`. Its ``.tame`` attribute is the
+    matching ``load_runs(tame=...)`` argument (``None`` for the paired view).
+    """
+    wanted = {"canonical_only": False, "tamed_only": True,
+              "paired": None}.get(view, "missing")
+    if wanted == "missing":
+        raise ValueError(f"unknown tame view {view!r}; expected one of "
+                         "canonical_only, tamed_only, paired")
+
+    def predicate(run) -> bool:
+        return wanted is None or bool(run.tame) is wanted
+
+    predicate.tame = wanted
+    predicate.view = view
+    return predicate
+
+
+# ------------------------------------------------------------ seed statistics
+def seed_aggregate(rows, metric: str, x_column: str, *, uncertainty=None):
+    """Aggregate one metric across seeds; return ``(x, centre, lo, hi)``.
+
+    The statistical unit is the SEED. Particles inside one seed share an
+    initial ensemble and a random stream, so they are not independent
+    experiment repeats and are never treated as such: the run has already
+    reduced each seed's particles to one number per checkpoint, and this
+    function resamples those per-seed numbers.
+
+    The interval is the seed bootstrap of ``defaults.uncertainty``: seeds are
+    resampled with replacement ``bootstrap_replicates`` times from a frozen
+    ``bootstrap_seed``, and the band is the percentile interval of the
+    resampled seed means. One resample matrix is drawn and reused at every x,
+    so the band is coherent along a curve and identical between runs.
+    """
+    columns = rows.metrics if isinstance(rows, RunData) else rows
+    if not columns:
+        raise ValueError("seed_aggregate got no rows; nothing to aggregate")
+    for name in (metric, x_column, "seed"):
+        if name not in columns:
+            raise KeyError(f"saved rows have no column {name!r}; they have "
+                           f"{sorted(columns)}")
+    settings = dict(DEFAULT_UNCERTAINTY)
+    settings.update(uncertainty or {})
+    if str(settings.get("unit", "seed")) != "seed":
+        raise ValueError(
+            f"uncertainty unit is {settings.get('unit')!r}; the seed is the "
+            "only admissible statistical unit")
+
+    x_all = np.asarray(columns[x_column], dtype=float)
+    y_all = np.asarray(columns[metric], dtype=float)
+    seed_all = np.asarray(columns["seed"])
+    finite = np.isfinite(x_all)
+    if not finite.any():
+        raise ValueError(f"column {x_column!r} holds no finite values")
+    seeds = np.unique(seed_all[finite])
+    xs = np.unique(x_all[finite])
+    x_index = {value: position for position, value in enumerate(xs)}
+    seed_index = {value: position for position, value in enumerate(seeds)}
+    table = np.full((xs.size, seeds.size), np.nan)
+    for position in np.flatnonzero(finite):
+        table[x_index[x_all[position]],
+              seed_index[seed_all[position]]] = y_all[position]
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        centre = np.nanmean(table, axis=1)
+        estimator = str(settings.get("estimator", "seed_bootstrap"))
+        if estimator == "none" or seeds.size < 2:
+            return xs, centre, centre.copy(), centre.copy()
+        if estimator != "seed_bootstrap":
+            raise ValueError(f"unknown uncertainty estimator {estimator!r}; "
+                             "this module implements seed_bootstrap only")
+        replicates = int(settings.get("bootstrap_replicates", 2000))
+        generator = np.random.default_rng(
+            int(settings.get("bootstrap_seed", 0)))
+        draw = generator.integers(0, seeds.size, size=(replicates, seeds.size))
+        resampled = np.nanmean(table[:, draw], axis=2)
+        tail = 100.0 * (1.0 - float(settings.get("interval", 0.95))) / 2.0
+        lo = np.nanpercentile(resampled, tail, axis=1)
+        hi = np.nanpercentile(resampled, 100.0 - tail, axis=1)
+    return xs, centre, lo, hi
+
+
+# ------------------------------------------------------------------- gates
+def check_fee_comparability(runs, spec=None) -> str:
+    """Refuse to share a FEE axis between runs calibrated differently.
+
+    A force-equivalent cost is a common currency only when every run priced its
+    oracles with the same calibration. Runs with different
+    ``fee_calibration_hash`` may share an axis only when the spec supplies a
+    compatibility record that names exactly those hashes and asserts both
+    ``cost_unit_comparable`` and ``workload_comparable``.
+    """
+    runs = list(runs or [])
+    if not runs:
+        raise ValueError("check_fee_comparability got no runs; a FEE axis "
+                         "needs at least one run with a fee_calibration_hash")
+    hashes = {}
+    for run in runs:
+        value = run.fee_calibration_hash
+        if value is None:
+            raise ValueError(
+                f"run {run.run_id} ({run.variant_label}) has no "
+                "fee_calibration_hash in its manifest; it cannot go on a FEE "
+                "axis")
+        hashes.setdefault(value, []).append(run.variant_label)
+    if len(hashes) == 1:
+        return next(iter(hashes))
+
+    record = None
+    for holder in ((spec or {}).get("fee_axis") or {}, spec or {}):
+        if isinstance(holder, dict) and holder.get("compatibility_record"):
+            record = holder["compatibility_record"]
+            break
+    detail = "; ".join(f"{key}: {sorted(set(value))}"
+                       for key, value in sorted(hashes.items()))
+    if not isinstance(record, dict):
+        raise ValueError(
+            "runs on one FEE axis have different fee_calibration_hash values "
+            f"({detail}) and the spec supplies no compatibility record. Either "
+            "recalibrate onto one hash, or add fee_axis.compatibility_record "
+            "naming these hashes and asserting cost_unit_comparable and "
+            "workload_comparable.")
+    named = set(map(str, record.get("hashes")
+                    or record.get("calibration_hashes") or ()))
+    if named != set(hashes):
+        raise ValueError(
+            f"the FEE compatibility record names {sorted(named)} but the runs "
+            f"carry {sorted(hashes)}; a record must name exactly the hashes it "
+            "certifies")
+    for claim in ("cost_unit_comparable", "workload_comparable"):
+        if record.get(claim) is not True:
+            raise ValueError(
+                f"the FEE compatibility record does not assert {claim}; "
+                "without it these runs do not share a cost axis")
+    return "|".join(sorted(hashes))
+
+
+def check_extra_potential_eligibility(runs) -> list:
+    """The extra-potential axis is LSC-only.
+
+    A method that never evaluates the LSC score potential has an all-zero
+    counter, so putting it on this axis would stack its whole curve on x = 0
+    and invite a comparison that does not exist.
+    """
+    runs = list(runs or [])
+    if not runs:
+        raise ValueError("check_extra_potential_eligibility got no runs; the "
+                         "extra-potential axis needs at least one LSC run")
+    ineligible = sorted({f"{run.method} ({run.variant_label})" for run in runs
+                         if not run.has_extra_potential()})
+    if ineligible:
+        raise ValueError(
+            "the extra-potential axis counts LSC score potential evaluations "
+            "only, but these runs have an all-zero "
+            f"n_extra_potential_equivalent counter: {ineligible}. Restrict the "
+            "figure to the LSC estimators.")
+    return runs
+
+
+def _check_extra_potential_label(label: str) -> str:
+    lowered = str(label).lower()
+    for claim in _FULL_COST_CLAIMS:
+        if claim in lowered:
+            raise ValueError(
+                f"the extra-potential axis label {label!r} claims a full "
+                "computational cost. It counts LSC score potential evaluations "
+                "only.")
+    return str(label)
+
+
+# ---------------------------------------------------------------- snapshots
+def select_snapshot(run: RunData, requested_time, *,
+                    policy: str = "nearest_below") -> Snapshot:
+    """The saved snapshot matched to ``requested_time`` by simulation time.
+
+    Nothing is interpolated in time or in budget: the returned object carries
+    the realised ``t``, ``checkpoint_step``, and ``n_fee`` of the checkpoint
+    that was actually written.
+    """
+    if policy not in ("nearest_below", "exact"):
+        raise ValueError(f"unknown snapshot policy {policy!r}; expected "
+                         "nearest_below or exact")
+    paths = run.snapshot_paths()
+    if not paths:
+        raise FileNotFoundError(
+            f"run {run.run_id} ({run.variant_label}) saved no snapshots under "
+            f"{run.run_dir / 'sample_snapshots'}")
+    requested = float(requested_time)
+    best = None
+    for path in paths:
+        payload = run._snapshot_payload(path)
+        t = float(payload["t"])
+        if policy == "exact":
+            if math.isclose(t, requested, rel_tol=1e-9, abs_tol=1e-9):
+                best = (t, path, payload)
+                break
+            continue
+        if t <= requested + 1e-9 and (best is None or t > best[0]):
+            best = (t, path, payload)
+    if best is None:
+        available = sorted(float(run._snapshot_payload(p)["t"]) for p in paths)
+        raise ValueError(
+            f"run {run.run_id} ({run.variant_label}) has no snapshot at or "
+            f"below t={requested:g}; it saved {available}. Snapshots are "
+            "matched by simulation time and never interpolated.")
+    t, path, payload = best
+    return Snapshot(
+        run_id=run.run_id, method=run.method, variant_label=run.variant_label,
+        path=path, requested_time=requested, t=t,
+        checkpoint_step=int(payload["checkpoint_step"]),
+        n_fee=float(payload["n_fee"]),
+        n_fee_per_particle=float(payload["n_fee_per_particle"]),
+        arrays={name: value for name, value in payload.items()
+                if isinstance(value, np.ndarray)})
+
+
+# ------------------------------------------------------- small-multiple rules
+def points_per_panel(n_available: int, n_requested: int) -> np.ndarray:
+    """Deterministic subsample indices, identical in every panel.
+
+    Evenly spaced indices, the rule the run itself used when it downsampled a
+    snapshot, so every panel shows the same number of points chosen the same
+    way whatever the method.
+    """
+    n_available = int(n_available)
+    if n_available <= 0:
+        raise ValueError("points_per_panel needs at least one saved point")
+    take = min(int(n_requested), n_available)
+    if take <= 0:
+        raise ValueError(f"points_per_panel got n_requested={n_requested}")
+    return np.linspace(0, n_available - 1, take).round().astype(int)
+
+
+def shared_limits(arrays, *, margin: float = 0.04):
+    """Common ``(xlim, ylim)`` over every panel's points.
+
+    Small multiples are comparable only when they share their axes, so the
+    limits are computed once over all panels and applied to all of them.
+    """
+    clouds = []
+    for item in arrays:
+        if item is None:
+            continue
+        item = np.asarray(item, dtype=float)
+        if item.size == 0:
+            continue
+        clouds.append(item.reshape(-1, item.shape[-1]) if item.ndim > 1
+                      else item.reshape(-1, 1))
+    if not clouds:
+        raise ValueError("shared_limits got no points; nothing to bound")
+    stacked = np.concatenate(clouds, axis=0)
+    if stacked.shape[1] == 1:
+        stacked = np.column_stack([stacked[:, 0], stacked[:, 0]])
+    limits = []
+    for axis in (0, 1):
+        values = stacked[:, axis]
+        values = values[np.isfinite(values)]
+        if values.size == 0:
+            raise ValueError("shared_limits got no finite points")
+        lo, hi = float(values.min()), float(values.max())
+        pad = margin * (hi - lo) if hi > lo else max(abs(hi), 1.0) * margin
+        limits.append((lo - pad, hi + pad))
+    return limits[0], limits[1]
+
+
+def assert_panels_consistent(panels) -> dict:
+    """Refuse small multiples whose panels are not drawn the same way.
+
+    A grid of scatter panels is a comparison only when the axes, contour
+    levels, point count, marker size, alpha, and subsampling rule are identical
+    everywhere.
+    """
+    panels = list(panels)
+    if not panels:
+        raise ValueError("assert_panels_consistent got no panels")
+    keys = ("xlim", "ylim", "levels", "n_points", "marker_size", "alpha",
+            "subsample_rule")
+    reference = panels[0]
+    for key in keys:
+        if key not in reference:
+            raise KeyError(f"panel record is missing {key!r}; it has "
+                           f"{sorted(reference)}")
+        expected = reference[key]
+        for panel in panels[1:]:
+            found = panel.get(key)
+            if isinstance(expected, (list, tuple, np.ndarray)):
+                same = (found is not None
+                        and np.shape(expected) == np.shape(found)
+                        and np.allclose(np.asarray(expected, dtype=float),
+                                        np.asarray(found, dtype=float)))
+            else:
+                same = expected == found
+            if not same:
+                raise ValueError(
+                    f"small multiples disagree on {key!r}: "
+                    f"{reference.get('name')} has {expected!r} but "
+                    f"{panel.get('name')} has {found!r}")
+    return {"n_panels": len(panels),
+            **{key: reference[key] for key in keys}}
+
+
+# --------------------------------------------------------------- draw helpers
+def _require_runs(runs, what: str) -> list:
+    runs = list(runs or [])
+    if not runs:
+        raise ValueError(
+            f"{what} got no runs; nothing to draw. Load runs with load_runs() "
+            "and check the method, variant, and tame filters.")
+    return runs
+
+
+def _x_column(x_axis: str) -> str:
+    if x_axis not in X_AXIS_COLUMNS:
+        raise ValueError(f"unknown x axis {x_axis!r}; expected one of "
+                         f"{sorted(X_AXIS_COLUMNS)}")
+    return X_AXIS_COLUMNS[x_axis]
+
+
+def _x_label(spec: dict, x_axis: str) -> str:
+    labels = dict(DEFAULT_X_AXIS_LABELS)
+    labels.update((spec or {}).get("x_axis_labels") or {})
+    label = labels[x_axis]
+    if x_axis == "extra_potential":
+        _check_extra_potential_label(label)
+    return label
+
+
+def _apply_gate(runs, spec: dict, x_axis: str) -> None:
+    """Every FEE axis passes the comparability gate before anything is drawn."""
+    if x_axis == "fee":
+        check_fee_comparability(runs, spec)
+    elif x_axis == "extra_potential":
+        check_extra_potential_eligibility(runs)
+
+
+def _set_title(axes, text) -> None:
+    axes.set_title(_guard_display_text(text))
+
+
+def _figure_legend(figure: Figure, handles, labels, *, ncol: int = 4) -> None:
+    if not handles:
+        return
+    for label in labels:
+        _guard_display_text(label)
+    figure.legend(handles, labels, loc="outside lower center",
+                  ncol=min(ncol, len(labels)), frameon=False)
+
+
+def _collect(handles: list, labels: list, handle, label: str) -> None:
+    if label not in labels:
+        handles.append(handle)
+        labels.append(_guard_display_text(label))
+
+
+def _reference_style(registry: dict) -> dict:
+    style = registry.get("style") or {}
+    return {"color": style.get("reference_color", "#000000"),
+            "linestyle": style.get("reference_linestyle", "-")}
+
+
+def _background_cmap(registry: dict) -> str:
+    return (registry.get("style") or {}).get("target_background_cmap", "Greys")
+
+
+def _empirical_cdf(values):
+    """Display-only empirical CDF of saved samples. Not an official metric."""
+    values = np.asarray(values, dtype=float).ravel()
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        raise ValueError("cannot draw a CDF of zero finite samples")
+    ordered = np.sort(values)
+    return ordered, np.arange(1, ordered.size + 1) / ordered.size
+
+
+def _gaussian_kde_1d(values, grid, *, bandwidth=None):
+    """Display-only fixed-bandwidth KDE of saved samples. Not a metric."""
+    values = np.asarray(values, dtype=float).ravel()
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        raise ValueError("cannot draw a KDE of zero finite samples")
+    if bandwidth is None:
+        bandwidth = max(1.06 * float(np.std(values)) * values.size ** (-0.2),
+                        1e-9)
+    grid = np.asarray(grid, dtype=float)
+    z = (grid[:, None] - values[None, :]) / bandwidth
+    return (np.exp(-0.5 * z ** 2).sum(axis=1)
+            / (values.size * bandwidth * math.sqrt(2.0 * math.pi)))
+
+
+def _levels_from_background(background: dict) -> np.ndarray:
+    grid_z = np.asarray(background["z"], dtype=float)
+    finite = grid_z[np.isfinite(grid_z)]
+    if finite.size == 0:
+        raise ValueError("background surface has no finite values")
+    return np.linspace(float(finite.min()), float(finite.max()), 12)
+
+
+def _background_levels(background: dict) -> np.ndarray:
+    supplied = (background or {}).get("levels")
+    return np.asarray(supplied if supplied is not None
+                      else _levels_from_background(background), dtype=float)
+
+
+def _draw_background(axes, background: dict, registry: dict, *, levels=None):
+    """Target or reference surface: greyscale, faint, and behind the samples."""
+    for key in ("x", "y", "z"):
+        if key not in (background or {}):
+            raise KeyError(
+                f"background is missing {key!r}; pass the saved reference "
+                "surface as {'x': ..., 'y': ..., 'z': ...}")
+    grid_x = np.asarray(background["x"], dtype=float)
+    grid_y = np.asarray(background["y"], dtype=float)
+    grid_z = np.asarray(background["z"], dtype=float)
+    if grid_x.ndim == 1 and grid_y.ndim == 1:
+        grid_x, grid_y = np.meshgrid(grid_x, grid_y, indexing="xy")
+    levels = _background_levels(background) if levels is None else \
+        np.asarray(levels, dtype=float)
+    axes.contourf(grid_x, grid_y, grid_z, levels=levels,
+                  cmap=_background_cmap(registry),
+                  alpha=float(background.get("alpha", _BACKGROUND_ALPHA)),
+                  zorder=0)
+    axes.contour(grid_x, grid_y, grid_z, levels=levels, colors="0.55",
+                 linewidths=0.4, alpha=0.6, zorder=1)
+    return levels
+
+
+def _snapshot_points(snapshot: Snapshot, coordinates: str,
+                     n_points: int) -> np.ndarray:
+    points = np.asarray(snapshot.coordinates(coordinates), dtype=float)
+    if points.ndim == 1:
+        points = points[:, None]
+    return points[points_per_panel(points.shape[0], n_points)]
+
+
+def _scatter(axes, points, color):
+    y = points[:, 1] if points.shape[1] > 1 else points[:, 0]
+    axes.scatter(points[:, 0], y, s=_SCATTER_SIZE, c=color,
+                 alpha=_SCATTER_ALPHA, linewidths=0, zorder=2)
+
+
+def figure_provenance(figure: Figure) -> dict:
+    """What a figure actually drew: realised snapshot times, gates, panels."""
+    return dict(getattr(figure, "provenance", {}) or {})
+
+
+def _record_provenance(figure: Figure, payload: dict) -> None:
+    figure.provenance = json_safe(payload)
+
+
+# ------------------------------------------------------------ figure builders
+def curve_figure(runs, spec: dict, registry: dict, *, x_axis: str) -> Figure:
+    """``kind: metric_grid`` -- one metric per row against one x axis.
+
+    Every official curve is produced against both the simulation-time axis and
+    the FEE axis by calling this twice. The extra-potential axis is a separate,
+    LSC-only figure with a fixed title.
+    """
+    runs = _require_runs(runs, "curve_figure")
+    spec = dict(spec or {})
+    metrics = list(spec.get("metrics") or [])
+    if not metrics:
+        raise ValueError("curve_figure needs spec['metrics']; none were given")
+    column = _x_column(x_axis)
+    _apply_gate(runs, spec, x_axis)
+
+    title = spec.get("title")
+    if x_axis == "extra_potential":
+        if title not in (None, EXTRA_POTENTIAL_TITLE):
+            raise ValueError("the extra-potential figure title must be "
+                             f"{EXTRA_POTENTIAL_TITLE!r}, not {title!r}")
+        title = EXTRA_POTENTIAL_TITLE
+
+    uncertainty = spec.get("uncertainty")
+    indices = _hyperparameter_indices(runs)
+    figure = _new_figure(4.6, 2.3 * len(metrics) + 0.9)
+    axes_grid = figure.subplots(len(metrics), 1, squeeze=False)[:, 0]
+    handles, labels, drawn = [], [], 0
+
+    for axes, metric in zip(axes_grid, metrics):
+        metric_column = metric["column"]
+        for run in runs:
+            if metric_column not in run.metrics:
+                continue
+            style = _run_style(registry, run, indices)
+            x, centre, lo, hi = seed_aggregate(run.metrics, metric_column,
+                                               column, uncertainty=uncertainty)
+            keep = np.isfinite(centre)
+            if not keep.any():
+                continue
+            drawn += 1
+            line, = axes.plot(x[keep], centre[keep], color=style["color"],
+                              linestyle=style["linestyle"],
+                              marker=style["marker"],
+                              markevery=max(1, int(keep.sum()) // 12),
+                              markersize=_MARKER_SIZE, label=style["label"])
+            axes.fill_between(x[keep], lo[keep], hi[keep], color=style["color"],
+                              alpha=_BAND_ALPHA, linewidth=0)
+            _collect(handles, labels, line, style["label"])
+        _draw_sampling_floor(axes, spec, metric)
+        axes.set_ylabel(_guard_display_text(metric.get("label", metric_column)))
+        if metric.get("log_y"):
+            axes.set_yscale("log")
+        if spec.get("log_x"):
+            axes.set_xscale("log")
+    if drawn == 0:
+        raise ValueError(
+            "curve_figure drew nothing: none of the loaded runs carry the "
+            f"columns {[metric['column'] for metric in metrics]}. The first "
+            f"run saved {sorted(runs[0].metrics)}")
+
+    axes_grid[-1].set_xlabel(_x_label(spec, x_axis))
+    if title:
+        figure.suptitle(_guard_display_text(title))
+    _figure_legend(figure, handles, labels)
+    _record_provenance(figure, {
+        "kind": "metric_grid", "x_axis": x_axis, "x_column": column,
+        "metrics": [metric["column"] for metric in metrics],
+        "runs": [{"run_id": run.run_id, "variant_label": run.variant_label}
+                 for run in runs],
+        "fee_calibration_hashes": sorted({run.fee_calibration_hash
+                                          for run in runs}),
+    })
+    return figure
+
+
+def _draw_sampling_floor(axes, spec: dict, metric: dict) -> None:
+    """Reference-versus-reference floor as a grey band, from saved numbers."""
+    if not spec.get("show_sampling_floor"):
+        return
+    floors = spec.get("sampling_floor")
+    column = metric["column"]
+    if not isinstance(floors, dict) or column not in floors:
+        raise ValueError(
+            "spec sets show_sampling_floor but supplies no saved floor for "
+            f"{column!r}. Pass spec['sampling_floor'] = {{column: {{'lo': ..., "
+            "'hi': ...}}}} read from the saved reference validation artifact; "
+            "this module never recomputes it.")
+    entry = floors[column]
+    if isinstance(entry, dict):
+        lo, hi = float(entry["lo"]), float(entry["hi"])
+    else:
+        lo = hi = float(entry)
+    axes.axhspan(lo, hi, color="0.75", alpha=0.35, linewidth=0, zorder=0)
+
+
+def twin_axis_cdf_figure(runs, spec: dict, registry: dict, *,
+                         reference: dict) -> Figure:
+    """``kind: twin_axis_cdf`` -- CDFs on the left, the potential on the right.
+
+    One figure with two y axes, not two panels. The CDFs are display-only
+    renderings of the snapshot saved at the matched simulation time.
+    """
+    runs = _require_runs(runs, "twin_axis_cdf_figure")
+    spec = dict(spec or {})
+    if not isinstance(reference, dict) or not reference:
+        raise ValueError(
+            "twin_axis_cdf_figure needs the saved reference: pass "
+            "reference={'cdf': {'x': ..., 'F': ...} or 'samples': ..., "
+            "'potential': {'x': ..., 'V': ...}}")
+    left = dict(spec.get("left_axis") or {})
+    right = dict(spec.get("right_axis") or {})
+    requested = float(spec.get("snapshot_time",
+                               (spec.get("snapshot_times") or [0.0])[-1]))
+    policy = str(spec.get("snapshot_time_policy", "nearest_below"))
+
+    indices = _hyperparameter_indices(runs)
+    figure = _new_figure(4.8, 3.3)
+    axes = figure.subplots()
+    twin = axes.twinx()
+
+    potential = reference.get("potential")
+    if potential is not None:
+        style = dict(right.get("style") or {})
+        twin.plot(np.asarray(potential["x"], dtype=float),
+                  np.asarray(potential["V"], dtype=float),
+                  color=style.get("color", "0.55"),
+                  alpha=float(style.get("alpha", 0.35)),
+                  linewidth=float(style.get("linewidth", 1.2)),
+                  zorder=int(style.get("zorder", 0)))
+        twin.set_ylabel("potential $V$", color="0.45")
+        twin.tick_params(axis="y", colors="0.45", labelsize=7)
+        if right.get("minimal_ticks", True):
+            twin.locator_params(axis="y", nbins=3)
+    twin.spines["right"].set_visible(True)
+
+    handles, labels, realised = [], [], []
+    for run in runs:
+        snapshot = select_snapshot(run, requested, policy=policy)
+        realised.append(snapshot.describe())
+        values = snapshot.coordinates(left.get("coordinates", "x"))
+        grid, cdf = _empirical_cdf(values)
+        style = _run_style(registry, run, indices)
+        line, = axes.plot(grid, cdf, color=style["color"],
+                          linestyle=style["linestyle"], linewidth=1.2,
+                          zorder=3, label=style["label"])
+        _collect(handles, labels, line, style["label"])
+
+    if left.get("include_exact_target", True):
+        exact = dict(left.get("exact_style") or {})
+        base = _reference_style(registry)
+        if "cdf" in reference:
+            grid = np.asarray(reference["cdf"]["x"], dtype=float)
+            cdf = np.asarray(reference["cdf"]["F"], dtype=float)
+        elif "samples" in reference:
+            grid, cdf = _empirical_cdf(reference["samples"])
+        else:
+            raise KeyError("reference has neither 'cdf' nor 'samples'; the "
+                           "exact target curve cannot be drawn")
+        label = exact.get("label", "exact target")
+        line, = axes.plot(grid, cdf, color=exact.get("color", base["color"]),
+                          linestyle=exact.get("linestyle", base["linestyle"]),
+                          linewidth=1.4, zorder=4, label=label)
+        _collect(handles, labels, line, label)
+
+    axes.set_xlabel("$x$")
+    axes.set_ylabel("CDF")
+    axes.set_ylim(-0.02, 1.02)
+    _set_title(axes, spec.get(
+        "title", f"matched simulation time $t={realised[0]['realised_t']:g}$"))
+    _figure_legend(figure, handles, labels, ncol=3)
+    _record_provenance(figure, {"kind": "twin_axis_cdf",
+                                "requested_time": requested,
+                                "snapshots": realised})
+    return figure
+
+
+def contour_scatter_grid(runs, spec: dict, registry: dict, *,
+                         background: dict) -> Figure:
+    """``kind: contour_scatter_grid`` -- one panel per method, sharing everything."""
+    runs = _require_runs(runs, "contour_scatter_grid")
+    spec = dict(spec or {})
+    if not isinstance(background, dict) or not background:
+        raise ValueError(
+            "contour_scatter_grid needs the saved background surface: pass "
+            "background={'x': ..., 'y': ..., 'z': ...}")
+    coordinates = str(spec.get("coordinates", "x"))
+    if spec.get("snapshot_time") is None:
+        raise ValueError("contour_scatter_grid needs spec['snapshot_time']")
+    requested = float(spec["snapshot_time"])
+    policy = str(spec.get("snapshot_time_policy", "nearest_below"))
+    n_points = int(spec.get("points_per_panel", 3000))
+
+    snapshots = [select_snapshot(run, requested, policy=policy) for run in runs]
+    clouds = [_snapshot_points(s, coordinates, n_points) for s in snapshots]
+    n_points = min(cloud.shape[0] for cloud in clouds)
+    clouds = [cloud[points_per_panel(cloud.shape[0], n_points)]
+              for cloud in clouds]
+    xlim, ylim = (shared_limits(clouds) if spec.get("shared_limits", True)
+                  else (None, None))
+    levels = _background_levels(background)
+
+    layout = dict(spec.get("layout") or {})
+    columns = int(layout.get("columns", min(3, len(runs))))
+    rows = int(layout.get("rows", math.ceil(len(runs) / columns)))
+    figure = _new_figure(2.4 * columns, 2.5 * rows + 0.4)
+    axes_grid = figure.subplots(rows, columns, squeeze=False).ravel()
+    indices = _hyperparameter_indices(runs)
+    panels, realised = [], []
+
+    for axes, run, snapshot, cloud in zip(axes_grid, runs, snapshots, clouds):
+        _draw_background(axes, background, registry, levels=levels)
+        style = _run_style(registry, run, indices)
+        _scatter(axes, cloud, style["color"])
+        centers = background.get("component_centers")
+        marks = spec.get("mark_component_centers")
+        if centers is not None and marks:
+            centers = np.asarray(centers, dtype=float)
+            axes.scatter(centers[:, 0], centers[:, 1],
+                         marker=marks.get("marker", "+"),
+                         c=marks.get("color", "black"),
+                         s=float(marks.get("size", 8)), linewidths=0.6,
+                         zorder=3)
+        if xlim is not None:
+            axes.set_xlim(*xlim)
+            axes.set_ylim(*ylim)
+        _set_title(axes, style["label"])
+        axes.tick_params(labelsize=7)
+        panels.append({"name": style["label"], "xlim": axes.get_xlim(),
+                       "ylim": axes.get_ylim(), "levels": levels,
+                       "n_points": cloud.shape[0], "marker_size": _SCATTER_SIZE,
+                       "alpha": _SCATTER_ALPHA,
+                       "subsample_rule": "evenly spaced saved indices"})
+        realised.append(snapshot.describe())
+    for axes in axes_grid[len(runs):]:
+        axes.set_visible(False)
+
+    consistency = assert_panels_consistent(panels)
+    caption = spec.get("title")
+    if caption is None:
+        caption = (f"matched simulation time $t={realised[0]['realised_t']:g}$"
+                   + (" (reference estimate background)"
+                      if spec.get("background_is_estimate") else ""))
+    figure.suptitle(_guard_display_text(caption))
+    _record_provenance(figure, {"kind": "contour_scatter_grid",
+                                "requested_time": requested,
+                                "snapshots": realised,
+                                "panel_consistency": consistency})
+    return figure
+
+
+def snapshot_matrix(runs, spec: dict, registry: dict, *,
+                    background: dict) -> Figure:
+    """``kind: snapshot_matrix`` -- methods down the rows, matched times across."""
+    runs = _require_runs(runs, "snapshot_matrix")
+    spec = dict(spec or {})
+    if spec.get("annotate_critical_points"):
+        raise ValueError(
+            "annotate_critical_points is refused on purpose: this figure shows "
+            "the CV distribution, not a kinetic story, so it carries no minima, "
+            "saddle, basin-boundary, jump-arrow, or transition-path marks")
+    if not isinstance(background, dict) or not background:
+        raise ValueError(
+            "snapshot_matrix needs the saved background surface: pass "
+            "background={'x': ..., 'y': ..., 'z': ...}")
+    times = list(spec.get("snapshot_times") or [])
+    if not times:
+        raise ValueError("snapshot_matrix needs spec['snapshot_times']")
+    row_methods = list(spec.get("rows")
+                       or dict.fromkeys(run.method for run in runs))
+    coordinates = str(spec.get("coordinates", "x"))
+    policy = str(spec.get("snapshot_time_policy", "nearest_below"))
+    n_points = int(spec.get("points_per_panel", 3000))
+
+    selected = []
+    for method in row_methods:
+        matches = [run for run in runs if run.method == method]
+        if not matches:
+            raise ValueError(
+                f"snapshot_matrix wants a row for {method!r} but no loaded run "
+                f"has that method; loaded {sorted({r.method for r in runs})}")
+        selected.append(matches[0])
+
+    grid = [[select_snapshot(run, t, policy=policy) for t in times]
+            for run in selected]
+    clouds = [[_snapshot_points(s, coordinates, n_points) for s in row]
+              for row in grid]
+    n_points = min(cloud.shape[0] for row in clouds for cloud in row)
+    clouds = [[cloud[points_per_panel(cloud.shape[0], n_points)]
+               for cloud in row] for row in clouds]
+    xlim, ylim = (shared_limits([c for row in clouds for c in row])
+                  if spec.get("shared_limits", True) else (None, None))
+    levels = _background_levels(background)
+
+    figure = _new_figure(2.2 * len(times) + 0.5, 2.2 * len(selected) + 0.5)
+    axes_grid = figure.subplots(len(selected), len(times), squeeze=False)
+    indices = _hyperparameter_indices(selected)
+    panels, realised = [], []
+
+    for row, (run, row_snapshots, row_clouds) in enumerate(
+            zip(selected, grid, clouds)):
+        style = _run_style(registry, run, indices)
+        for column, (snapshot, cloud) in enumerate(zip(row_snapshots,
+                                                       row_clouds)):
+            axes = axes_grid[row][column]
+            _draw_background(axes, background, registry, levels=levels)
+            _scatter(axes, cloud, style["color"])
+            if xlim is not None:
+                axes.set_xlim(*xlim)
+                axes.set_ylim(*ylim)
+            if row == 0:
+                _set_title(axes, f"$t={snapshot.t:g}$")
+            if column == 0:
+                axes.set_ylabel(_display_name(registry, run.method))
+            axes.tick_params(labelsize=7)
+            panels.append({"name": f"{style['label']} t={snapshot.t:g}",
+                           "xlim": axes.get_xlim(), "ylim": axes.get_ylim(),
+                           "levels": levels, "n_points": cloud.shape[0],
+                           "marker_size": _SCATTER_SIZE,
+                           "alpha": _SCATTER_ALPHA,
+                           "subsample_rule": "evenly spaced saved indices"})
+            realised.append(snapshot.describe())
+
+    consistency = assert_panels_consistent(panels)
+    _record_provenance(figure, {"kind": "snapshot_matrix",
+                                "requested_times": [float(t) for t in times],
+                                "snapshots": realised,
+                                "panel_consistency": consistency})
+    return figure
+
+
+def mode_metric_panel(runs, spec: dict, registry: dict, *,
+                      reference: dict) -> Figure:
+    """``kind: mode_metric_panel`` -- mode coverage, mode weights, occupancy.
+
+    The coverage panel's reference line is the frozen ``EMC*`` the caller read
+    from the saved reference descriptor; it is never a hard-coded 1.0. The
+    occupancy panel plots a ratio, so its reference line is exactly 1.0, and
+    the mode order is the reference's, fixed for every method.
+    """
+    runs = _require_runs(runs, "mode_metric_panel")
+    spec = dict(spec or {})
+    reference = dict(reference or {})
+    panels = list(spec.get("panels") or [])
+    if not panels:
+        raise ValueError("mode_metric_panel needs spec['panels']")
+    uncertainty = spec.get("uncertainty")
+    indices = _hyperparameter_indices(runs)
+
+    widths = [len(panel.get("columns") or ["simulation_time"])
+              if panel.get("kind", "curve") == "curve"
+              else len(panel.get("snapshot_times") or [0.0])
+              for panel in panels]
+    columns = max(widths)
+    figure = _new_figure(3.2 * columns, 2.5 * len(panels) + 0.9)
+    axes_grid = figure.subplots(len(panels), columns, squeeze=False)
+    handles, labels, realised = [], [], []
+
+    for row, panel in enumerate(panels):
+        kind = panel.get("kind", "curve")
+        if kind == "curve":
+            used = _draw_metric_row(axes_grid[row], panel, runs, registry,
+                                    reference, indices, uncertainty, spec,
+                                    handles, labels)
+        elif kind == "occupancy_profile":
+            used = len(panel.get("snapshot_times") or [])
+            realised.extend(_draw_occupancy_profile(
+                axes_grid[row], panel, runs, registry, reference, indices,
+                uncertainty))
+        else:
+            raise ValueError(
+                f"mode_metric_panel does not know panel kind {kind!r}")
+        for axes in axes_grid[row][used:]:
+            axes.set_visible(False)
+
+    _figure_legend(figure, handles, labels)
+    _record_provenance(figure, {"kind": "mode_metric_panel",
+                                "reference_keys": sorted(reference),
+                                "occupancy_snapshots": realised})
+    return figure
+
+
+def _draw_metric_row(axes_row, panel, runs, registry, reference, indices,
+                     uncertainty, spec, handles, labels) -> int:
+    metric = panel["metric"]
+    axis_names = list(panel.get("columns") or ["simulation_time"])
+    for position, x_axis in enumerate(axis_names):
+        axes = axes_row[position]
+        x_column = _x_column(x_axis)
+        _apply_gate(runs, spec, x_axis)
+        for run in runs:
+            if metric["column"] not in run.metrics:
+                continue
+            style = _run_style(registry, run, indices)
+            x, centre, lo, hi = seed_aggregate(run.metrics, metric["column"],
+                                               x_column,
+                                               uncertainty=uncertainty)
+            keep = np.isfinite(centre)
+            if not keep.any():
+                continue
+            line, = axes.plot(x[keep], centre[keep], color=style["color"],
+                              linestyle=style["linestyle"],
+                              marker=style["marker"],
+                              markevery=max(1, int(keep.sum()) // 12),
+                              markersize=_MARKER_SIZE, label=style["label"])
+            axes.fill_between(x[keep], lo[keep], hi[keep], color=style["color"],
+                              alpha=_BAND_ALPHA, linewidth=0)
+            _collect(handles, labels, line, style["label"])
+        line_spec = panel.get("reference_line")
+        if line_spec is not None:
+            value = _resolve_reference_value(line_spec, reference)
+            base = _reference_style(registry)
+            label = (line_spec.get("label")
+                     if isinstance(line_spec, dict) else None)
+            axes.axhline(value, color=base["color"], linestyle="--",
+                         linewidth=1.0, zorder=1, label=label)
+            if label:
+                _collect(handles, labels, axes.lines[-1], label)
+        axes.set_xlabel(_x_label(spec, x_axis))
+        if position == 0:
+            axes.set_ylabel(_guard_display_text(
+                metric.get("label", metric["column"])))
+        if metric.get("log_y"):
+            axes.set_yscale("log")
+    return len(axis_names)
+
+
+def _resolve_reference_value(line_spec, reference: dict) -> float:
+    """A reference line's value, resolved from the caller's saved reference."""
+    if isinstance(line_spec, (int, float)) and not isinstance(line_spec, bool):
+        return float(line_spec)
+    if "value" in line_spec:
+        return float(line_spec["value"])
+    source = line_spec.get("source")
+    if source is None:
+        raise KeyError("reference_line has neither 'value' nor 'source'")
+    key = str(source)
+    if key.startswith("reference."):
+        key = key[len("reference."):]
+    node = reference
+    for part in key.split("."):
+        if not isinstance(node, dict) or part not in node:
+            raise KeyError(
+                f"the caller's reference has no {source!r} (looked for {part!r} "
+                f"in {sorted(node) if isinstance(node, dict) else node}). This "
+                "line must be the frozen reference value; it is never defaulted "
+                "to 1.0.")
+        node = node[part]
+    return float(node)
+
+
+def _draw_occupancy_profile(axes_row, panel: dict, runs, registry, reference,
+                            indices, uncertainty) -> list:
+    """Per-mode occupancy ratios in fixed mode order, reference line at 1.0."""
+    times = list(panel.get("snapshot_times") or [])
+    if not times:
+        raise ValueError("occupancy_profile needs snapshot_times")
+    prefix = str(panel.get("column_prefix", "occupancy_ratio_"))
+    order = reference.get("mode_order")
+    realised = []
+    for position, requested in enumerate(times):
+        axes = axes_row[position]
+        realised_here = None
+        for run in runs:
+            names = sorted(name for name in run.metrics
+                           if name.startswith(prefix))
+            if not names:
+                raise KeyError(
+                    f"run {run.run_id} saved no {prefix}* columns; this panel "
+                    "plots saved per-mode occupancy ratios and never "
+                    "recomputes them")
+            if order is not None:
+                lookup = {name[len(prefix):]: name for name in names}
+                missing = [str(mode) for mode in order if str(mode) not in lookup]
+                if missing:
+                    raise KeyError(
+                        f"the reference mode order names {missing} but run "
+                        f"{run.run_id} saved {sorted(lookup)}")
+                names = [lookup[str(mode)] for mode in order]
+            t_values = np.asarray(run.metrics["t"], dtype=float)
+            grid = np.unique(t_values[np.isfinite(t_values)])
+            candidates = grid[grid <= float(requested) + 1e-9]
+            if candidates.size == 0:
+                raise ValueError(f"run {run.run_id} has no checkpoint at or "
+                                 f"below t={float(requested):g}")
+            realised_here = float(candidates.max())
+            slot = int(np.argmin(np.abs(grid - realised_here)))
+            values = [float(seed_aggregate(run.metrics, name, "t",
+                                           uncertainty=uncertainty)[1][slot])
+                      for name in names]
+            style = _run_style(registry, run, indices)
+            axes.plot(np.arange(len(values)), values, color=style["color"],
+                      linestyle=style["linestyle"], marker=style["marker"],
+                      markersize=_MARKER_SIZE, linewidth=1.0,
+                      label=style["label"])
+            realised.append({"run_id": run.run_id,
+                             "requested_time": float(requested),
+                             "realised_t": realised_here,
+                             "n_modes": len(values)})
+        # The ratio's reference is exactly one, and the mode order comes from
+        # the reference: it is never re-sorted per method.
+        axes.axhline(float(panel.get("reference_line", 1.0)), color="0.2",
+                     linestyle="--", linewidth=1.0, zorder=1)
+        axes.set_xlabel("mode index (reference order, fixed)")
+        if position == 0:
+            axes.set_ylabel("occupancy ratio")
+        _set_title(axes, f"$t={realised_here:g}$")
+    return realised
+
+
+def supplement_panels(runs, spec: dict, registry: dict, *,
+                      reference: dict) -> Figure:
+    """``kind: supplement_panels`` -- the mixed supplementary grid.
+
+    Every panel renders a saved snapshot array or a value from the caller's
+    saved reference. A quantity that was not measured at run time is an error,
+    not something this module computes.
+    """
+    runs = _require_runs(runs, "supplement_panels")
+    spec = dict(spec or {})
+    reference = dict(reference or {})
+    panels = list(spec.get("panels") or [])
+    if not panels:
+        raise ValueError("supplement_panels needs spec['panels']")
+    requested = float(spec.get("snapshot_time",
+                               (spec.get("snapshot_times") or [0.0])[-1]))
+    policy = str(spec.get("snapshot_time_policy", "nearest_below"))
+    n_points = int(spec.get("points_per_panel", 3000))
+    indices = _hyperparameter_indices(runs)
+    snapshots = {run.run_id: select_snapshot(run, requested, policy=policy)
+                 for run in runs}
+
+    columns = int((spec.get("layout") or {}).get("columns", 3))
+    rows = math.ceil(len(panels) / columns)
+    figure = _new_figure(3.1 * columns, 2.6 * rows + 0.9)
+    axes_grid = figure.subplots(rows, columns, squeeze=False).ravel()
+    handles, labels = [], []
+
+    for axes, panel in zip(axes_grid, panels):
+        kind = panel.get("kind")
+        quantity = panel.get("quantity")
+        if kind in ("cdf", "marginal_cdf"):
+            for run in runs:
+                style = _run_style(registry, run, indices)
+                grid, cdf = _empirical_cdf(
+                    _snapshot_quantity(snapshots[run.run_id], quantity))
+                line, = axes.plot(grid, cdf, color=style["color"],
+                                  linestyle=style["linestyle"], linewidth=1.1,
+                                  label=style["label"])
+                _collect(handles, labels, line, style["label"])
+            axes.set_ylabel("CDF")
+            axes.set_xlabel(_guard_display_text(quantity))
+        elif kind == "histogram":
+            for run in runs:
+                style = _run_style(registry, run, indices)
+                values = np.asarray(_snapshot_quantity(
+                    snapshots[run.run_id], quantity), dtype=float).ravel()
+                axes.hist(values, bins=int(panel.get("bins", 40)),
+                          histtype="step", density=True, color=style["color"],
+                          linestyle=style["linestyle"], label=style["label"])
+            axes.set_xlabel(_guard_display_text(quantity))
+            axes.set_ylabel("density")
+        elif kind == "kde":
+            pooled = np.concatenate([
+                np.asarray(_snapshot_quantity(snapshots[run.run_id], quantity),
+                           dtype=float).ravel() for run in runs])
+            grid = np.linspace(float(np.nanmin(pooled)),
+                               float(np.nanmax(pooled)), 200)
+            for run in runs:
+                style = _run_style(registry, run, indices)
+                density = _gaussian_kde_1d(
+                    _snapshot_quantity(snapshots[run.run_id], quantity), grid,
+                    bandwidth=panel.get("bandwidth"))
+                line, = axes.plot(grid, density, color=style["color"],
+                                  linestyle=style["linestyle"], linewidth=1.1,
+                                  label=style["label"])
+                _collect(handles, labels, line, style["label"])
+            axes.set_xlabel(_guard_display_text(quantity))
+            axes.set_ylabel("density (fixed-bandwidth KDE)")
+        elif kind in ("radial_distribution", "correlation_profile"):
+            for run in runs:
+                style = _run_style(registry, run, indices)
+                values = np.asarray(_snapshot_quantity(
+                    snapshots[run.run_id], quantity), dtype=float)
+                profile = values.mean(axis=0) if values.ndim > 1 else values
+                line, = axes.plot(np.arange(profile.size), profile,
+                                  color=style["color"],
+                                  linestyle=style["linestyle"],
+                                  marker=style["marker"],
+                                  markersize=_MARKER_SIZE,
+                                  label=style["label"])
+                _collect(handles, labels, line, style["label"])
+            axes.set_xlabel("separation")
+            axes.set_ylabel(_guard_display_text(quantity))
+        elif kind in ("occupancy_bars", "scalar_bars"):
+            names = (list(quantity) if isinstance(quantity, (list, tuple))
+                     else [quantity])
+            width = 0.8 / max(len(runs), 1)
+            for position, run in enumerate(runs):
+                style = _run_style(registry, run, indices)
+                values = [float(np.mean(_snapshot_quantity(
+                    snapshots[run.run_id], name))) for name in names]
+                axes.bar(np.arange(len(names)) + position * width, values,
+                         width=width, color=style["color"], alpha=0.85,
+                         label=style["label"])
+            axes.set_xticks(np.arange(len(names)) + 0.4 - width / 2.0)
+            axes.set_xticklabels([_guard_display_text(name) for name in names],
+                                 fontsize=7)
+        elif kind == "matrix_heatmap":
+            run = runs[0]
+            matrix = np.asarray(_snapshot_quantity(snapshots[run.run_id],
+                                                   quantity), dtype=float)
+            if matrix.ndim == 1:
+                matrix = matrix[None, :]
+            image = axes.imshow(matrix, cmap=_background_cmap(registry),
+                                aspect="auto")
+            figure.colorbar(image, ax=axes, fraction=0.046)
+            _set_title(axes,
+                       f"{quantity} ({_display_name(registry, run.method)})")
+        elif kind == "contour_scatter":
+            background = reference.get("background")
+            if not isinstance(background, dict):
+                raise KeyError(
+                    "the contour_scatter supplement panel needs "
+                    "reference['background'] = {'x': ..., 'y': ..., 'z': ...}")
+            levels = _draw_background(axes, background, registry)
+            clouds = []
+            for run in runs:
+                points = np.asarray(_snapshot_quantity(
+                    snapshots[run.run_id], quantity), dtype=float)
+                if points.ndim == 1:
+                    points = points[:, None]
+                clouds.append(points[points_per_panel(points.shape[0],
+                                                      n_points)])
+            take = min(cloud.shape[0] for cloud in clouds)
+            records = []
+            for run, cloud in zip(runs, clouds):
+                cloud = cloud[points_per_panel(cloud.shape[0], take)]
+                style = _run_style(registry, run, indices)
+                _scatter(axes, cloud, style["color"])
+                records.append({"name": style["label"], "levels": levels,
+                                "n_points": cloud.shape[0],
+                                "marker_size": _SCATTER_SIZE,
+                                "alpha": _SCATTER_ALPHA,
+                                "subsample_rule":
+                                    "evenly spaced saved indices"})
+            xlim, ylim = shared_limits(clouds)
+            axes.set_xlim(*xlim)
+            axes.set_ylim(*ylim)
+            for record in records:
+                record["xlim"], record["ylim"] = xlim, ylim
+            assert_panels_consistent(records)
+        elif kind == "reference_validation":
+            table = _resolve_reference_table(panel.get("source"), reference)
+            names = list(table)
+            axes.barh(np.arange(len(names)),
+                      [float(table[name]) for name in names], color="0.55")
+            axes.set_yticks(np.arange(len(names)))
+            axes.set_yticklabels([_guard_display_text(name) for name in names],
+                                 fontsize=7)
+            _set_title(axes, "reference validation")
+        else:
+            raise ValueError(
+                f"supplement_panels does not know panel kind {kind!r}")
+        if not axes.get_title():
+            _set_title(axes, quantity)
+
+    for axes in axes_grid[len(panels):]:
+        axes.set_visible(False)
+    _figure_legend(figure, handles, labels)
+    _record_provenance(figure, {
+        "kind": "supplement_panels", "requested_time": requested,
+        "snapshots": [snapshot.describe()
+                      for snapshot in snapshots.values()]})
+    return figure
+
+
+def _snapshot_quantity(snapshot: Snapshot, name):
+    if name is None:
+        raise ValueError("a supplement panel needs a 'quantity'")
+    return snapshot.coordinates(str(name))
+
+
+def _resolve_reference_table(source, reference: dict) -> dict:
+    key = str(source or "")
+    if key.startswith("reference."):
+        key = key[len("reference."):]
+    node = reference
+    for part in [item for item in key.split(".") if item]:
+        if not isinstance(node, dict) or part not in node:
+            raise KeyError(f"the caller's reference has no {source!r}")
+        node = node[part]
+    if not isinstance(node, dict):
+        raise TypeError(f"reference entry {source!r} is not a table of scalars")
+    return {str(key): value for key, value in node.items()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)}
+
+
+# ------------------------------------------------------------------- output
+def save_figure(figure: Figure, name: str, output_dir,
+                formats=("png", "pdf", "svg", "tiff"), dpi: int = 400) -> dict:
+    """Write one figure in every requested format and return the paths."""
+    if figure is None:
+        raise ValueError("save_figure got no figure")
+    formats = tuple(formats or ())
+    if not formats:
+        raise ValueError("save_figure got an empty format list")
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    written = {}
+    for suffix in formats:
+        path = output_dir / f"{name}.{suffix}"
+        # TIFF goes through Pillow; LZW keeps a 400 dpi page lossless and small
+        # enough for a submission system.
+        options = ({"pil_kwargs": {"compression": "tiff_lzw"}}
+                   if suffix in ("tif", "tiff") else {})
+        figure.savefig(path, format=suffix, dpi=dpi, **options)
+        if not path.is_file() or path.stat().st_size == 0:
+            raise IOError(f"save_figure wrote an empty file: {path}")
+        written[suffix] = str(path)
+    return written

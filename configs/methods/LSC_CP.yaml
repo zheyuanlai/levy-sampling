@@ -1,0 +1,71 @@
+schema_version: 2
+# Covers the compound-Poisson family: Raw-CP (no score), full LSC-CP
+# (deterministic quadrature score), and LSC-CP-RA(A) (iid random atomic score).
+methods: [Raw-CP, LSC-CP, LSC-CP-RA]
+
+# Fixed single-step order for every member of the family. No splitting-order
+# ablation is run.
+score_evaluation: pre_step
+splitting: drift_diffusion_then_jump
+
+streams: [init_gen, diffusion_gen, jump_bank_gen, poisson_gen]
+tame_variants: [false, true]
+
+Raw-CP:
+  uses_score: false
+  jump_mode: full_law
+
+LSC-CP:
+  uses_score: true
+  estimator_type: deterministic_quadrature
+  jump_mode: full_law
+  # S(x) = -lambda int nu(dr) r int_0^1 exp[-beta(V(x - theta r) - V(x))] dtheta,
+  # accumulated in log space with a cap M_MAX on the log magnitude.
+  quadrature:
+    theta_rule: gauss_legendre_01
+    radial_rule: gauss_legendre_m11
+  # Per-particle per-step extra potential evaluations, checked against the
+  # actual oracle counters by the cost test.
+  expected_extra_potential_per_particle_step: J_times_q_theta
+
+LSC-CP-RA:
+  uses_score: true
+  estimator_type: iid_random_atomic
+  jump_mode: iid_bank
+  # Draw R_1..R_A iid from the FULL normalized jump law rho = nu / lambda:
+  # first a component index from w_k, then a displacement from q_k. Drawing one
+  # fixed displacement per component is component stratification, not iid RA.
+  bank:
+    size_parameter: A
+    grid: [1, 4, 8]
+    sampling: iid_from_full_mixture
+    refresh_policy: every_step
+    shared_between_score_and_noise: true
+  # Same bank drives both:
+  #   S_A(x) = -(lambda/A) sum_j R_j I(x, R_j)
+  #   N_j ~ Poisson(lambda dt / A),  Delta L = sum_j N_j R_j
+  score_estimator: iid_random_empirical_levy_measure
+  expected_extra_potential_per_particle_step: A_times_q_theta
+
+calibration:
+  # The theta/radial score quadrature may be shared across sampler timesteps at
+  # a fixed target and jump law, but dt never is.
+  quadrature:
+    shared_across_dt: true
+    criteria: [score_accuracy, certificate_residual]
+  dt:
+    criteria: [score, splitting, taming, observable, stability]
+    tolerance: 0.05
+    max_halvings: 4
+    per_tame_variant: true
+    per_bank_size: true
+
+diagnostics:
+  - score_clip_fraction
+  - max_log_magnitude
+  - jump_count_mean
+  - boundary_reject_count
+  - nonfinite_count
+  - bank_size
+  - bank_refresh_policy
+  - bank_shared_between_score_and_noise

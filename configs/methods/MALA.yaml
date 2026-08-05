@@ -1,0 +1,31 @@
+schema_version: 2
+method: MALA
+# Metropolis-adjusted Langevin with the ACTUAL tamed proposal density.
+#
+#   b(x)   = -grad V(x)
+#   b_c(x) = b(x) / (1 + dt ||b(x)|| / c)
+#   Y      = X + dt b_c(X) + sqrt(2 dt / beta) xi
+#   q_c(y|x) = N(y; x + dt b_c(x), (2 dt / beta) I)
+#   log alpha = -beta [V(y) - V(x)] + log q_c(x|y) - log q_c(y|x)
+#
+# The reverse drift b_c(y) is recomputed AT y. No Jacobian is needed: conditional
+# on the current state the proposal is Gaussian with known mean and covariance.
+# Taming is never disabled to dodge the proposal-density question.
+streams: [init_gen, diffusion_gen, mh_uniform_gen]
+parameters: {}
+tame_variants: [false, true]
+proposal:
+  kind: tamed_gaussian
+  reverse_drift_evaluated_at: proposal_point
+  covariance: isotropic_2dt_over_beta
+calibration:
+  dt:
+    criteria: [acceptance, ess, stability]
+    tolerance: 0.05
+    max_halvings: 6
+  # Canonical and tamed calibrate acceptance separately.
+  per_tame_variant: true
+diagnostics:
+  - acceptance_rate
+  - boundary_reject_count
+  - nonfinite_count

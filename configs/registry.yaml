@@ -1,0 +1,219 @@
+# Single source of truth for method identity, display, styling, and per-experiment
+# enablement. README, experiment YAML, notebooks, plot legends, and the release
+# validator all read this file; nothing may hard-code a second method table.
+schema_version: 2
+
+# ---------------------------------------------------------------- streams
+# Named random streams. Every sampler draws only from these names, and each
+# (seed, stream) pair owns an independent generator (see src/rng.py), so a
+# single-seed run is bitwise identical to that seed inside a batch.
+rng_streams:
+  - init_gen
+  - diffusion_gen
+  - stable_noise_gen
+  - jump_bank_gen
+  - poisson_gen
+  - mh_uniform_gen
+
+# ---------------------------------------------------------------- methods
+# `implementation` is the sampler class; `integrator` names the numerical
+# scheme when the two differ (ULD is the method, BAOAB is its integrator).
+# `supports_tame` gates whether a tamed variant is run at all: every method
+# that supports taming runs canonical and tamed variants by default, including
+# MALA and PT, which implement the actual tamed proposal density.
+methods:
+  ULA:
+    display_name: ULA
+    implementation: src.samplers.ULASampler
+    integrator: Euler-Maruyama
+    family: ULA
+    supports_tame: true
+    estimator_type: none
+    uses_score: false
+    color: "#4C72B0"
+    marker: "o"
+    defaults: {}
+
+  MALA:
+    display_name: MALA
+    implementation: src.samplers.MALASampler
+    integrator: tamed-MALA
+    family: MALA
+    supports_tame: true
+    estimator_type: none
+    uses_score: false
+    color: "#DD8452"
+    marker: "s"
+    defaults: {}
+
+  FLA:
+    display_name: FLA
+    implementation: src.samplers.FLASampler
+    integrator: Euler-Maruyama
+    family: FLA
+    supports_tame: true
+    estimator_type: none
+    uses_score: false
+    color: "#55A868"
+    marker: "^"
+    defaults:
+      alpha: 1.7
+
+  ULD:
+    display_name: ULD
+    implementation: src.samplers.BAOABSampler
+    integrator: BAOAB
+    family: ULD
+    supports_tame: true
+    estimator_type: none
+    uses_score: false
+    color: "#C44E52"
+    marker: "D"
+    defaults:
+      gamma: 1.0
+
+  PT:
+    display_name: PT
+    implementation: src.samplers.ParallelTemperingSampler
+    integrator: tamed-MALA-within-replica
+    family: PT
+    supports_tame: true
+    estimator_type: none
+    uses_score: false
+    color: "#8172B3"
+    marker: "v"
+    defaults:
+      n_swap: 10
+
+  Raw-CP:
+    display_name: Raw-CP
+    implementation: src.samplers.CompoundPoissonSampler
+    integrator: drift-diffusion-then-jump
+    family: CP
+    supports_tame: true
+    estimator_type: none
+    uses_score: false
+    color: "#937860"
+    marker: "P"
+    defaults: {}
+
+  LSC-CP:
+    display_name: LSC-CP
+    implementation: src.samplers.CompoundPoissonSampler
+    integrator: drift-diffusion-then-jump
+    family: LSC-CP
+    supports_tame: true
+    estimator_type: deterministic_quadrature
+    uses_score: true
+    color: "#000000"
+    marker: "*"
+    defaults: {}
+
+  # One iid estimator family. A is the Monte Carlo bank size of displacements
+  # drawn iid from the FULL normalized jump law rho = nu / lambda; the same bank
+  # drives the score and the compound-Poisson increment. A = 1, 4, 8, ... are
+  # variants of this one method, not separate methods. The earlier
+  # component-stratified estimator was a different construction and has been
+  # deleted outright; no result from it may be relabelled into this family.
+  LSC-CP-RA:
+    display_name: LSC-CP-RA
+    implementation: src.samplers.CompoundPoissonSampler
+    integrator: drift-diffusion-then-jump
+    family: LSC-CP-RA
+    supports_tame: true
+    estimator_type: iid_random_atomic
+    uses_score: true
+    bank_refresh_policy: every_step
+    bank_shared_between_score_and_noise: true
+    color: "#DA8BC3"
+    marker: "X"
+    # A = 1 prints as the bare family name; other bank sizes carry "(A=k)".
+    variant_label_template: "LSC-CP-RA (A={A})"
+    variant_label_default_when:
+      A: 1
+    defaults:
+      A: 1
+
+# ---------------------------------------------------------------- styling
+style:
+  canonical_linestyle: "-"
+  tamed_linestyle: "--"
+  reference_color: "#000000"
+  reference_linestyle: "-"
+  target_background_cmap: "Greys"
+  # Secondary markers cycle within a method when several hyperparameter values
+  # are plotted together; the method colour never changes.
+  hyperparameter_markers: ["o", "s", "^", "D", "v", "P", "X"]
+
+# --------------------------------------------------- per-experiment enablement
+# `methods` lists the default variant grid each experiment runs. Every entry is
+# expanded into canonical (tame: false) and tamed (tame: true) variants unless
+# the entry pins `tame` explicitly.
+experiments:
+  E1:
+    id: E1
+    slug: double_well
+    display_name: "E1: double well (1D)"
+    config: configs/experiments/E1.yaml
+    run_notebook: notebooks/E1_double_well_run.ipynb
+    plot_notebook: notebooks/E1_double_well_plot.ipynb
+    methods:
+      ULA: [{}]
+      MALA: [{}]
+      FLA: [{alpha: 1.6}, {alpha: 1.7}, {alpha: 1.8}]
+      ULD: [{}]
+      PT: [{}]
+      Raw-CP: [{}]
+      LSC-CP: [{}]
+      LSC-CP-RA: [{A: 1}, {A: 4}, {A: 8}]
+
+  E2:
+    id: E2
+    slug: mog40
+    display_name: "E2: 40-mode Gaussian mixture (2D)"
+    config: configs/experiments/E2.yaml
+    run_notebook: notebooks/E2_mog40_run.ipynb
+    plot_notebook: notebooks/E2_mog40_plot.ipynb
+    methods:
+      ULA: [{}]
+      MALA: [{}]
+      FLA: [{alpha: 1.6}, {alpha: 1.7}, {alpha: 1.8}]
+      ULD: [{}]
+      PT: [{}]
+      Raw-CP: [{}]
+      LSC-CP: [{}]
+      LSC-CP-RA: [{A: 1}, {A: 4}, {A: 8}]
+
+  E3:
+    id: E3
+    slug: muller_brown
+    display_name: "E3: extended Muller-Brown (10D)"
+    config: configs/experiments/E3.yaml
+    run_notebook: notebooks/E3_muller_brown_run.ipynb
+    plot_notebook: notebooks/E3_muller_brown_plot.ipynb
+    methods:
+      ULA: [{}]
+      MALA: [{}]
+      FLA: [{alpha: 1.6}, {alpha: 1.7}, {alpha: 1.8}]
+      ULD: [{}]
+      PT: [{}]
+      Raw-CP: [{}]
+      LSC-CP: [{}]
+      LSC-CP-RA: [{A: 1}, {A: 4}, {A: 8}]
+
+  E4:
+    id: E4
+    slug: coupled_quartic_chain
+    display_name: "E4: one-dimensional two-component coupled quartic chain (24D)"
+    config: configs/experiments/E4.yaml
+    run_notebook: notebooks/E4_coupled_quartic_chain_run.ipynb
+    plot_notebook: notebooks/E4_coupled_quartic_chain_plot.ipynb
+    methods:
+      ULA: [{}]
+      MALA: [{}]
+      FLA: [{alpha: 1.6}, {alpha: 1.7}, {alpha: 1.8}]
+      ULD: [{}]
+      PT: [{}]
+      Raw-CP: [{}]
+      LSC-CP: [{}]
+      LSC-CP-RA: [{A: 1}, {A: 4}, {A: 8}]

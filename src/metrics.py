@@ -1,614 +1,776 @@
-"""Metrics: W2 (exact 1D / sliced / Hungarian spot-check), TV (occupancy and
-density), MMD (frozen-bandwidth Gaussian, biased V-statistic), EMC, EJS,
-bias floors, nonfinite fraction.
+"""Generic sampling metrics: pure functions, no experiment knowledge.
 
-Conventions: reference sample size equals the run's N; sliced-W2 projections
-are drawn ONCE from a fixed seed and reused across all times and methods;
-the MMD bandwidth is frozen once by the median heuristic on the reference
-sample and never recomputed (per-frame bandwidths would make curves
-non-comparable).
+Everything here is a plain function of arrays. There is no file I/O, no
+plotting, no printing, no global random state, and no reference to any
+particular experiment, sampler, or target. Torch entry points work on CPU and
+CUDA tensors and compute in float64; the MCMC diagnostics and the bootstrap
+work on NumPy arrays.
+
+Determinism: every routine that subsamples takes an explicit seed and draws
+from a local CPU generator, so results do not depend on the device the data
+happens to live on.
+
+Naming discipline: EMC means one thing only, the normalized Shannon entropy of
+an occupancy vector (:func:`entropic_mode_coverage`). The related quantity
+exp(H)/K is :func:`effective_mode_fraction` and is never called EMC.
 """
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 import math
 
 import numpy as np
 import torch
 
-from .device import DEFAULT_DEVICE
+__all__ = [
+    # distances between samples
+    "w2_exact_1d",
+    "make_projections",
+    "sliced_w2",
+    "mmd2_biased",
+    "mmd2_unbiased",
+    "median_heuristic",
+    # one-dimensional distribution comparisons
+    "ks_distance_samples",
+    "ks_distance_cdf",
+    "empirical_cdf_on_grid",
+    "cdf_l2",
+    "w1_from_cdf",
+    # categorical / occupancy
+    "occupancy",
+    "entropic_mode_coverage",
+    "effective_mode_fraction",
+    "jensen_shannon_divergence",
+    "total_variation",
+    "max_absolute_error",
+    "occupancy_ratio",
+    # two-dimensional density
+    "kde_on_grid_1d",
+    "kde_on_grid_2d",
+    "squared_hellinger_grid",
+    # weighted (self-normalized importance sampling) helpers
+    "normalize_log_weights",
+    "weighted_mean",
+    "weighted_covariance",
+    "weighted_category_probabilities",
+    "importance_sampling_ess",
+    "weighted_effective_count",
+    # MCMC diagnostics
+    "autocorrelation_time",
+    "effective_sample_size",
+    "split_rhat",
+    "split_rhat_components",
+    "bulk_ess",
+    "tail_ess",
+    "block_mcse",
+    "recommended_block_length",
+    # bootstrap
+    "hierarchical_bootstrap",
+]
+
+#: Side length of a pairwise kernel block. Chosen so one block is at most
+#: 1024*1024 float64 entries (8 MB) regardless of the sample size.
+_PAIRWISE_CHUNK = 1024
+
+#: Number of source points evaluated per KDE block.
+_KDE_CHUNK = 4096
+
+#: Tolerance on ``sum(w) == 1`` for helpers documented to take normalized
+#: weights. Summing 1e6 float64 weights accumulates at most ~1e-10 of error.
+_WEIGHT_SUM_TOL = 1e-8
 
 
-# ------------------------------------------------------------------- W2
-def w2_exact_1d(x: torch.Tensor, y: torch.Tensor) -> float:
-    """Exact 1D W2 via sorted coupling; x, y: (N,) or (N,1)."""
-    xs = torch.sort(x.reshape(-1)).values
-    ys = torch.sort(y.reshape(-1)).values
-    n = min(xs.shape[0], ys.shape[0])
-    return float(torch.sqrt(((xs[:n] - ys[:n]) ** 2).mean()).item())
+# --------------------------------------------------------------- internals
+def _to_f64(x: torch.Tensor, name: str) -> torch.Tensor:
+    """Tensor view of ``x`` in float64, without changing its device."""
+    t = torch.as_tensor(x)
+    if not torch.is_floating_point(t):
+        t = t.to(torch.float64)
+    elif t.dtype is not torch.float64:
+        t = t.to(torch.float64)
+    if not bool(torch.isfinite(t).all()):
+        raise ValueError(f"{name} must be finite")
+    return t
 
 
-def make_projections(d: int, L: int = 200, seed: int = 777,
-                     device: str | torch.device = DEFAULT_DEVICE) -> torch.Tensor:
-    gen = torch.Generator(device=device)
-    gen.manual_seed(seed)
-    theta = torch.randn(L, d, generator=gen, device=device, dtype=torch.float64)
-    return theta / theta.norm(dim=1, keepdim=True)
+def _flat_1d(x: torch.Tensor, name: str) -> torch.Tensor:
+    """Flatten an ``(n,)`` or ``(n, 1)`` sample to ``(n,)``, float64."""
+    t = _to_f64(x, name)
+    if t.ndim == 2 and t.shape[1] == 1:
+        t = t.reshape(-1)
+    elif t.ndim != 1:
+        raise ValueError(f"{name} must have shape (n,) or (n, 1), got {tuple(t.shape)}")
+    if t.numel() == 0:
+        raise ValueError(f"{name} must be nonempty")
+    return t
 
 
-def sliced_w2(x: torch.Tensor, y: torch.Tensor, projections: torch.Tensor) -> float:
-    """SW2^2 = mean_l W2^2(<theta_l, X>, <theta_l, Y>); bias floor ~ N^{-1/2}."""
-    xp = torch.sort(x @ projections.T, dim=0).values          # (N, L)
-    yp = torch.sort(y @ projections.T, dim=0).values
-    n = min(xp.shape[0], yp.shape[0])
-    return float(torch.sqrt(((xp[:n] - yp[:n]) ** 2).mean()).item())
+def _cloud_2d(x: torch.Tensor, name: str) -> torch.Tensor:
+    """Coerce a point cloud to ``(n, d)``, float64."""
+    t = _to_f64(x, name)
+    if t.ndim == 1:
+        t = t[:, None]
+    if t.ndim != 2:
+        raise ValueError(f"{name} must have shape (n,) or (n, d), got {tuple(t.shape)}")
+    if t.shape[0] == 0:
+        raise ValueError(f"{name} must be nonempty")
+    return t
 
 
-def hungarian_w2(x: torch.Tensor, y: torch.Tensor, m: int = 500,
-                 seed: int = 123) -> float:
-    """Exact W2 on an m-subsample via the Hungarian algorithm (terminal
-    spot-check in 2D only; exact W2 in higher d would be swamped by its
-    N^{-1/d} bias floor)."""
-    from scipy.optimize import linear_sum_assignment
-    gen = torch.Generator(device=x.device)
-    gen.manual_seed(seed)
-    ix = torch.randperm(x.shape[0], generator=gen, device=x.device)[:m]
-    iy = torch.randperm(y.shape[0], generator=gen, device=y.device)[:m]
-    xs, ys = x[ix], y[iy]
-    cost = ((xs.unsqueeze(1) - ys.unsqueeze(0)) ** 2).sum(-1).cpu().numpy()
-    r, c = linear_sum_assignment(cost)
-    return float(math.sqrt(cost[r, c].mean()))
+def _grid_1d(grid: torch.Tensor, name: str = "grid") -> torch.Tensor:
+    """Validate a strictly increasing one-dimensional grid."""
+    g = _to_f64(grid, name)
+    if g.ndim != 1 or g.numel() < 2:
+        raise ValueError(f"{name} must be one-dimensional with at least two points")
+    if not bool(torch.all(g[1:] > g[:-1])):
+        raise ValueError(f"{name} must be strictly increasing")
+    return g
 
 
-# ------------------------------------------------------------------- TV
-def occupancy(labels: torch.Tensor, K: int) -> torch.Tensor:
-    """Empirical occupancy p_hat over a K-cell partition."""
-    return torch.bincount(labels, minlength=K).to(torch.float64) / labels.shape[0]
+def _uniform_spacing(grid: torch.Tensor, name: str) -> float:
+    """Spacing of a uniform grid; raises when the grid is not uniform."""
+    diffs = grid[1:] - grid[:-1]
+    step = float(diffs.mean().item())
+    if float((diffs - step).abs().max().item()) > 1e-9 * max(abs(step), 1.0):
+        raise ValueError(f"{name} must be uniformly spaced")
+    return step
 
 
-def occupancy_tv(p_hat: torch.Tensor, p_star: torch.Tensor) -> float:
-    """TV on the partition: a LOWER BOUND on the full TV."""
-    return float(0.5 * (p_hat - p_star).abs().sum().item())
+def _positive_bandwidth(bandwidth: float) -> float:
+    h = float(bandwidth)
+    if not math.isfinite(h) or h <= 0:
+        raise ValueError("bandwidth must be finite and strictly positive")
+    return h
 
 
-def basin_kl_target_to_empirical(p_hat: torch.Tensor, p_star: torch.Tensor,
-                                 pseudocount: float = 0.0) -> float:
-    """Basin KL ``D_KL(p_star || p_hat)`` in nats.
-
-    This orientation penalizes a sampler that misses a target basin. A small
-    probability-space pseudocount may be supplied to keep the finite-sample
-    estimate finite; production uses the Jeffreys-scale value ``0.5 / N`` and
-    records that convention with the metric.
-    """
-    p_hat = torch.as_tensor(p_hat, dtype=torch.float64)
-    p_star = torch.as_tensor(p_star, device=p_hat.device, dtype=torch.float64)
-    if p_hat.shape != p_star.shape:
-        raise ValueError("p_hat and p_star must have the same shape")
-    if not math.isfinite(pseudocount) or pseudocount < 0:
-        raise ValueError("pseudocount must be finite and non-negative")
-    if (not bool(torch.isfinite(p_hat).all())
-            or not bool(torch.isfinite(p_star).all())
-            or bool((p_hat < 0).any()) or bool((p_star < 0).any())
-            or not bool(p_hat.sum() > 0) or not bool(p_star.sum() > 0)):
-        raise ValueError("basin probabilities must be finite, non-negative, and nonzero")
-    q = p_hat / p_hat.sum()
-    if pseudocount > 0:
-        q = q + float(pseudocount)
-        q = q / q.sum()
-    p = p_star / p_star.sum()
-    mask = p > 0
-    if bool((q[mask] <= 0).any()):
-        return float("inf")
-    kl = (p[mask] * torch.log(p[mask] / q[mask])).sum()
-    return float(torch.clamp(kl, min=0.0).item())
-
-
-def density_tv_1d(x: torch.Tensor, bin_edges: torch.Tensor,
-                  target_bin_mass: torch.Tensor) -> float:
-    """200-bin density TV against the exact pi on a box (E1). A genuine
-    density TV, unlike the occupancy TV."""
-    idx = torch.bucketize(x.reshape(-1), bin_edges[1:-1])
-    p_hat = torch.bincount(idx, minlength=target_bin_mass.shape[0]).to(torch.float64)
-    p_hat = p_hat / p_hat.sum()
-    return float(0.5 * (p_hat - target_bin_mass).abs().sum().item())
-
-
-# ------------------------------------------------------------------- MMD
-def median_heuristic(y: torch.Tensor, max_points: int = 2048, seed: int = 99) -> float:
-    gen = torch.Generator(device=y.device)
-    gen.manual_seed(seed)
-    idx = torch.randperm(y.shape[0], generator=gen, device=y.device)[:max_points]
-    ys = y[idx]
-    dists = torch.cdist(ys, ys)
-    iu = torch.triu_indices(ys.shape[0], ys.shape[0], offset=1, device=y.device)
-    return float(dists[iu[0], iu[1]].median().item())
-
-
-def mmd_biased(x: torch.Tensor, y: torch.Tensor, bandwidth: float) -> float:
-    """Gaussian-kernel biased V-statistic; exactly ||mu_X - mu_Y||_H^2 >= 0.
-    k(x,y) = exp(-||x-y||^2 / (2 sigma^2)) with sigma = bandwidth (frozen)."""
-    g = 0.5 / bandwidth**2
-    kxx = torch.exp(-g * torch.cdist(x, x) ** 2).mean()
-    kyy = torch.exp(-g * torch.cdist(y, y) ** 2).mean()
-    kxy = torch.exp(-g * torch.cdist(x, y) ** 2).mean()
-    mmd2 = kxx - 2.0 * kxy + kyy
-    return float(torch.sqrt(torch.clamp(mmd2, min=0.0)).item())
-
-
-# --------------------------------------------------------------- EMC / EJS
-def emc(p_hat: torch.Tensor) -> float:
-    """EMC = exp(H(p_hat)) / K. Optimal value is exp(H(p_star))/K, which is 1
-    only for uniform p_star; always plot the target line."""
-    p = p_hat[p_hat > 0]
-    H = float(-(p * torch.log(p)).sum().item())
-    return math.exp(H) / p_hat.shape[0]
-
-
-def _kl_bits(p: torch.Tensor, q: torch.Tensor) -> float:
-    mask = p > 0
-    return float((p[mask] * torch.log2(p[mask] / q[mask])).sum().item())
-
-
-def ejs(p_hat: torch.Tensor, p_star: torch.Tensor) -> float:
-    """Base-2 Jensen-Shannon divergence between occupancy and target
-    (Blessing et al., arXiv:2406.07423, App. A.3). In [0,1]; 0 iff equal;
-    1 iff disjoint support; quadratic near the target so it stays
-    informative where TV saturates."""
-    m = 0.5 * (p_hat + p_star)
-    return 0.5 * _kl_bits(p_hat, m) + 0.5 * _kl_bits(p_star, m)
-
-
-# ------------------------------------------------------------- nonfinite
-def nonfinite_count(x: torch.Tensor) -> int:
-    """Number of particles with at least one nonfinite coordinate."""
-    return int((~torch.isfinite(x)).any(dim=-1).sum().item())
-
-
-def nonfinite_frac(x: torch.Tensor) -> float:
-    """Fraction of particles counted by :func:`nonfinite_count`.
-
-    This must be identically zero.  Nothing is filtered because metrics on
-    survivors would introduce survivorship bias.
-    """
-    return float((~torch.isfinite(x)).any(dim=-1).to(torch.float64).mean().item())
-
-
-# ------------------------------------------------------------ bias floors
-# ==================================================== chemistry-native metrics
-def binned_probabilities(
-    samples: torch.Tensor,
-    edges: torch.Tensor | tuple[torch.Tensor, ...] | list[torch.Tensor],
-    smooth: float = 0.0,
-    sample_weights: torch.Tensor | None = None,
-) -> torch.Tensor:
-    """Histogram probabilities on a one- or multi-dimensional rectangular grid.
-
-    Samples has shape (N,), (N, 1), or (N, d). For one dimension, edges may be
-    a single tensor; for d > 1 it is a sequence of d edge tensors. The returned
-    tensor has one axis per collective variable. Samples outside the supplied
-    rectangle are excluded rather than accumulated in boundary bins.
-
-    Smooth is a non-negative pseudocount per bin. Production free-energy
-    estimates should report this value because it determines the finite penalty
-    assigned to an empirically empty bin. Optional importance weights are
-    rescaled to sum to the sample count before adding the pseudocount, so the
-    smoothing convention remains in count units and is invariant to a global
-    rescaling of the weights.
-    """
-    if smooth < 0:
-        raise ValueError("smooth must be non-negative")
-    if isinstance(edges, torch.Tensor):
-        edge_list = (edges,)
-    else:
-        edge_list = tuple(edges)
-    if not edge_list:
-        raise ValueError("at least one edge tensor is required")
-    if any(e.ndim != 1 or e.numel() < 2 for e in edge_list):
-        raise ValueError("each edge tensor must be one-dimensional with >=2 entries")
-    if any(not bool(torch.all(e[1:] > e[:-1])) for e in edge_list):
-        raise ValueError("bin edges must be strictly increasing")
-
-    x = samples
-    if not torch.is_floating_point(x):
-        x = x.to(torch.float64)
-    if x.ndim == 1:
-        x = x[:, None]
-    if x.ndim != 2 or x.shape[1] != len(edge_list):
-        raise ValueError(
-            f"samples have shape {tuple(samples.shape)}, but {len(edge_list)} "
-            "edge tensors were supplied"
-        )
-    if x.shape[0] == 0:
-        raise ValueError("cannot histogram an empty sample")
-    weights = None
-    if sample_weights is not None:
-        weights = torch.as_tensor(
-            sample_weights, device=x.device, dtype=torch.float64).reshape(-1)
-        if weights.shape != (x.shape[0],):
-            raise ValueError("sample_weights must contain one weight per sample")
-        if (not bool(torch.isfinite(weights).all())
-                or bool((weights < 0).any())
-                or not bool(weights.sum() > 0)):
-            raise ValueError("sample_weights must be finite, non-negative, and nonzero")
-        # Work in effective count units; multiplying all input weights by a
-        # constant therefore cannot change either the histogram or smoothing.
-        weights = weights * (x.shape[0] / weights.sum())
-
-    shape = tuple(int(e.numel() - 1) for e in edge_list)
-    valid = torch.ones(x.shape[0], dtype=torch.bool, device=x.device)
-    per_dim: list[torch.Tensor] = []
-    for j, edge in enumerate(edge_list):
-        edge = edge.to(device=x.device, dtype=x.dtype)
-        # Internal edges map the closed upper endpoint to the final bin; the
-        # explicit validity mask rejects true underflow and overflow.
-        valid &= (x[:, j] >= edge[0]) & (x[:, j] <= edge[-1])
-        per_dim.append(torch.bucketize(
-            x[:, j].contiguous(), edge[1:-1], right=True
-        ))
-    if not bool(valid.any()) and smooth == 0:
-        raise ValueError("no samples fall inside the supplied histogram domain")
-
-    linear = torch.zeros(x.shape[0], dtype=torch.long, device=x.device)
-    stride = 1
-    for idx, n_bin in zip(reversed(per_dim), reversed(shape)):
-        linear += idx.to(torch.long) * stride
-        stride *= n_bin
-    if weights is None:
-        counts = torch.bincount(
-            linear[valid], minlength=math.prod(shape)).to(torch.float64)
-    else:
-        counts = torch.zeros(math.prod(shape), dtype=torch.float64, device=x.device)
-        counts.scatter_add_(0, linear[valid], weights[valid])
-    counts = counts.reshape(shape) + float(smooth)
-    total = counts.sum()
+def _probability_vector(p: torch.Tensor, name: str,
+                        min_categories: int = 1) -> torch.Tensor:
+    """Validate a categorical distribution and renormalize it to sum one."""
+    t = _to_f64(p, name)
+    if t.ndim != 1:
+        raise ValueError(f"{name} must be a one-dimensional probability vector")
+    if t.numel() < min_categories:
+        raise ValueError(f"{name} needs at least {min_categories} categories")
+    if bool((t < 0).any()):
+        raise ValueError(f"{name} must be non-negative")
+    total = t.sum()
     if not bool(total > 0):
-        raise ValueError("histogram has zero total mass")
-    return counts / total
+        raise ValueError(f"{name} must have positive total mass")
+    return t / total
 
 
-def binned_probabilities_with_outside(
-    samples: torch.Tensor,
-    edges: torch.Tensor | tuple[torch.Tensor, ...] | list[torch.Tensor],
-    smooth: float = 0.0,
-    sample_weights: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, float]:
-    """Flattened cell probabilities with an appended off-grid cell.
+def _matched_pair(p: torch.Tensor, q: torch.Tensor,
+                  min_categories: int = 1) -> tuple[torch.Tensor, torch.Tensor]:
+    pp = _probability_vector(p, "p", min_categories)
+    qq = _probability_vector(q, "q", min_categories)
+    if pp.shape != qq.shape:
+        raise ValueError("p and q must have the same number of categories")
+    return pp, qq.to(pp.device)
 
-    Returns (p, outside_mass). `p` has prod(shape) + 1 entries, the last being
-    the off-grid cell, and the pseudocount `smooth` is applied identically to
-    every entry including that one. `outside_mass` is the raw, unsmoothed
-    fraction of weight landing outside the grid.
 
-    `binned_probabilities` drops off-grid samples and renormalises, so a sampler
-    that leaks mass has its worst-placed mass simply removed from the score.
-    Keeping the off-grid cell makes the free-energy comparison mass-conserving.
+def _normalized_weights(weights: torch.Tensor, n: int | None = None) -> torch.Tensor:
+    """Validate weights that are documented to be already normalized."""
+    w = _to_f64(weights, "weights").reshape(-1)
+    if w.numel() == 0:
+        raise ValueError("weights must be nonempty")
+    if n is not None and w.numel() != n:
+        raise ValueError(f"expected {n} weights, got {w.numel()}")
+    if bool((w < 0).any()):
+        raise ValueError("weights must be non-negative")
+    if abs(float(w.sum().item()) - 1.0) > _WEIGHT_SUM_TOL:
+        raise ValueError("weights must be normalized to sum one")
+    return w
+
+
+def _cpu_permutation(n: int, k: int, seed: int, device: torch.device) -> torch.Tensor:
+    """First ``k`` entries of a seeded permutation of ``range(n)``.
+
+    The permutation is drawn on the CPU so the subsample depends only on the
+    seed, never on whether the data sits on a GPU.
     """
-    edge_list = (edges,) if isinstance(edges, torch.Tensor) else tuple(edges)
-    x = samples
-    if not torch.is_floating_point(x):
-        x = x.to(torch.float64)
-    if x.ndim == 1:
-        x = x[:, None]
-    if x.shape[0] == 0:
-        raise ValueError("cannot histogram an empty sample")
-    w = None
-    if sample_weights is not None:
-        w = torch.as_tensor(sample_weights, device=x.device,
-                            dtype=torch.float64).reshape(-1)
-        if w.shape != (x.shape[0],):
-            raise ValueError("sample_weights must contain one weight per sample")
-        w = w * (x.shape[0] / w.sum())
-
-    inside = torch.ones(x.shape[0], dtype=torch.bool, device=x.device)
-    for j, edge in enumerate(edge_list):
-        edge = edge.to(device=x.device, dtype=x.dtype)
-        inside &= (x[:, j] >= edge[0]) & (x[:, j] <= edge[-1])
-
-    total = float(x.shape[0]) if w is None else float(w.sum().item())
-    out_w = (float((~inside).sum().item()) if w is None
-             else float(w[~inside].sum().item()))
-    outside_mass = out_w / total
-
-    n_cells = math.prod(int(e.numel() - 1) for e in edge_list)
-    if not bool(inside.any()):
-        counts = torch.zeros(n_cells, dtype=torch.float64, device=x.device)
-    else:
-        p_in = binned_probabilities(
-            x[inside], edge_list, smooth=0.0,
-            sample_weights=None if w is None else w[inside])
-        counts = p_in.reshape(-1) * (total - out_w)
-    counts = torch.cat([
-        counts,
-        torch.tensor([out_w], dtype=torch.float64, device=x.device),
-    ]) + float(smooth)
-    return counts / counts.sum(), outside_mass
+    gen = torch.Generator(device="cpu")
+    gen.manual_seed(int(seed))
+    return torch.randperm(n, generator=gen)[:k].to(device)
 
 
-def _bin_volumes(
-    edges: torch.Tensor | tuple[torch.Tensor, ...] | list[torch.Tensor],
-    *,
-    device: torch.device,
-    dtype: torch.dtype,
-) -> torch.Tensor:
-    """Cell volumes for a rectangular histogram, with histogram-shaped output."""
-    edge_list = (edges,) if isinstance(edges, torch.Tensor) else tuple(edges)
-    widths = [(e[1:] - e[:-1]).to(device=device, dtype=dtype) for e in edge_list]
-    volume = widths[0]
-    for width in widths[1:]:
-        volume = volume.unsqueeze(-1) * width.reshape((1,) * volume.ndim + (-1,))
-    return volume
-
-
-def reduced_free_energy(
-    probability: torch.Tensor,
-    bin_volume: torch.Tensor | None = None,
-    probability_floor: float = 0.0,
-) -> torch.Tensor:
-    """Reduced free energy beta*F = -log(p/|C|), in k_B T units.
-
-    No additive shift is applied. Comparisons must align profiles with a fitted
-    additive constant rather than independently pinning their noisy minima.
-    Zero-probability bins are infinite unless probability_floor is positive.
-    """
-    p = torch.as_tensor(probability, dtype=torch.float64)
-    if not bool(torch.isfinite(p).all()) or bool((p < 0).any()):
-        raise ValueError("probabilities must be finite and non-negative")
-    if not bool(p.sum() > 0):
-        raise ValueError("probabilities must have positive total mass")
-    p = p / p.sum()
-    if probability_floor < 0:
-        raise ValueError("probability_floor must be non-negative")
-    if probability_floor > 0:
-        p = p.clamp_min(float(probability_floor))
-        p = p / p.sum()
-    if bin_volume is None:
-        volume = torch.ones_like(p)
-    else:
-        volume = torch.as_tensor(bin_volume, device=p.device, dtype=p.dtype)
-        if (volume.shape != p.shape
-                or not bool(torch.isfinite(volume).all())
-                or bool((volume <= 0).any())):
-            raise ValueError(
-                "bin_volume must be finite, positive, and match probability"
-            )
-    return -torch.log(p / volume)
-
-
-def free_energy_rmse_from_probabilities(
-    p_hat: torch.Tensor,
-    p_ref: torch.Tensor,
-    *,
-    pi_min: float = 0.0,
-    weights: str | torch.Tensor = "uniform",
-    bin_volume: torch.Tensor | None = None,
-    probability_floor: float = 1e-300,
-    always_keep: torch.Tensor | None = None,
-) -> float:
-    """Additive-constant-aligned free-energy RMSE in k_B T units.
-
-    For A_hat=-log(p_hat/|C|), A_ref=-log(p_ref/|C|), and their weighted mean
-    difference c, this returns sqrt(sum_i w_i*(A_hat_i-A_ref_i-c)^2/sum_i w_i).
-    Uniform weights measure FES shape equally; reference weights emphasize
-    thermodynamically common regions. Only p_ref >= pi_min bins are retained.
-
-    `always_keep` is a boolean mask of cells exempt from the pi_min cut. It
-    exists for the off-grid cell, whose reference mass is legitimately tiny but
-    whose empirical mass is the sharpest signature of a leaking sampler; cutting
-    it on reference mass would hide exactly the defect it measures.
-    """
-    p_hat = torch.as_tensor(p_hat, dtype=torch.float64)
-    p_ref = torch.as_tensor(p_ref, device=p_hat.device, dtype=torch.float64)
-    if p_hat.shape != p_ref.shape:
-        raise ValueError("p_hat and p_ref must have the same shape")
-    if pi_min < 0:
-        raise ValueError("pi_min must be non-negative")
-    if (not bool(torch.isfinite(p_ref).all())
-            or bool((p_ref < 0).any())
-            or not bool(p_ref.sum() > 0)):
-        raise ValueError(
-            "p_ref must be finite, non-negative, and have positive mass"
-        )
-    p_ref_norm = p_ref / p_ref.sum()
-    # Zero-reference-mass cells have undefined reference free energy and must
-    # never enter the FES norm, including when pi_min is exactly zero.
-    mask = (p_ref_norm > 0) & (p_ref_norm >= float(pi_min))
-    if always_keep is not None:
-        keep = torch.as_tensor(always_keep, device=p_hat.device, dtype=torch.bool)
-        if keep.shape != p_hat.shape:
-            raise ValueError("always_keep must match the probability shape")
-        # still require positive reference mass: -log(0) has no finite target
-        mask = mask | (keep & (p_ref_norm > 0))
-    if not bool(mask.any()):
-        raise ValueError("pi_min excludes every reference bin")
-    a_hat = reduced_free_energy(p_hat, bin_volume, probability_floor)
-    a_ref = reduced_free_energy(p_ref_norm, bin_volume, probability_floor)
-    delta = (a_hat - a_ref)[mask]
-    # With no probability floor, a missed supported bin has infinite rather
-    # than NaN free-energy error.
-    if bool(torch.isinf(delta).any()):
-        return float("inf")
-    if not bool(torch.isfinite(delta).all()):
-        raise ValueError("free-energy difference contains NaN")
-    if isinstance(weights, str):
-        if weights == "uniform":
-            w = torch.ones_like(delta)
-        elif weights == "reference":
-            w = p_ref_norm[mask]
-        else:
-            raise ValueError("weights must be 'uniform', 'reference', or a tensor")
-    else:
-        w_all = torch.as_tensor(weights, device=p_hat.device, dtype=torch.float64)
-        if w_all.shape != p_hat.shape:
-            raise ValueError("tensor weights must match the probability shape")
-        w = w_all[mask]
-    if not bool(torch.isfinite(w).all()) or bool((w < 0).any()) or not bool(w.sum() > 0):
-        raise ValueError("weights must be finite, non-negative, and have positive mass")
-    offset = (w * delta).sum() / w.sum()
-    return float(torch.sqrt((w * (delta - offset).square()).sum() / w.sum()).item())
-
-
-def free_energy_profile(cv: torch.Tensor, edges: torch.Tensor, beta: float,
-                        smooth: float = 0.5) -> tuple[torch.Tensor, torch.Tensor]:
-    """Physical free-energy profile and bin probabilities for a 1D CV.
-
-    F=-beta^{-1}log(p/bin_width) is returned in energy units and shifted to
-    min(F)=0 for plotting. Use free_energy_profile_error for aligned RMSE in
-    k_B T units.
-    """
-    if beta <= 0:
-        raise ValueError("beta must be positive")
-    p = binned_probabilities(cv, edges, smooth=smooth)
-    volume = _bin_volumes(edges, device=p.device, dtype=p.dtype)
-    F = reduced_free_energy(p, volume) / float(beta)
-    return F - F.min(), p
-
-
-def free_energy_profile_error(cv: torch.Tensor, edges: torch.Tensor, beta: float,
-                              ref_F: torch.Tensor, ref_p: torch.Tensor,
-                              pi_min: float) -> float:
-    """Aligned free-energy RMSE in k_B T units on supported reference bins.
-
-    The legacy signature is retained because experiment factories cache ref_F.
-    The error is computed from bin probabilities, so beta cancels after
-    conversion to reduced units. ref_F is shape-validated for compatibility.
-    """
-    if beta <= 0:
-        raise ValueError("beta must be positive")
-    if ref_F.shape != ref_p.shape:
-        raise ValueError("ref_F and ref_p must have the same shape")
-    _, p_hat = free_energy_profile(cv, edges, beta)
-    volume = _bin_volumes(edges, device=p_hat.device, dtype=p_hat.dtype)
-    return free_energy_rmse_from_probabilities(
-        p_hat, ref_p, pi_min=pi_min, weights="uniform", bin_volume=volume
-    )
-
-
-def basin_rel_mass_error(p_hat: torch.Tensor, p_star: torch.Tensor,
-                         eps: float = 1e-12) -> tuple[float, float]:
-    """Per-basin relative mass error: (max_k |p_hat_k - p*_k| / p*_k, L1 sum)."""
-    rel = (p_hat - p_star).abs() / (p_star + eps)
-    return float(rel.max().item()), float((p_hat - p_star).abs().sum().item())
-
-
-def observable_error(v_hat: torch.Tensor, ref_mean: float,
-                     ref_var: float) -> tuple[float, float]:
-    """(|<V> - <V>_pi|, |Var(V) - Var_pi(V)|) for an energy sample v_hat=(N,)."""
-    return (abs(float(v_hat.mean().item()) - ref_mean),
-            abs(float(v_hat.var(unbiased=True).item()) - ref_var))
-
-
-def energy_hist_overlap(E: torch.Tensor, edges: torch.Tensor,
-                        ref_hist: torch.Tensor) -> float:
-    """Histogram overlap with out-of-grid sample mass counted as non-overlap.
-
-    ``ref_hist`` is normalized on the frozen reference grid.  Empirical energy
-    values outside that grid must not be clamped into an edge bin or discarded
-    and renormalized, either of which would hide energetic tail failures.
-    """
-    values = E.reshape(-1)
-    if values.numel() == 0:
-        raise ValueError("energy sample must be nonempty")
-    valid = (values >= edges[0]) & (values <= edges[-1])
-    idx = torch.bucketize(values[valid], edges[1:-1], right=True)
-    h = torch.bincount(idx, minlength=edges.shape[0] - 1).to(torch.float64)
-    h = h / values.numel()
-    return float(torch.minimum(h, ref_hist).sum().item())
-
-
-def ksd_imq(x: torch.Tensor, score: torch.Tensor, c: float = 1.0,
-            beta_k: float = -0.5, max_points: int = 512, seed: int = 17) -> float:
-    """Kernel Stein discrepancy (IMQ kernel k=(c^2+||x-y||^2)^beta_k), V-statistic
-    on an m-subsample. score = grad log pi = -beta grad V, evaluated at x.
-
-    NB (documented blind spot): KSD is INSENSITIVE to mode-imbalance -- a chain
-    fully trapped in one well can have small KSD. Secondary metric only; use the
-    basin-aware metrics for the failure mode we actually care about."""
-    n = x.shape[0]
-    if n > max_points:
-        g = torch.Generator(device=x.device); g.manual_seed(seed)
-        idx = torch.randperm(n, generator=g, device=x.device)[:max_points]
-        x, score = x[idx], score[idx]
-    r = x.unsqueeze(1) - x.unsqueeze(0)                      # (m, m, d)
-    s = (r * r).sum(-1)                                      # (m, m) = ||x-y||^2
-    base = c * c + s
-    d = x.shape[1]
-    sx_sy = score @ score.T                                  # (m, m)
-    sxmsy_r = ((score.unsqueeze(1) - score.unsqueeze(0)) * r).sum(-1)  # (sx - sy).r
-    k0 = (base ** beta_k) * sx_sy \
-        - 2.0 * beta_k * base ** (beta_k - 1.0) * sxmsy_r \
-        - 2.0 * beta_k * d * base ** (beta_k - 1.0) \
-        - 4.0 * beta_k * (beta_k - 1.0) * base ** (beta_k - 2.0) * s
-    val = k0.mean()
-    return float(torch.sqrt(torch.clamp(val, min=0.0)).item())
-
-
-# ============================ 1D density / CDF metrics (collaborator parity)
 def _trapz(f: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    """Trapezoidal integral of ``f`` over the (possibly nonuniform) grid ``x``."""
     return (0.5 * (f[1:] + f[:-1]) * (x[1:] - x[:-1])).sum()
 
 
-def _torch_interp(xq: torch.Tensor, xp: torch.Tensor, fp: torch.Tensor) -> torch.Tensor:
-    idx = torch.searchsorted(xp, xq).clamp(1, xp.numel() - 1)
-    x0, x1 = xp[idx - 1], xp[idx]
-    f0, f1 = fp[idx - 1], fp[idx]
-    t = (xq - x0) / (x1 - x0).clamp(min=1e-30)
-    return f0 + t * (f1 - f0)
+def _sorted_quantiles(sorted_values: torch.Tensor,
+                      probs: torch.Tensor) -> torch.Tensor:
+    """Linearly interpolated empirical quantiles of values sorted along dim 0.
 
-
-def kde_on_grid(cv: torch.Tensor, x_grid: torch.Tensor, bandwidth: float) -> torch.Tensor:
-    """Gaussian-KDE density of `cv` evaluated on x_grid, normalised on the grid."""
-    z = (x_grid.unsqueeze(1) - cv.reshape(1, -1)) / bandwidth
-    rho = torch.exp(-0.5 * z * z).sum(1) / (cv.numel() * bandwidth * math.sqrt(2.0 * math.pi))
-    return rho / _trapz(rho, x_grid).clamp(min=1e-300)
-
-
-def density_cdf_metrics(cv: torch.Tensor, x_grid: torch.Tensor,
-                        target_pdf: torch.Tensor, target_cdf: torch.Tensor,
-                        bandwidth: float, chi_mask: torch.Tensor) -> dict:
-    """1D density/CDF errors of an empirical sample against a target given on
-    x_grid (all along a collective variable cv = 1D). Returns:
-      W1        = int|F_hat - F*| dx           (= CDF L1; collaborator 'W1')
-      CDF_sup   = sup|F_hat - F*|              (Kolmogorov-Smirnov; 'CDF_sup')
-      cdf_L2    = sqrt(int (F_hat-F*)^2 dx)    (Cramer-von-Mises-like)
-      pdf_L1    = int|rho_hat - rho*| dx       (= 2 x density-TV)
-      pdf_L2    = sqrt(int (rho_hat-rho*)^2 dx)
-      KDE_chi2  = int (rho_hat-rho*)^2/rho* dx  on [1%,99%] (collaborator 'KDE_chi2')
+    ``sorted_values`` has shape ``(n, ...)``; the result has shape
+    ``(len(probs), ...)``. Probability ``p`` maps to the fractional order
+    statistic ``p * (n - 1)``, the standard "linear" quantile convention.
     """
-    cv = cv.reshape(-1)
-    s = torch.sort(cv).values
-    Femp = torch.searchsorted(s, x_grid, right=True).to(torch.float64) / cv.numel()
-    dC = Femp - target_cdf
-    rho = kde_on_grid(cv, x_grid, bandwidth)
-    dP = rho - target_pdf
-    m = chi_mask
-    return {
-        "W1_cdf": float(_trapz(dC.abs(), x_grid).item()),
-        "CDF_sup": float(dC.abs().max().item()),
-        "cdf_L2": float(torch.sqrt(_trapz(dC * dC, x_grid).clamp(min=0)).item()),
-        "pdf_L1": float(_trapz(dP.abs(), x_grid).item()),
-        "pdf_L2": float(torch.sqrt(_trapz(dP * dP, x_grid).clamp(min=0)).item()),
-        "KDE_chi2": float(_trapz((dP[m] ** 2) / target_pdf[m].clamp(min=1e-300),
-                                 x_grid[m]).item()),
-    }
+    n = sorted_values.shape[0]
+    pos = probs.to(sorted_values.device) * (n - 1)
+    lo = torch.floor(pos).to(torch.long).clamp(0, n - 1)
+    hi = torch.ceil(pos).to(torch.long).clamp(0, n - 1)
+    frac = (pos - lo.to(pos.dtype)).reshape((-1,) + (1,) * (sorted_values.ndim - 1))
+    return sorted_values[lo] + frac * (sorted_values[hi] - sorted_values[lo])
 
 
-def bin_chi2_pit(cv: torch.Tensor, x_grid: torch.Tensor, target_cdf: torch.Tensor,
-                 n_bins: int) -> float:
-    """PIT chi-squared: under the target, F*(X) ~ Uniform[0,1]. Bin F*(cv) into
-    n_bins equal bins and compare to 1/n_bins (collaborator 'bin_chi2_M')."""
-    u = _torch_interp(cv.reshape(-1), x_grid, target_cdf).clamp(0.0, 1.0)
-    idx = (u * n_bins).long().clamp(0, n_bins - 1)
-    counts = torch.bincount(idx, minlength=n_bins).to(torch.float64)
-    p = counts / counts.sum()
-    return float((n_bins * ((p - 1.0 / n_bins) ** 2).sum()).item())
+def _w2_from_sorted(xs: torch.Tensor, ys: torch.Tensor) -> torch.Tensor:
+    """Column-wise 1-D W2 between clouds sorted along dim 0.
+
+    Equal sample sizes use the exact sorted (monotone) coupling. Unequal sizes
+    are compared at ``L = min(n, m)`` evenly spaced probability levels
+    ``(i + 0.5) / L``, an ``O(L)`` quantile approximation of the exact
+    quantile-function integral. Returns one W2 per column.
+    """
+    n, m = xs.shape[0], ys.shape[0]
+    if n == m:
+        diff = xs - ys
+    else:
+        levels = min(n, m)
+        probs = (torch.arange(levels, dtype=torch.float64, device=xs.device) + 0.5) / levels
+        diff = _sorted_quantiles(xs, probs) - _sorted_quantiles(ys, probs)
+    return torch.sqrt((diff * diff).mean(dim=0))
 
 
-def well_tv(p_hat: torch.Tensor, p_star: torch.Tensor) -> float:
-    """Occupancy TV on the well partition (collaborator 'well_TV'); for 2 equal
-    wells this is |p_hat[0] - 0.5|, identical to occupancy_tv there."""
-    return float(0.5 * (p_hat - p_star).abs().sum().item())
+# ------------------------------------------------- distances between samples
+def w2_exact_1d(x: torch.Tensor, y: torch.Tensor) -> float:
+    """Exact one-dimensional Wasserstein-2 distance by sorting.
+
+    ``W2 = sqrt(mean_i (x_(i) - y_(i))^2)`` over the order statistics of two
+    equally sized samples, which is the exact optimal coupling in 1-D. Inputs
+    have shape ``(n,)`` or ``(n, 1)``. When the sizes differ, the samples are
+    compared at ``min(n, m)`` evenly spaced probability levels instead (see
+    :func:`sliced_w2`).
+    """
+    xs = torch.sort(_flat_1d(x, "x")).values[:, None]
+    ys = torch.sort(_flat_1d(y, "y").to(xs.device)).values[:, None]
+    return float(_w2_from_sorted(xs, ys)[0].item())
 
 
-# ==================================================== MCMC convergence (post-hoc)
+def make_projections(d: int, n_projections: int, seed: int,
+                     device: str | torch.device) -> torch.Tensor:
+    """Deterministic ``(n_projections, d)`` matrix of unit-norm random rows.
+
+    Rows are standard normal vectors rescaled to unit length, i.e. uniform on
+    the sphere. They are drawn on the CPU and moved to ``device``, so the same
+    seed gives the same projections on CPU and on GPU.
+    """
+    if d < 1:
+        raise ValueError("d must be at least 1")
+    if n_projections < 1:
+        raise ValueError("n_projections must be at least 1")
+    gen = torch.Generator(device="cpu")
+    gen.manual_seed(int(seed))
+    theta = torch.randn(int(n_projections), int(d), generator=gen, dtype=torch.float64)
+    norms = theta.norm(dim=1, keepdim=True)
+    theta = theta / norms.clamp_min(1e-300)
+    return theta.to(torch.device(device))
+
+
+def sliced_w2(x: torch.Tensor, y: torch.Tensor,
+              projections: torch.Tensor) -> float:
+    """Sliced Wasserstein-2: ``mean_l W2(<theta_l, X>, <theta_l, Y>)``.
+
+    This is the mean of the per-projection W2 values, not the square root of
+    the mean of their squares. Each projected pair is compared exactly by
+    sorting when the sample sizes match; otherwise both projected clouds are
+    evaluated at ``min(n, m)`` evenly spaced probability levels
+    ``(i + 0.5) / min(n, m)`` and compared quantile by quantile.
+    """
+    xs = _cloud_2d(x, "x")
+    ys = _cloud_2d(y, "y").to(xs.device)
+    proj = _to_f64(projections, "projections").to(xs.device)
+    if proj.ndim != 2:
+        raise ValueError("projections must have shape (n_projections, d)")
+    if proj.shape[1] != xs.shape[1] or proj.shape[1] != ys.shape[1]:
+        raise ValueError("projections must have one column per sample dimension")
+    xp = torch.sort(xs @ proj.T, dim=0).values
+    yp = torch.sort(ys @ proj.T, dim=0).values
+    return float(_w2_from_sorted(xp, yp).mean().item())
+
+
+def _rbf_cross_sum(a: torch.Tensor, b: torch.Tensor, gamma: float) -> torch.Tensor:
+    """Sum of ``exp(-gamma ||a_i - b_j||^2)`` over all pairs, in blocks."""
+    total = torch.zeros((), dtype=torch.float64, device=a.device)
+    for i0 in range(0, a.shape[0], _PAIRWISE_CHUNK):
+        ai = a[i0:i0 + _PAIRWISE_CHUNK]
+        for j0 in range(0, b.shape[0], _PAIRWISE_CHUNK):
+            bj = b[j0:j0 + _PAIRWISE_CHUNK]
+            total = total + torch.exp(-gamma * torch.cdist(ai, bj) ** 2).sum()
+    return total
+
+
+def _rbf_self_sums(a: torch.Tensor, gamma: float) -> tuple[torch.Tensor, torch.Tensor]:
+    """``(sum over all pairs, sum over off-diagonal pairs)`` for one sample.
+
+    The diagonal is removed by subtracting the computed diagonal entries rather
+    than by assuming ``k(x, x) == 1``, so the off-diagonal sum is exact even if
+    the distance backend returns a nonzero self-distance.
+    """
+    total = torch.zeros((), dtype=torch.float64, device=a.device)
+    offdiag = torch.zeros((), dtype=torch.float64, device=a.device)
+    for i0 in range(0, a.shape[0], _PAIRWISE_CHUNK):
+        ai = a[i0:i0 + _PAIRWISE_CHUNK]
+        for j0 in range(0, a.shape[0], _PAIRWISE_CHUNK):
+            aj = a[j0:j0 + _PAIRWISE_CHUNK]
+            block = torch.exp(-gamma * torch.cdist(ai, aj) ** 2)
+            block_sum = block.sum()
+            total = total + block_sum
+            if i0 == j0:
+                block_sum = block_sum - torch.diagonal(block).sum()
+            offdiag = offdiag + block_sum
+    return total, offdiag
+
+
+def _mmd_inputs(x: torch.Tensor, y: torch.Tensor,
+                bandwidth: float) -> tuple[torch.Tensor, torch.Tensor, float]:
+    xs = _cloud_2d(x, "x")
+    ys = _cloud_2d(y, "y").to(xs.device)
+    if xs.shape[1] != ys.shape[1]:
+        raise ValueError("x and y must have the same dimension")
+    h = _positive_bandwidth(bandwidth)
+    return xs, ys, 0.5 / (h * h)
+
+
+def mmd2_biased(x: torch.Tensor, y: torch.Tensor, bandwidth: float) -> float:
+    """Biased (V-statistic) squared MMD with an RBF kernel.
+
+    ``k(a, b) = exp(-||a - b||^2 / (2 * bandwidth^2))`` and
+
+        MMD2_b = sum_ij k(x_i,x_j)/n^2 - 2 sum_ij k(x_i,y_j)/(n m)
+                 + sum_ij k(y_i,y_j)/m^2,
+
+    diagonal terms included. This is exactly ``||mu_x - mu_y||_H^2`` for the
+    empirical mean embeddings, so it is non-negative up to round-off. The
+    pairwise sums are accumulated in blocks; the result matches the unblocked
+    computation to floating-point round-off.
+    """
+    xs, ys, gamma = _mmd_inputs(x, y, bandwidth)
+    n, m = xs.shape[0], ys.shape[0]
+    sxx, _ = _rbf_self_sums(xs, gamma)
+    syy, _ = _rbf_self_sums(ys, gamma)
+    sxy = _rbf_cross_sum(xs, ys, gamma)
+    return float((sxx / (n * n) - 2.0 * sxy / (n * m) + syy / (m * m)).item())
+
+
+def mmd2_unbiased(x: torch.Tensor, y: torch.Tensor, bandwidth: float) -> float:
+    """Unbiased (U-statistic) squared MMD with an RBF kernel.
+
+    ``k(a, b) = exp(-||a - b||^2 / (2 * bandwidth^2))`` and
+
+        MMD2_u = sum_{i!=j} k(x_i,x_j)/(n(n-1))
+                 - 2 sum_ij k(x_i,y_j)/(n m)
+                 + sum_{i!=j} k(y_i,y_j)/(m(m-1)),
+
+    with the diagonal excluded from both within-sample terms. The estimator is
+    unbiased for the squared MMD and can therefore be slightly negative when
+    the two samples come from the same distribution. Requires n, m >= 2.
+    """
+    xs, ys, gamma = _mmd_inputs(x, y, bandwidth)
+    n, m = xs.shape[0], ys.shape[0]
+    if n < 2 or m < 2:
+        raise ValueError("the unbiased MMD needs at least two points per sample")
+    _, sxx = _rbf_self_sums(xs, gamma)
+    _, syy = _rbf_self_sums(ys, gamma)
+    sxy = _rbf_cross_sum(xs, ys, gamma)
+    value = sxx / (n * (n - 1)) - 2.0 * sxy / (n * m) + syy / (m * (m - 1))
+    return float(value.item())
+
+
+def median_heuristic(y: torch.Tensor, max_points: int = 4096,
+                     seed: int = 99) -> float:
+    """Median pairwise Euclidean distance on a seeded subsample of ``y``.
+
+    The median runs over the strict upper triangle of the distance matrix of at
+    most ``max_points`` points drawn without replacement using ``seed``. The
+    usual use is to freeze an MMD bandwidth once on a reference sample. Rows
+    are processed in blocks so the full square matrix is never materialized.
+    """
+    ys = _cloud_2d(y, "y")
+    if ys.shape[0] < 2:
+        raise ValueError("the median heuristic needs at least two points")
+    if max_points < 2:
+        raise ValueError("max_points must be at least 2")
+    n = min(int(max_points), ys.shape[0])
+    sub = ys[_cpu_permutation(ys.shape[0], n, seed, ys.device)]
+    columns = torch.arange(n, device=ys.device)
+    parts = []
+    for i0 in range(0, n, _PAIRWISE_CHUNK):
+        rows = torch.arange(i0, min(i0 + _PAIRWISE_CHUNK, n), device=ys.device)
+        block = torch.cdist(sub[i0:i0 + _PAIRWISE_CHUNK], sub)
+        parts.append(block[columns[None, :] > rows[:, None]])
+    median = float(torch.cat(parts).median().item())
+    if median <= 0:
+        raise ValueError("degenerate sample: the median pairwise distance is zero")
+    return median
+
+
+# ------------------------------------ one-dimensional distribution comparisons
+def empirical_cdf_on_grid(x: torch.Tensor, grid: torch.Tensor) -> torch.Tensor:
+    """Empirical CDF ``F_n(t) = #{x_i <= t} / n`` evaluated on ``grid``."""
+    xs = torch.sort(_flat_1d(x, "x")).values
+    g = _grid_1d(grid).to(xs.device)
+    counts = torch.searchsorted(xs, g.contiguous(), right=True)
+    return counts.to(torch.float64) / xs.numel()
+
+
+def ks_distance_samples(x: torch.Tensor, reference: torch.Tensor) -> float:
+    """Two-sample Kolmogorov-Smirnov distance ``sup_t |F_x(t) - F_ref(t)|``.
+
+    Both empirical CDFs are step functions, so the supremum is attained at one
+    of the pooled sample points and is computed exactly there. This is a
+    distance, not a hypothesis test: no p-value and no sample-size scaling is
+    applied.
+    """
+    xs = torch.sort(_flat_1d(x, "x")).values
+    rs = torch.sort(_flat_1d(reference, "reference").to(xs.device)).values
+    pooled = torch.cat([xs, rs]).contiguous()
+    fx = torch.searchsorted(xs, pooled, right=True).to(torch.float64) / xs.numel()
+    fr = torch.searchsorted(rs, pooled, right=True).to(torch.float64) / rs.numel()
+    return float((fx - fr).abs().max().item())
+
+
+def _cdf_difference(x: torch.Tensor, grid: torch.Tensor,
+                    target_cdf: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    g = _grid_1d(grid)
+    target = _to_f64(target_cdf, "target_cdf").reshape(-1).to(g.device)
+    if target.shape != g.shape:
+        raise ValueError("target_cdf must have one value per grid point")
+    empirical = empirical_cdf_on_grid(x, g)
+    return empirical - target.to(empirical.device), g.to(empirical.device)
+
+
+def ks_distance_cdf(x: torch.Tensor, grid: torch.Tensor,
+                    target_cdf: torch.Tensor) -> float:
+    """``max_g |F_n(g) - F*(g)|`` over the supplied grid.
+
+    A grid-restricted Kolmogorov-Smirnov distance against a known CDF; it is a
+    lower bound on the supremum over the whole line.
+    """
+    diff, _ = _cdf_difference(x, grid, target_cdf)
+    return float(diff.abs().max().item())
+
+
+def cdf_l2(x: torch.Tensor, grid: torch.Tensor,
+           target_cdf: torch.Tensor) -> float:
+    """``sqrt(int (F_n - F*)^2 dt)`` by the trapezoidal rule on ``grid``."""
+    diff, g = _cdf_difference(x, grid, target_cdf)
+    return float(torch.sqrt(_trapz(diff * diff, g).clamp_min(0.0)).item())
+
+
+def w1_from_cdf(x: torch.Tensor, grid: torch.Tensor,
+                target_cdf: torch.Tensor) -> float:
+    """``int |F_n - F*| dt`` by the trapezoidal rule, i.e. the 1-D W1 distance.
+
+    Only the mass inside the grid range is counted, so the value is a lower
+    bound on W1 when either distribution puts mass outside ``grid``.
+    """
+    diff, g = _cdf_difference(x, grid, target_cdf)
+    return float(_trapz(diff.abs(), g).item())
+
+
+# ------------------------------------------------ categorical / occupancy
+def occupancy(labels: torch.Tensor, n_categories: int) -> torch.Tensor:
+    """Normalized category counts ``p_k = #{labels == k} / n``, shape ``(K,)``."""
+    k = int(n_categories)
+    if k < 1:
+        raise ValueError("n_categories must be at least 1")
+    idx = torch.as_tensor(labels).reshape(-1)
+    if idx.numel() == 0:
+        raise ValueError("labels must be nonempty")
+    if torch.is_floating_point(idx):
+        raise ValueError("labels must be integer category indices")
+    idx = idx.to(torch.long)
+    if bool((idx < 0).any()) or bool((idx >= k).any()):
+        raise ValueError(f"labels must lie in [0, {k})")
+    counts = torch.bincount(idx, minlength=k).to(torch.float64)
+    return counts / idx.numel()
+
+
+def entropic_mode_coverage(p: torch.Tensor) -> float:
+    """EMC: the normalized Shannon entropy of an occupancy vector.
+
+    ``EMC = -sum_k p_k log p_k / log K`` with the convention ``0 log 0 = 0``.
+    EMC is 1 for a uniform occupancy over the K categories and 0 for a point
+    mass. This is the only quantity in this module allowed to be called EMC.
+    """
+    q = _probability_vector(p, "p", min_categories=2)
+    nz = q[q > 0]
+    entropy = float(-(nz * torch.log(nz)).sum().item())
+    return entropy / math.log(q.numel())
+
+
+def effective_mode_fraction(p: torch.Tensor) -> float:
+    """``exp(H(p)) / K``: the perplexity of ``p`` as a fraction of K.
+
+    NOT EMC. This is a different functional of the same occupancy vector and
+    must never be plotted, tabulated, or labelled as EMC; use
+    :func:`entropic_mode_coverage` for that. Both equal 1 at the uniform
+    occupancy but they disagree everywhere else (for a point mass this returns
+    1/K while EMC returns 0).
+    """
+    q = _probability_vector(p, "p", min_categories=2)
+    nz = q[q > 0]
+    entropy = float(-(nz * torch.log(nz)).sum().item())
+    return math.exp(entropy) / q.numel()
+
+
+def jensen_shannon_divergence(p: torch.Tensor, q: torch.Tensor,
+                              base: str = "e") -> float:
+    """Jensen-Shannon divergence ``0.5 KL(p||m) + 0.5 KL(q||m)``, ``m=(p+q)/2``.
+
+    ``base="e"`` (default) returns nats and is bounded by ``log 2``;
+    ``base="2"`` returns bits and is bounded by 1. Convention ``0 log 0 = 0``,
+    so terms with zero mass are dropped rather than made infinite.
+    """
+    if base not in ("e", "2"):
+        raise ValueError("base must be 'e' or '2'")
+    pp, qq = _matched_pair(p, q)
+    m = 0.5 * (pp + qq)
+    log = torch.log2 if base == "2" else torch.log
+
+    def _kl(a: torch.Tensor) -> torch.Tensor:
+        mask = a > 0
+        return (a[mask] * log(a[mask] / m[mask])).sum()
+
+    return float((0.5 * _kl(pp) + 0.5 * _kl(qq)).clamp_min(0.0).item())
+
+
+def total_variation(p: torch.Tensor, q: torch.Tensor) -> float:
+    """Total variation distance ``0.5 * sum_k |p_k - q_k|``, in ``[0, 1]``."""
+    pp, qq = _matched_pair(p, q)
+    return float((0.5 * (pp - qq).abs().sum()).item())
+
+
+def max_absolute_error(p: torch.Tensor, q: torch.Tensor) -> float:
+    """Largest per-category discrepancy ``max_k |p_k - q_k|``."""
+    pp, qq = _matched_pair(p, q)
+    return float((pp - qq).abs().max().item())
+
+
+def occupancy_ratio(p_hat: torch.Tensor, p_star: torch.Tensor,
+                    floor: float = 0.0) -> torch.Tensor:
+    """Elementwise occupancy ratio ``p_hat_k / max(p_star_k, floor)``.
+
+    With the default ``floor = 0`` a zero-mass target category yields ``inf``
+    when the sampler put mass there and ``nan`` when it did not (0/0 is
+    genuinely undefined), so an unreachable category can never masquerade as a
+    ratio of 1. A positive ``floor`` caps the reported ratio instead.
+    """
+    if floor < 0 or not math.isfinite(floor):
+        raise ValueError("floor must be finite and non-negative")
+    hat, star = _matched_pair(p_hat, p_star)
+    den = star if floor <= 0 else star.clamp_min(float(floor))
+    out = torch.full_like(hat, float("nan"))
+    positive = den > 0
+    out[positive] = hat[positive] / den[positive]
+    out[~positive & (hat > 0)] = float("inf")
+    return out
+
+
+# ------------------------------------------------- two-dimensional density
+def kde_on_grid_1d(x: torch.Tensor, grid: torch.Tensor,
+                   bandwidth: float) -> torch.Tensor:
+    """Gaussian KDE of ``x`` evaluated on ``grid`` and normalized on it.
+
+    ``rho(g) = sum_i exp(-(g - x_i)^2 / (2 h^2)) / (n h sqrt(2 pi))``, then
+    divided by its trapezoidal integral over ``grid`` so the returned density
+    integrates to 1 on the grid. Contributions are accumulated in blocks of
+    source points.
+    """
+    xs = _flat_1d(x, "x")
+    g = _grid_1d(grid).to(xs.device)
+    h = _positive_bandwidth(bandwidth)
+    acc = torch.zeros(g.numel(), dtype=torch.float64, device=xs.device)
+    for start in range(0, xs.numel(), _KDE_CHUNK):
+        block = xs[start:start + _KDE_CHUNK]
+        z = (g[:, None] - block[None, :]) / h
+        acc = acc + torch.exp(-0.5 * z * z).sum(dim=1)
+    rho = acc / (xs.numel() * h * math.sqrt(2.0 * math.pi))
+    return rho / _trapz(rho, g).clamp_min(1e-300)
+
+
+def kde_on_grid_2d(points: torch.Tensor, grid_x: torch.Tensor,
+                   grid_y: torch.Tensor, bandwidth: float) -> torch.Tensor:
+    """Isotropic Gaussian KDE on a tensor grid, returned as ``(nx, ny)``.
+
+    ``rho(gx, gy) = sum_i exp(-((gx - x_i)^2 + (gy - y_i)^2) / (2 h^2))
+    / (n * 2 pi h^2)``, evaluated at every ``(grid_x[i], grid_y[j])`` and then
+    divided by ``sum(rho) * dA`` so that ``sum(rho) * dA == 1``. Both grids
+    must be uniformly spaced because a single cell area ``dA = dx * dy`` is
+    used. The separable kernel is accumulated in blocks of source points.
+    """
+    pts = _cloud_2d(points, "points")
+    if pts.shape[1] != 2:
+        raise ValueError("points must have shape (n, 2)")
+    gx = _grid_1d(grid_x, "grid_x").to(pts.device)
+    gy = _grid_1d(grid_y, "grid_y").to(pts.device)
+    h = _positive_bandwidth(bandwidth)
+    dx = _uniform_spacing(gx, "grid_x")
+    dy = _uniform_spacing(gy, "grid_y")
+
+    acc = torch.zeros(gx.numel(), gy.numel(), dtype=torch.float64, device=pts.device)
+    scale = -0.5 / (h * h)
+    for start in range(0, pts.shape[0], _KDE_CHUNK):
+        block = pts[start:start + _KDE_CHUNK]
+        ax = torch.exp(scale * (gx[:, None] - block[None, :, 0]) ** 2)
+        ay = torch.exp(scale * (gy[:, None] - block[None, :, 1]) ** 2)
+        acc = acc + ax @ ay.T
+    rho = acc / (pts.shape[0] * 2.0 * math.pi * h * h)
+    mass = rho.sum() * (dx * dy)
+    if not bool(mass > 0):
+        raise ValueError("the KDE has no mass on the supplied grid")
+    return rho / mass
+
+
+def squared_hellinger_grid(p: torch.Tensor, q: torch.Tensor,
+                           cell_area: float) -> float:
+    """Squared Hellinger distance ``1 - sum_g sqrt(p_g q_g) * dA``.
+
+    Both inputs are densities already normalized on the same grid, i.e.
+    ``sum(p) * dA == 1``. The Bhattacharyya coefficient can exceed 1 by
+    round-off when the two densities coincide, so tiny negative results are
+    clamped to 0.
+    """
+    area = float(cell_area)
+    if not math.isfinite(area) or area <= 0:
+        raise ValueError("cell_area must be finite and strictly positive")
+    pp = _to_f64(p, "p")
+    qq = _to_f64(q, "q").to(pp.device)
+    if pp.shape != qq.shape:
+        raise ValueError("p and q must be defined on the same grid")
+    if bool((pp < 0).any()) or bool((qq < 0).any()):
+        raise ValueError("densities must be non-negative")
+    overlap = float((torch.sqrt(pp * qq).sum() * area).item())
+    return max(0.0, 1.0 - overlap)
+
+
+# ------------------------- weighted (self-normalized importance sampling)
+def normalize_log_weights(log_w: torch.Tensor) -> torch.Tensor:
+    """Stable softmax of log weights: ``w_i = exp(l_i - max l) / sum_j (...)``.
+
+    Entries equal to ``-inf`` receive weight exactly 0. At least one entry must
+    be finite; NaN entries are rejected.
+    """
+    lw = torch.as_tensor(log_w).reshape(-1)
+    if not torch.is_floating_point(lw) or lw.dtype is not torch.float64:
+        lw = lw.to(torch.float64)
+    if lw.numel() == 0:
+        raise ValueError("log_w must be nonempty")
+    if bool(torch.isnan(lw).any()) or bool(torch.isposinf(lw).any()):
+        raise ValueError("log_w must not contain NaN or +inf")
+    finite = lw[torch.isfinite(lw)]
+    if finite.numel() == 0:
+        raise ValueError("log_w must contain at least one finite entry")
+    shifted = torch.exp(lw - finite.max())
+    total = shifted.sum()
+    if not bool(total > 0):
+        raise ValueError("log weights underflow to zero total mass")
+    return shifted / total
+
+
+def weighted_mean(values: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    """``sum_i w_i v_i`` for already normalized weights ``w``.
+
+    ``values`` of shape ``(n,)`` gives a scalar tensor; shape ``(n, k)`` gives
+    a ``(k,)`` tensor.
+    """
+    v = _to_f64(values, "values")
+    if v.ndim not in (1, 2) or v.shape[0] == 0:
+        raise ValueError("values must have shape (n,) or (n, k)")
+    w = _normalized_weights(weights, v.shape[0]).to(v.device)
+    if v.ndim == 1:
+        return (w * v).sum()
+    return (w[:, None] * v).sum(dim=0)
+
+
+def weighted_covariance(values: torch.Tensor,
+                        weights: torch.Tensor) -> torch.Tensor:
+    """``sum_i w_i (v_i - mu)(v_i - mu)^T`` for normalized weights, shape (k,k).
+
+    This is the plug-in self-normalized estimator with no small-sample or
+    ``1 - sum w^2`` bias correction. ``values`` of shape ``(n,)`` is treated as
+    ``k = 1`` and returns a ``(1, 1)`` tensor.
+    """
+    v = _to_f64(values, "values")
+    if v.ndim == 1:
+        v = v[:, None]
+    if v.ndim != 2 or v.shape[0] == 0:
+        raise ValueError("values must have shape (n,) or (n, k)")
+    w = _normalized_weights(weights, v.shape[0]).to(v.device)
+    centered = v - (w[:, None] * v).sum(dim=0, keepdim=True)
+    return (centered * w[:, None]).T @ centered
+
+
+def weighted_category_probabilities(labels: torch.Tensor, n_categories: int,
+                                    weights: torch.Tensor) -> torch.Tensor:
+    """Weighted occupancy ``p_k = sum_{i: label_i = k} w_i``, shape ``(K,)``.
+
+    Weights are already normalized, so the result sums to 1 by construction.
+    """
+    k = int(n_categories)
+    if k < 1:
+        raise ValueError("n_categories must be at least 1")
+    idx = torch.as_tensor(labels).reshape(-1)
+    if idx.numel() == 0:
+        raise ValueError("labels must be nonempty")
+    if torch.is_floating_point(idx):
+        raise ValueError("labels must be integer category indices")
+    idx = idx.to(torch.long)
+    if bool((idx < 0).any()) or bool((idx >= k).any()):
+        raise ValueError(f"labels must lie in [0, {k})")
+    w = _normalized_weights(weights, idx.numel()).to(idx.device)
+    out = torch.zeros(k, dtype=torch.float64, device=w.device)
+    out.scatter_add_(0, idx.to(w.device), w)
+    return out
+
+
+def importance_sampling_ess(weights: torch.Tensor) -> float:
+    """Kish effective sample size ``1 / sum_i w_i^2`` for normalized weights.
+
+    Ranges from 1 (all mass on one sample) to ``n`` (uniform weights).
+    """
+    w = _normalized_weights(weights)
+    denom = float((w * w).sum().item())
+    if denom <= 0:
+        raise ValueError("weights must have positive squared mass")
+    return 1.0 / denom
+
+
+def weighted_effective_count(weights: torch.Tensor,
+                             mask: torch.Tensor) -> float:
+    """Effective number of weighted samples inside ``mask``.
+
+    FROZEN FORMULA, do not reformulate:
+
+        n_eff(mask) = (sum_{i in mask} w_i)^2 / sum_{i in mask} w_i^2
+
+    with ``w`` the normalized weights. This is the exact expression the
+    acceptance gates are written against; it is scale invariant, equals the
+    number of masked items when the masked weights are all equal, and is 0 for
+    an empty mask.
+    """
+    w = _to_f64(weights, "weights").reshape(-1)
+    if w.numel() == 0:
+        raise ValueError("weights must be nonempty")
+    if bool((w < 0).any()):
+        raise ValueError("weights must be non-negative")
+    m = torch.as_tensor(mask).reshape(-1).to(w.device)
+    if m.dtype is not torch.bool:
+        raise ValueError("mask must be a boolean tensor")
+    if m.shape != w.shape:
+        raise ValueError("mask must have one entry per weight")
+    selected = w[m]
+    if selected.numel() == 0:
+        return 0.0
+    numerator = selected.sum() ** 2
+    denominator = (selected * selected).sum()
+    if not bool(denominator > 0):
+        return 0.0
+    return float((numerator / denominator).item())
+
+
+# ------------------------------------------------------- MCMC diagnostics
 def _acf_1d(x: np.ndarray) -> np.ndarray:
     """Biased autocorrelation estimate used by Geyer's positive sequence."""
     x = np.asarray(x, dtype=float).reshape(-1)
@@ -623,19 +785,15 @@ def _acf_1d(x: np.ndarray) -> np.ndarray:
     return acf / acf[0]
 
 
-def iat_1d(x: np.ndarray, c: float | None = None) -> float:
-    """Conservative IAT using Geyer's initial-positive/monotone sequence.
+def autocorrelation_time(x: np.ndarray) -> float:
+    """Integrated autocorrelation time by Geyer's initial positive sequence.
 
-    With Gamma_k = rho[2k] + rho[2k+1], pair sums are truncated before the
-    first non-positive value and monotonised by cumulative minima. The estimate
-    is tau = -1 + 2 sum_k Gamma_k and is conservatively bounded below by one.
-    A constant series has no observed decorrelation and returns infinity;
-    series with fewer than two finite draws return NaN.
-
-    The c argument is accepted only for compatibility with the former Sokal
-    estimator and has no effect.
+    With ``Gamma_k = rho[2k] + rho[2k+1]``, pair sums are truncated before the
+    first non-positive value and monotonised by cumulative minima, giving
+    ``tau = -1 + 2 sum_k Gamma_k`` bounded below by 1. A constant series has no
+    observed decorrelation and returns ``inf``; a series with fewer than two
+    finite draws returns ``nan``.
     """
-    del c
     values = np.asarray(x, dtype=float).reshape(-1)
     if values.size < 2 or not np.all(np.isfinite(values)):
         return float("nan")
@@ -654,23 +812,24 @@ def iat_1d(x: np.ndarray, c: float | None = None) -> float:
     if not positive:
         return 1.0
     monotone = np.minimum.accumulate(np.asarray(positive, dtype=float))
-    tau = -1.0 + 2.0 * monotone.sum()
-    return float(max(tau, 1.0))
+    return float(max(-1.0 + 2.0 * monotone.sum(), 1.0))
 
 
-def ess_from_series(series: np.ndarray) -> float:
-    """Sum per-chain effective sample sizes for independent chains.
+def effective_sample_size(x: np.ndarray) -> float:
+    """Total ESS ``sum_c n / tau_c`` over independent chains.
 
-    Series has shape (n_chains, n_draws). A constant chain contributes zero
-    ESS. Nonfinite or too-short chains make the result undefined (NaN) rather
-    than being silently dropped.
+    ``x`` has shape ``(n_draws,)`` or ``(n_chains, n_draws)``. Each chain
+    contributes ``n_draws / tau`` with ``tau`` from
+    :func:`autocorrelation_time`; a constant chain contributes 0. Nonfinite or
+    too-short input is undefined and returns ``nan`` rather than being
+    silently dropped.
     """
-    series = np.atleast_2d(np.asarray(series, dtype=float))
-    if series.shape[1] < 2 or not np.all(np.isfinite(series)):
+    series = np.atleast_2d(np.asarray(x, dtype=float))
+    if series.ndim != 2 or series.shape[1] < 2 or not np.all(np.isfinite(series)):
         return float("nan")
     total = 0.0
     for chain in series:
-        tau = iat_1d(chain)
+        tau = autocorrelation_time(chain)
         if np.isnan(tau):
             return float("nan")
         if np.isfinite(tau):
@@ -694,60 +853,6 @@ def _average_ranks(x: np.ndarray) -> np.ndarray:
     return ranks
 
 
-def _basic_rhat(chains: np.ndarray) -> float:
-    """Classical between/within-chain variance ratio on transformed data."""
-    chains = np.asarray(chains, dtype=float)
-    _, n = chains.shape
-    chain_means = chains.mean(axis=1)
-    B = n * chain_means.var(ddof=1)
-    W = chains.var(axis=1, ddof=1).mean()
-    if W <= 0:
-        return 1.0 if B <= 0 else float("inf")
-    var_plus = (n - 1.0) / n * W + B / n
-    return float(np.sqrt(max(var_plus / W, 0.0)))
-
-
-def _rank_normalize(chains: np.ndarray) -> np.ndarray:
-    flat = np.asarray(chains, dtype=float).reshape(-1)
-    ranks = _average_ranks(flat)
-    # Blom's offset; S + 1/4 is the correct denominator.
-    z = _norm_ppf((ranks - 3.0 / 8.0) / (flat.size + 1.0 / 4.0))
-    return z.reshape(np.asarray(chains).shape)
-
-
-def split_rhat_components(chains: np.ndarray) -> tuple[float, float]:
-    """Return rank-normalized bulk and folded split-R-hat components."""
-    chains = np.atleast_2d(np.asarray(chains, dtype=float))
-    if not np.all(np.isfinite(chains)):
-        return float("nan"), float("nan")
-    M, N = chains.shape
-    h = N // 2
-    if M < 2 or h < 2:
-        return float("nan"), float("nan")
-    split = np.concatenate([chains[:, :h], chains[:, N - h:]], axis=0)
-    if np.all(split == split.flat[0]):
-        # R-hat is undefined, not evidence of convergence, when every retained
-        # chain is the same constant series.
-        return float("nan"), float("nan")
-    bulk = _basic_rhat(_rank_normalize(split))
-    folded = np.abs(split - np.median(split))
-    tail = _basic_rhat(_rank_normalize(folded))
-    return bulk, tail
-
-
-def split_rhat(chains: np.ndarray) -> float:
-    """Maximum of bulk and folded rank-normalized split-R-hat.
-
-    Average ranks are used for ties, which is essential for discrete basin
-    indicators. The folded component detects scale/tail non-convergence that
-    can be missed by a location-only rank diagnostic.
-    """
-    bulk, folded = split_rhat_components(chains)
-    if np.isnan(bulk) or np.isnan(folded):
-        return float("nan")
-    return float(max(bulk, folded))
-
-
 def _norm_ppf(p: np.ndarray) -> np.ndarray:
     """Inverse standard-normal CDF (Acklam's rational approximation, ~1e-9)."""
     p = np.clip(np.asarray(p, dtype=float), 1e-12, 1 - 1e-12)
@@ -761,11 +866,14 @@ def _norm_ppf(p: np.ndarray) -> np.ndarray:
           3.754408661907416e+00]
     plow, phigh = 0.02425, 1 - 0.02425
     out = np.empty_like(p)
-    lo = p < plow; hi = p > phigh; mid = ~(lo | hi)
+    lo = p < plow
+    hi = p > phigh
+    mid = ~(lo | hi)
     q = np.sqrt(-2 * np.log(p[lo]))
     out[lo] = (((((cc[0]*q+cc[1])*q+cc[2])*q+cc[3])*q+cc[4])*q+cc[5]) / \
               ((((dd[0]*q+dd[1])*q+dd[2])*q+dd[3])*q+1)
-    q = p[mid] - 0.5; r = q * q
+    q = p[mid] - 0.5
+    r = q * q
     out[mid] = (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / \
                (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1)
     q = np.sqrt(-2 * np.log(1 - p[hi]))
@@ -774,155 +882,191 @@ def _norm_ppf(p: np.ndarray) -> np.ndarray:
     return out
 
 
-def round_trips(labels_t: np.ndarray, home: int, far: int) -> float:
-    """Mean observed home->far->home trips per chain.
+def _rank_normalize(chains: np.ndarray) -> np.ndarray:
+    """Rank-normalize pooled draws to z-scores (Vehtari et al. 2021)."""
+    flat = np.asarray(chains, dtype=float).reshape(-1)
+    ranks = _average_ranks(flat)
+    # Blom's offset; S + 1/4 is the correct denominator.
+    z = _norm_ppf((ranks - 3.0 / 8.0) / (flat.size + 1.0 / 4.0))
+    return z.reshape(np.asarray(chains).shape)
 
-    A chain is armed only after ``home`` has actually been observed, so a
-    far-start followed by home is not spuriously counted as a round trip.
-    ``labels_t`` has shape ``(T, chains)`` (or ``(T,)`` for one chain).
+
+def _basic_rhat(chains: np.ndarray) -> float:
+    """Classical between/within-chain variance ratio on transformed data."""
+    chains = np.asarray(chains, dtype=float)
+    _, n = chains.shape
+    chain_means = chains.mean(axis=1)
+    between = n * chain_means.var(ddof=1)
+    within = chains.var(axis=1, ddof=1).mean()
+    if within <= 0:
+        return 1.0 if between <= 0 else float("inf")
+    var_plus = (n - 1.0) / n * within + between / n
+    return float(np.sqrt(max(var_plus / within, 0.0)))
+
+
+def split_rhat_components(chains: np.ndarray) -> tuple[float, float]:
+    """Rank-normalized bulk and folded split-R-hat components.
+
+    ``chains`` has shape ``(n_chains, n_draws)``. Each chain is split in half,
+    the halves are treated as separate chains, and R-hat is computed on the
+    rank-normalized draws (bulk) and on the rank-normalized absolute deviations
+    from the pooled median (folded). Returns ``(nan, nan)`` when the input is
+    nonfinite, too short, has fewer than two chains, or is entirely constant.
     """
-    labels_t = np.atleast_2d(labels_t.T).T if labels_t.ndim == 1 else labels_t
-    total = 0
-    C = labels_t.shape[1]
-    for c in range(C):
-        seq = labels_t[:, c]
-        state = "seek_home"; trips = 0
-        for lab in seq:
-            if state == "seek_home" and lab == home:
-                state = "home"
-            elif state == "home" and lab == far:
-                state = "far"
-            elif state == "far" and lab == home:
-                state = "home"; trips += 1
-        total += trips
-    return total / max(C, 1)
+    chains = np.atleast_2d(np.asarray(chains, dtype=float))
+    if not np.all(np.isfinite(chains)):
+        return float("nan"), float("nan")
+    n_chains, n_draws = chains.shape
+    half = n_draws // 2
+    if n_chains < 2 or half < 2:
+        return float("nan"), float("nan")
+    split = np.concatenate([chains[:, :half], chains[:, n_draws - half:]], axis=0)
+    if np.all(split == split.flat[0]):
+        # R-hat is undefined, not evidence of convergence, when every retained
+        # chain is the same constant series.
+        return float("nan"), float("nan")
+    bulk = _basic_rhat(_rank_normalize(split))
+    folded = _basic_rhat(_rank_normalize(np.abs(split - np.median(split))))
+    return bulk, folded
 
 
-def first_passage_observations(labels_t: np.ndarray, home: int, far: int,
-                               dt: float, steps_per_frame: int
-                               ) -> tuple[np.ndarray, np.ndarray]:
-    """Right-censored home-to-far passage observations.
+def split_rhat(chains: np.ndarray) -> float:
+    """Maximum of the bulk and folded rank-normalized split-R-hat.
 
-    Rows of labels_t are observations at times 0, Delta, ..., (T-1)Delta,
-    where Delta=dt*steps_per_frame. Only chains initially in home are eligible.
-    Returned arrays are (time, event_observed); an unobserved hit is censored at
-    the final recorded time.
+    Average ranks are used for ties, which is essential for discrete basin
+    indicators. The folded component detects scale and tail non-convergence
+    that a location-only rank diagnostic can miss.
     """
-    labels_t = np.asarray(labels_t)
-    labels_t = labels_t if labels_t.ndim == 2 else labels_t[:, None]
-    if labels_t.ndim != 2 or labels_t.shape[0] < 2:
-        raise ValueError("labels_t must contain at least two time points")
-    if dt <= 0 or steps_per_frame <= 0:
-        raise ValueError("dt and steps_per_frame must be positive")
-    T, _ = labels_t.shape
-    delta = float(dt) * int(steps_per_frame)
-    horizon = (T - 1) * delta
-    times: list[float] = []
-    events: list[bool] = []
-    for c in range(labels_t.shape[1]):
-        if labels_t[0, c] != home:
-            continue
-        hit = np.flatnonzero(labels_t[1:, c] == far)
-        if hit.size:
-            times.append(float(hit[0] + 1) * delta)
-            events.append(True)
-        else:
-            times.append(horizon)
-            events.append(False)
-    return np.asarray(times, dtype=float), np.asarray(events, dtype=bool)
-
-
-def kaplan_meier_rmst(times: np.ndarray, events: np.ndarray,
-                      tau: float | None = None) -> float:
-    """Kaplan-Meier restricted mean survival/passage time up to tau."""
-    times = np.asarray(times, dtype=float).reshape(-1)
-    events = np.asarray(events, dtype=bool).reshape(-1)
-    if times.shape != events.shape or times.size == 0:
+    bulk, folded = split_rhat_components(chains)
+    if np.isnan(bulk) or np.isnan(folded):
         return float("nan")
-    if not np.all(np.isfinite(times)) or np.any(times < 0):
-        raise ValueError("times must be finite and non-negative")
-    if tau is None:
-        tau = float(times.max())
-    if not np.isfinite(tau) or tau < 0:
-        raise ValueError("tau must be finite and non-negative")
-    tau = float(tau)
-
-    survival = 1.0
-    area = 0.0
-    previous = 0.0
-    at_risk = int(times.size)
-    for t_value in np.unique(times[times <= tau]):
-        t = float(t_value)
-        area += survival * (t - previous)
-        at_time = times == t
-        n_event = int(np.sum(events & at_time))
-        n_censor = int(np.sum((~events) & at_time))
-        if at_risk > 0 and n_event:
-            survival *= 1.0 - n_event / at_risk
-        at_risk -= n_event + n_censor
-        previous = t
-    if previous < tau:
-        area += survival * (tau - previous)
-    return float(area)
+    return float(max(bulk, folded))
 
 
-def exponential_waiting_time_mle(labels_t: np.ndarray, home: int, far: int,
-                                 dt: float, steps_per_frame: int) -> float:
-    """Exponential waiting-time MLE: total exposure divided by event count.
+def bulk_ess(chains: np.ndarray) -> float:
+    """ESS of the rank-normalized draws (Vehtari et al. 2021, bulk-ESS).
 
-    This model-dependent quantity has an explicit name so it is not confused
-    with a general empirical mean first-passage time.
+    All draws are pooled, replaced by their rank-normalized z-scores, reshaped
+    back into chains, and passed to :func:`effective_sample_size`. Rank
+    normalization makes the diagnostic robust to heavy tails and to
+    non-normality of the marginal. Chains are not split here: the per-chain
+    ESS sum uses only within-chain autocorrelation, so splitting would change
+    only the (unused) between-chain variance term; use :func:`split_rhat` for
+    the between-chain part of the diagnosis.
     """
-    times, events = first_passage_observations(
-        labels_t, home, far, dt, steps_per_frame
-    )
-    if times.size == 0:
+    series = np.atleast_2d(np.asarray(chains, dtype=float))
+    if series.ndim != 2 or series.shape[1] < 2 or not np.all(np.isfinite(series)):
         return float("nan")
-    n_event = int(events.sum())
-    return float(times.sum() / n_event) if n_event else float("inf")
+    return effective_sample_size(_rank_normalize(series))
 
 
-def committed_mfpt(labels_t: np.ndarray, home: int, far: int, dt: float,
-                   steps_per_frame: int) -> float:
-    """Kaplan-Meier restricted mean home-to-far passage time.
+def tail_ess(chains: np.ndarray) -> float:
+    """Tail-ESS: ``min`` of the ESS at the 5% and 95% quantiles.
 
-    This backwards-compatible name now reports a nonparametric RMST at the
-    recorded horizon, correctly accounting for right censoring and filtering
-    to chains initially committed to home. It is an algorithmic mixing
-    diagnostic, not a physical reaction time.
+    Following Vehtari et al. (2021), for each of the pooled 5% and 95%
+    empirical quantiles ``q`` the indicator series ``I(x <= q)`` is formed,
+    rank-normalized, and its ESS computed; the reported value is the smaller of
+    the two. (Rank-normalizing a binary series is an affine map, so it leaves
+    the ESS unchanged; it is kept to match the published definition.) A
+    constant indicator, e.g. when no draw crosses a quantile, contributes 0.
     """
-    times, events = first_passage_observations(
-        labels_t, home, far, dt, steps_per_frame
-    )
-    if times.size == 0:
+    series = np.atleast_2d(np.asarray(chains, dtype=float))
+    if series.ndim != 2 or series.shape[1] < 2 or not np.all(np.isfinite(series)):
         return float("nan")
-    # Restrict at the declared common observation horizon, not at the latest
-    # event.  If every eligible chain hits early, ``times.max()`` is shorter
-    # than the experiment horizon and would silently change the estimand.
-    n_frames = np.asarray(labels_t).shape[0]
-    horizon = (n_frames - 1) * float(dt) * int(steps_per_frame)
-    return kaplan_meier_rmst(times, events, tau=horizon)
+    flat = series.reshape(-1)
+    values = []
+    for level in (0.05, 0.95):
+        indicator = (series <= np.quantile(flat, level)).astype(float)
+        values.append(effective_sample_size(_rank_normalize(indicator)))
+    if any(np.isnan(v) for v in values):
+        return float("nan")
+    return float(min(values))
 
 
-def bias_floors(sample_ref, two_sample_fns: dict, one_sample_fns: dict, n: int,
-                replicates: int = 20, seed0: int = 5000,
-                device: str | torch.device = DEFAULT_DEVICE) -> dict:
-    """For each metric: the metric between two INDEPENDENT reference samples
-    of size n (two_sample_fns: name -> fn(x, y)), or the metric of one fresh
-    reference sample against the target (one_sample_fns: name -> fn(x), for
-    occupancy-type metrics), averaged over `replicates`. Reported as
-    mean/std; plotted as a dashed line on every panel. Without this, every
-    plateau is uninterpretable."""
-    vals: dict[str, list[float]] = {k: [] for k in {**two_sample_fns, **one_sample_fns}}
-    for rep in range(replicates):
-        g1 = torch.Generator(device=device)
-        g1.manual_seed(seed0 + 31 * rep)
-        g2 = torch.Generator(device=device)
-        g2.manual_seed(seed0 + 31 * rep + 17)
-        xa, xb = sample_ref(n, g1), sample_ref(n, g2)
-        for name, fn in two_sample_fns.items():
-            vals[name].append(fn(xa, xb))
-        for name, fn in one_sample_fns.items():
-            vals[name].append(fn(xa))
-    return {name: {"mean": float(np.mean(v)), "std": float(np.std(v, ddof=1))}
-            for name, v in vals.items()}
+def block_mcse(x: np.ndarray, block_length: int) -> float:
+    """Batch-means Monte Carlo standard error of the mean of ``x``.
+
+    The series is cut into ``n_blocks = len(x) // block_length`` non-overlapping
+    blocks (a trailing partial block is discarded) and
+
+        MCSE = sd(block means, ddof=1) / sqrt(n_blocks).
+
+    Raises ValueError when fewer than two whole blocks fit. Nonfinite input
+    returns ``nan``.
+    """
+    values = np.asarray(x, dtype=float).reshape(-1)
+    length = int(block_length)
+    if length < 1:
+        raise ValueError("block_length must be at least 1")
+    n_blocks = values.size // length
+    if n_blocks < 2:
+        raise ValueError(
+            f"need at least two whole blocks, got {n_blocks} "
+            f"for {values.size} draws at block_length={length}"
+        )
+    if not np.all(np.isfinite(values)):
+        return float("nan")
+    means = values[:n_blocks * length].reshape(n_blocks, length).mean(axis=1)
+    return float(means.std(ddof=1) / math.sqrt(n_blocks))
+
+
+def recommended_block_length(series: Mapping[str, np.ndarray],
+                             multiplier: float = 2.0) -> int:
+    """``ceil(multiplier * max_f tau_int(f))`` over the supplied named series.
+
+    The block length for :func:`block_mcse` must exceed the slowest
+    autocorrelation among the observables that will be blocked, so the maximum
+    is taken over all of them. The result is at least 1. Series whose IAT is
+    not finite (constant, or too short to estimate) carry no usable timescale
+    and are skipped; if no series yields a finite IAT, that is an error.
+    """
+    if multiplier <= 0 or not math.isfinite(multiplier):
+        raise ValueError("multiplier must be finite and positive")
+    if not series:
+        raise ValueError("at least one named series is required")
+    taus = [autocorrelation_time(values) for values in series.values()]
+    finite = [t for t in taus if np.isfinite(t)]
+    if not finite:
+        raise ValueError("no supplied series has a finite autocorrelation time")
+    return max(1, int(math.ceil(float(multiplier) * max(finite))))
+
+
+# ---------------------------------------------------------------- bootstrap
+def hierarchical_bootstrap(statistic: Callable[[dict[str, list]], float],
+                           groups: Mapping[str, Sequence],
+                           replicates: int,
+                           seed: int) -> np.ndarray:
+    """Nonparametric bootstrap that resamples several exchangeable units.
+
+    ``groups`` maps a unit name to the list of independent objects of that kind
+    (for example ``{"pt_blocks": [...], "snis_runs": [...]}``). Each replicate
+    resamples every group with replacement to its original size and evaluates
+    ``statistic(resampled_groups) -> float`` on the resampled collection; the
+    array of ``replicates`` values is returned.
+
+    The point is that the *whole* statistic is recomputed on each replicate, so
+    the standard error of a nonlinear whole-object quantity (a relative
+    Frobenius difference, a ratio, a max over categories) comes out directly.
+    Such an SE must never be assembled from elementwise SEs, which would ignore
+    the correlations between the elements and the nonlinearity of the map.
+    """
+    n_replicates = int(replicates)
+    if n_replicates < 1:
+        raise ValueError("replicates must be at least 1")
+    if not groups:
+        raise ValueError("at least one group is required")
+    items = {}
+    for name, unit in groups.items():
+        unit_list = list(unit)
+        if not unit_list:
+            raise ValueError(f"group '{name}' is empty")
+        items[name] = unit_list
+    rng = np.random.default_rng(int(seed))
+    out = np.empty(n_replicates, dtype=float)
+    for r in range(n_replicates):
+        resampled = {
+            name: [unit[i] for i in rng.integers(0, len(unit), size=len(unit))]
+            for name, unit in items.items()
+        }
+        out[r] = float(statistic(resampled))
+    return out

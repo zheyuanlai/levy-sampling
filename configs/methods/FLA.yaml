@@ -1,0 +1,25 @@
+schema_version: 2
+method: FLA
+# Fractional Langevin (Simsekli 2017, sec. 3.3):
+#   X <- X + dt * tame(-c_alpha grad U) + dt^{1/alpha} xi_alpha,  U = beta V,
+#   c_alpha = Gamma(alpha-1) / Gamma(alpha/2)^2.
+# The UNCORRECTED nonlocal comparator: heavy tails cross barriers, but the
+# invariant law is not pi. Symmetric alpha-stable noise via Chambers-Mallows-
+# Stuck, with no tail truncation (a truncated stable is not stable).
+streams: [init_gen, stable_noise_gen]
+parameters:
+  alpha: 1.7
+parameter_grid:
+  alpha: [1.6, 1.7, 1.8]
+tame_variants: [false, true]
+# Canonical and tamed at the same alpha share the stable-noise stream.
+rng_pair_group_keys: [alpha]
+calibration:
+  dt:
+    criteria: [numerical_stability, self_convergence]
+    tolerance: 0.05
+    max_halvings: 4
+diagnostics:
+  - nonfinite_count
+  - boundary_reject_count
+  - max_increment_norm

@@ -1,0 +1,17 @@
+schema_version: 2
+method: ULA
+# Overdamped Langevin, Euler-Maruyama, no accept/reject:
+#   X <- X + dt * b_c(X) + sqrt(2 eps dt) xi,   b = -grad V, eps = 1/beta.
+# The tamed variant replaces b by b_c = b / (1 + dt ||b|| / c).
+streams: [init_gen, diffusion_gen]
+parameters: {}
+tame_variants: [false, true]
+calibration:
+  # dt is chosen per variant; canonical and tamed never share a timestep.
+  dt:
+    criteria: [stationary_bias, observable_error, fes_error, stability]
+    tolerance: 0.05
+    max_halvings: 4
+diagnostics:
+  - nonfinite_count
+  - boundary_reject_count

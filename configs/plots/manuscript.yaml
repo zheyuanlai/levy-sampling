@@ -1,0 +1,276 @@
+# Figure specifications for the manuscript.
+#
+# Plot notebooks read this file and the saved run artifacts. They never call a
+# sampler, a reference builder, a tuner, or a metric implementation, and they
+# never recompute an official metric: every number plotted here already exists
+# in a run's metrics_timeseries.csv or cost_timeseries.csv.
+#
+# Method colours, markers, and display names come from configs/registry.yaml and
+# are never redefined here. This file chooses WHICH runs to draw and HOW to lay
+# them out.
+schema_version: 2
+
+defaults:
+  output_formats: [png, pdf, svg, tiff]
+  output_root: figures
+  dpi: 400
+  # Uncertainty is always across seeds. Particles inside one seed are not
+  # independent experiment repeats and must never be treated as such.
+  uncertainty:
+    unit: seed
+    estimator: seed_bootstrap
+    interval: 0.95
+    bootstrap_replicates: 2000
+    bootstrap_seed: 5150
+  # Every official curve is produced against both axes.
+  curve_x_axis: [simulation_time, fee]
+  x_axis_labels:
+    simulation_time: "simulation time $t$"
+    fee: "force-equivalent cost $N_{\\mathrm{FEE}}$ / particle"
+    extra_potential: "$N_{V,\\mathrm{eq}}^{\\mathrm{extra}}$ / particle"
+  # Distribution snapshots are compared at matched simulation time only. Sample
+  # positions are never interpolated in time or in budget.
+  snapshot_axis: simulation_time
+  snapshot_time_policy: nearest_below
+  # Canonical/tamed presentation. The method sets the colour; the tame flag sets
+  # the line style; hyperparameters get markers and appear in the legend.
+  tame_styles:
+    canonical: "-"
+    tamed: "--"
+  # Each curve figure is emitted three times.
+  tame_views: [canonical_only, tamed_only, paired]
+  latest_run_only: true
+  fee_axis:
+    # Runs may share a FEE axis only when their calibration hash matches.
+    require_matching_calibration_hash: true
+    compatibility_record: null
+
+# --------------------------------------------------------------------- E1
+E1:
+  experiment_key: E1_double_well
+  figures:
+    E1.1_cdf_and_potential:
+      kind: twin_axis_cdf
+      caption: >-
+        Cumulative distribution functions at a matched simulation time, with the
+        double-well potential drawn behind on the right axis.
+      # One figure, two y-axes -- not two panels.
+      left_axis:
+        quantity: cdf
+        methods: [ULA, ULD, Raw-CP, LSC-CP]
+        include_exact_target: true
+        exact_style: {color: black, linestyle: "-", label: "exact target"}
+      right_axis:
+        quantity: potential
+        style: {color: "0.55", alpha: 0.35, linewidth: 1.2, zorder: 0}
+        minimal_ticks: true
+      snapshot_time: 100.0
+      tame_view: canonical_only
+
+    E1.2_nonlocal_efficiency:
+      kind: metric_grid
+      caption: >-
+        Efficiency of the nonlocal methods against simulation time and against
+        force-equivalent cost.
+      layout: {rows: 3, columns: 2}
+      methods: [FLA, LSC-CP, LSC-CP-RA]
+      variants:
+        FLA: [{alpha: 1.6}, {alpha: 1.7}, {alpha: 1.8}]
+        LSC-CP: [{}]
+        LSC-CP-RA: [{A: 1}, {A: 4}, {A: 8}]
+      metrics:
+        - {column: W2_exact_1d, label: "$W_2$", log_y: true}
+        - {column: MMD2_biased, label: "MMD$^2$", log_y: true}
+        - {column: KS, label: "KS distance $D_{\\mathrm{KS}}$", log_y: true}
+      columns: [simulation_time, fee]
+      # Reference-versus-reference sampling floor, drawn as a grey band.
+      show_sampling_floor: true
+
+    E1.3_lsc_score_cost:
+      kind: metric_grid
+      title: "LSC score potential-evaluation cost"
+      caption: >-
+        Score cost of the full deterministic quadrature against the iid
+        random-atomic estimator. This axis counts LSC score potential
+        evaluations only and is not a complete computational cost.
+      # Only estimators with a nonzero extra-potential count may appear here.
+      methods: [LSC-CP, LSC-CP-RA]
+      variants:
+        LSC-CP: [{}]
+        LSC-CP-RA: [{A: 1}, {A: 4}, {A: 8}]
+      metrics:
+        - {column: W2_exact_1d, label: "$W_2$", log_y: true}
+        - {column: MMD2_biased, label: "MMD$^2$", log_y: true}
+      columns: [extra_potential]
+
+# --------------------------------------------------------------------- E2
+E2:
+  experiment_key: E2_mog40
+  figures:
+    E2.1_scatter_matched_time:
+      kind: contour_scatter_grid
+      caption: >-
+        Exact target log-density contours with method samples at a matched
+        simulation time. Every panel uses the same axes, contour levels, point
+        count, and subsampling rule.
+      layout: {rows: 2, columns: 3}
+      methods: [ULA, ULD, FLA, PT, LSC-CP, LSC-CP-RA]
+      snapshot_time: 100.0
+      background: exact_target_log_density
+      mark_component_centers: {marker: "+", color: black, size: 8}
+      points_per_panel: 4000
+      shared_limits: true
+      tame_view: canonical_only
+
+    E2.2_mode_metrics:
+      kind: mode_metric_panel
+      caption: >-
+        Mode coverage and mode weights. The reference line on the coverage panel
+        is the frozen hard-assignment reference value, not one.
+      panels:
+        - kind: curve
+          metric: {column: EMC, label: "EMC"}
+          reference_line: {source: reference.emc_star, label: "$\\mathrm{EMC}^\\star$"}
+          columns: [simulation_time, fee]
+        - kind: curve
+          metric: {column: mode_weight_JS, label: "mode-weight $D_{\\mathrm{JS}}$", log_y: true}
+          columns: [simulation_time, fee]
+        - kind: occupancy_profile
+          # Ratio to the frozen descriptor masses; the reference line is 1.
+          quantity: occupancy_ratio
+          reference_line: 1.0
+          mode_order: fixed_by_reference
+          snapshot_times: [10.0, 100.0]
+      methods: [ULA, ULD, FLA, PT, LSC-CP, LSC-CP-RA]
+
+    E2.3_supplement:
+      kind: metric_grid
+      caption: Supplementary two-sample metrics for E2.
+      supplement: true
+      methods: [ULA, ULD, FLA, PT, Raw-CP, LSC-CP, LSC-CP-RA]
+      metrics:
+        - {column: SW2, label: "$\\mathrm{SW}_2$", log_y: true}
+        - {column: MMD2_biased, label: "MMD$^2$", log_y: true}
+        - {column: MMD2_unbiased, label: "unbiased MMD$^2$", log_y: false}
+      columns: [simulation_time, fee]
+
+    E2.4_lsc_score_cost:
+      kind: metric_grid
+      title: "LSC score potential-evaluation cost"
+      methods: [LSC-CP, LSC-CP-RA]
+      metrics:
+        - {column: EMC, label: "EMC"}
+        - {column: mode_weight_JS, label: "mode-weight $D_{\\mathrm{JS}}$", log_y: true}
+      columns: [extra_potential]
+
+# --------------------------------------------------------------------- E3
+E3:
+  experiment_key: E3_muller_brown
+  figures:
+    E3.1_cv_snapshots_matched_time:
+      kind: snapshot_matrix
+      caption: >-
+        Latent collective-variable samples over simulation time. Rows are
+        methods, columns are matched simulation times, and the background is the
+        reference free-energy surface on the same contour levels everywhere.
+      rows: [FLA, PT, LSC-CP]
+      snapshot_times: [2.0, 20.0, 80.0, 200.0]
+      background: reference_cv_fes
+      coordinates: latent_cv
+      points_per_panel: 3000
+      shared_limits: true
+      # No minima, saddle, basin-boundary, jump-arrow, or transition-path
+      # annotations: the figure shows the CV distribution, not a kinetic story.
+      annotate_critical_points: false
+      tame_view: canonical_only
+
+    E3.2_cv_metrics:
+      kind: metric_grid
+      caption: Two-sample agreement on the two-dimensional collective variable.
+      layout: {rows: 2, columns: 2}
+      methods: [ULA, ULD, FLA, PT, LSC-CP, LSC-CP-RA]
+      metrics:
+        - {column: CV_SW2, label: "CV-$\\mathrm{SW}_2$", log_y: true}
+        - {column: CV_MMD2_biased, label: "CV-MMD$^2$", log_y: true}
+      columns: [simulation_time, fee]
+
+    E3.3_supplement:
+      kind: metric_grid
+      supplement: true
+      methods: [ULA, ULD, FLA, PT, Raw-CP, LSC-CP, LSC-CP-RA]
+      metrics:
+        - {column: CV_KDE_Hellinger, label: "$H^2$ (fixed-bandwidth KDE)", log_y: true}
+        - {column: CV_MMD2_unbiased, label: "unbiased CV-MMD$^2$"}
+        - {column: latent_z1_KS, label: "latent $z_1$ marginal KS distance", log_y: true}
+      columns: [simulation_time, fee]
+
+    E3.4_lsc_score_cost:
+      kind: metric_grid
+      title: "LSC score potential-evaluation cost"
+      methods: [LSC-CP, LSC-CP-RA]
+      metrics:
+        - {column: CV_SW2, label: "CV-$\\mathrm{SW}_2$", log_y: true}
+        - {column: CV_MMD2_biased, label: "CV-MMD$^2$", log_y: true}
+      columns: [extra_potential]
+
+# --------------------------------------------------------------------- E4
+E4:
+  experiment_key: E4_coupled_quartic_chain
+  figures:
+    E4.1_order_parameter_scatter:
+      kind: contour_scatter_grid
+      caption: >-
+        Order-parameter samples over the reference free-energy estimate. The
+        background is a numerical reference estimate built from the primary
+        PT-MALA reference samples, not an exact surface.
+      layout: {rows: 2, columns: 3}
+      methods: [ULA, ULD, FLA, PT, LSC-CP, LSC-CP-RA]
+      snapshot_time: 100.0
+      background: reference_order_parameter_fes
+      background_is_estimate: true
+      coordinates: order_parameter
+      points_per_panel: 3000
+      shared_limits: true
+      tame_view: canonical_only
+
+    E4.2_physical_correctness:
+      kind: metric_grid
+      caption: Physical correctness of the sampled equilibrium ensemble.
+      layout: {rows: 5, columns: 2}
+      methods: [ULA, ULD, FLA, PT, LSC-CP, LSC-CP-RA]
+      metrics:
+        - {column: phase_weight_JS, label: "phase-weight $D_{\\mathrm{JS}}$", log_y: true}
+        - {column: order_parameter_SW2, label: "order-parameter $\\mathrm{SW}_2$", log_y: true}
+        - {column: order_parameter_MMD2_biased, label: "order-parameter MMD$^2$", log_y: true}
+        - {column: energy_per_site_MAE, label: "energy/site absolute error", log_y: true}
+        - {column: susceptibility_relative_frobenius, label: "$\\|\\hat\\chi-\\chi^\\star\\|_F/\\|\\chi^\\star\\|_F$", log_y: true}
+      columns: [simulation_time, fee]
+
+    E4.3_supplement:
+      kind: supplement_panels
+      supplement: true
+      methods: [ULA, ULD, FLA, PT, Raw-CP, LSC-CP, LSC-CP-RA]
+      panels:
+        - {kind: contour_scatter, quantity: order_parameter}
+        - {kind: marginal_cdf, quantity: mx}
+        - {kind: marginal_cdf, quantity: my}
+        - {kind: radial_distribution, quantity: m_norm}
+        - {kind: occupancy_bars, quantity: phase_occupancy}
+        - {kind: cdf, quantity: energy_per_site}
+        - {kind: cdf, quantity: coherence}
+        - {kind: histogram, quantity: kink_density}
+        - {kind: correlation_profile, quantity: two_point_correlation}
+        - {kind: matrix_heatmap, quantity: susceptibility}
+        - {kind: scalar_bars, quantity: [heat_capacity, binder_cumulant]}
+        - {kind: reference_validation, source: reference.validation}
+      # No first-passage, transition-count, round-trip, relay-path, or kinetic
+      # transition-matrix figures: E4 reports static equilibrium observables.
+
+    E4.4_lsc_score_cost:
+      kind: metric_grid
+      title: "LSC score potential-evaluation cost"
+      methods: [LSC-CP, LSC-CP-RA]
+      metrics:
+        - {column: phase_weight_JS, label: "phase-weight $D_{\\mathrm{JS}}$", log_y: true}
+        - {column: order_parameter_SW2, label: "order-parameter $\\mathrm{SW}_2$", log_y: true}
+      columns: [extra_potential]

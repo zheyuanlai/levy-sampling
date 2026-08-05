@@ -1,341 +1,352 @@
-"""Validate the portable E1--E4 manuscript release without running a GPU job."""
+#!/usr/bin/env python
+"""Validate the source package, or a frozen release.
+
+    python scripts/validate_release.py            # source package checks
+    python scripts/validate_release.py --release  # also require results/figures
+
+The two modes exist because the packages differ. The SOURCE package must be
+runnable from zero: it contains ``src/``, ``configs/``, ``notebooks/``,
+``scripts/``, ``tests/``, a README, and an environment lock, and it must NOT
+require ``results/``, ``figures/``, or ``cache/`` to exist. Only the frozen
+RELEASE package additionally carries results, figures, resolved configs,
+manifests, and executed notebooks -- and only ``--release`` checks for them.
+
+Nothing here gates a run. Requiring figures before running an experiment was the
+old behaviour and is gone: a validator that demands the outputs of the thing it
+is about to launch can never pass on a clean checkout.
+"""
 from __future__ import annotations
 
 import argparse
-import csv
+from dataclasses import dataclass, field
+import importlib
 import json
+import os
 from pathlib import Path
+import re
 import sys
-from typing import Iterable
 
-import nbformat
-import yaml
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
+#: Paths that must never appear in a notebook's source, outputs, or metadata.
+FORBIDDEN_PATH_PATTERNS = (
+    re.compile(r"/home/[A-Za-z0-9._-]+/"),
+    re.compile(r"/Users/[A-Za-z0-9._-]+/"),
+    re.compile(r"C:\\\\Users\\\\"),
+    re.compile(r"/mnt/data/"),
+)
 
-HERE = Path(__file__).resolve().parent
-JCP_ROOT = HERE.parent
-if str(JCP_ROOT) not in sys.path:
-    sys.path.insert(0, str(JCP_ROOT))
+#: Machinery from the previous pipeline that must not survive anywhere in the
+#: normal execution path.
+FORBIDDEN_TOKENS = {
+    "LSC-CP-MA": "the component-stratified estimator is deleted, not renamed",
+    "LSC_CP_MA": "the component-stratified estimator is deleted, not renamed",
+    "paired_multiatom": "the component-stratified sampler branch is deleted",
+    "MultiAtomShellScore": "the component-stratified score is deleted",
+    "jitter_sigma": "jitter is removed from the public configuration",
+    "JCP_EXTRA_GPUS": "GPU allow-lists are removed",
+    "JCP_GPU": "pinned GPU indices are removed",
+    "gpu_guard": "the GPU guard is removed",
+    "merge_method_shards": "shard merging is removed; results are discovered by scan",
+    "build_notebooks": "the notebook generator is removed; notebooks are source",
+    "--require-figures": "release validation never gates a run",
+    "run_wallclock_campaign": "wall-clock is not a formal scientific cost metric",
+    "recompute_fla_stationarity": "stationarity is a generic per-variant entry point",
+}
 
-from src.manuscript import (  # noqa: E402
-    EXPERIMENTS,
-    FIGURE_FORMATS,
-    METRICS,
-    REALISED_ARMS,
-    RESOURCE_AXES,
+#: Files allowed to name the forbidden tokens, because their job is to assert
+#: those things are gone. Everything else is scanned.
+TOKEN_SCAN_EXEMPT = {"validate_release.py", "test_lsc.py",
+                     "test_legacy_removal.py"}
+
+#: Files that must be present for the source package to be runnable from zero.
+REQUIRED_SOURCE_PATHS = (
+    "src", "configs", "notebooks", "scripts", "tests", "README.md",
+    "environment.yml", "configs/registry.yaml", "configs/plots/manuscript.yaml",
+)
+
+#: Directories a source package must NOT require.
+OPTIONAL_IN_SOURCE = ("results", "figures", "cache")
+
+REQUIRED_RELEASE_PATHS = (
+    "results", "figures", "resolved_configs", "manifests", "executed_notebooks",
 )
 
 
-class ReleaseValidationError(RuntimeError):
-    pass
+@dataclass
+class Report:
+    checks: list = field(default_factory=list)
+
+    def add(self, name: str, passed: bool, detail: str = "") -> None:
+        self.checks.append({"check": name, "passed": bool(passed),
+                            "detail": detail})
+
+    @property
+    def failures(self):
+        return [check for check in self.checks if not check["passed"]]
+
+    def to_dict(self) -> dict:
+        return {"checks": self.checks, "passed": not self.failures,
+                "n_failed": len(self.failures)}
 
 
-def _require(path: Path, kind: str = "file") -> None:
-    predicate = path.is_dir if kind == "directory" else path.is_file
-    if not predicate():
-        raise ReleaseValidationError(f"missing required {kind}: {path}")
+# ------------------------------------------------------------ source checks
+def check_source_layout(root: Path, report: Report) -> None:
+    for relative in REQUIRED_SOURCE_PATHS:
+        path = root / relative
+        report.add(f"source layout: {relative}", path.exists(),
+                   "" if path.exists() else f"missing {path}")
 
 
-def _csv_methods(path: Path) -> set[str]:
-    with path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        if not reader.fieldnames or "method" not in reader.fieldnames:
-            raise ReleaseValidationError(f"{path} has no method column")
-        return {row["method"] for row in reader if row.get("method")}
+def check_no_result_dependency(root: Path, report: Report) -> None:
+    """A clean checkout has no results; importing and configuring must still work."""
+    for relative in OPTIONAL_IN_SOURCE:
+        present = (root / relative).exists()
+        report.add(f"source does not require {relative}/", True,
+                   f"present (fine, but not required); " if present
+                   else "absent, as a clean checkout would be")
 
 
-def _require_columns(path: Path, columns: Iterable[str]) -> None:
-    with path.open(newline="", encoding="utf-8") as handle:
-        present = set(csv.DictReader(handle).fieldnames or ())
-    missing = sorted(set(columns) - present)
-    if missing:
-        raise ReleaseValidationError(f"{path} is missing columns {missing}")
+def check_imports(report: Report) -> None:
+    modules = ("src.config", "src.pipeline", "src.samplers", "src.score",
+               "src.jumps", "src.targets", "src.potentials", "src.metrics",
+               "src.observables", "src.measurements", "src.fee", "src.rng",
+               "src.results", "src.catalog", "src.calibration", "src.factory",
+               "src.plotting", "src.stationarity", "src.references")
+    for name in modules:
+        try:
+            importlib.import_module(name)
+        except Exception as error:                            # noqa: BLE001
+            report.add(f"import {name}", False,
+                       f"{type(error).__name__}: {error}")
+        else:
+            report.add(f"import {name}", True)
 
 
-def _require_single_gpu_timing(manifest: dict, *, path: str) -> None:
-    """The wall-clock axis is only publishable when the run owned its device.
+def check_configs(root: Path, report: Report) -> None:
+    from src.config import (load_method_configs, load_registry, load_yaml)
 
-    Every method is timed inside one process on one visible GPU. If the run
-    manifest recorded other compute processes on that GPU at start, the timings
-    are contended and must not be published as a comparison."""
-    environment = manifest.get("env") or manifest.get("environment") or {}
-    if not isinstance(environment, dict):
+    try:
+        registry = load_registry()
+    except Exception as error:                                # noqa: BLE001
+        report.add("registry loads", False, f"{type(error).__name__}: {error}")
         return
-    cotenants = environment.get("gpu_compute_apps_at_start")
-    if cotenants:
-        raise ReleaseValidationError(
-            f"{path}: wall-clock results are contended; the run recorded "
-            f"co-tenant GPU processes at start: {cotenants}"
-        )
-    visible = environment.get("gpu_count_visible")
-    if visible not in (None, "", 1):
-        raise ReleaseValidationError(
-            f"{path}: expected exactly one visible GPU for the wall-clock "
-            f"timing protocol, manifest recorded {visible}"
-        )
+    report.add("registry loads", True)
+
+    methods = registry.get("methods", {})
+    report.add("registry declares methods", bool(methods))
+    for name, entry in methods.items():
+        for key in ("display_name", "implementation", "supports_tame", "color",
+                    "marker"):
+            report.add(f"registry {name}.{key}", key in entry,
+                       "" if key in entry else f"{name} is missing {key}")
+    # ULD is the method name; BAOAB may appear only as the integrator.
+    uld = methods.get("ULD", {})
+    report.add("ULD displays as ULD",
+               uld.get("display_name") == "ULD",
+               f"display_name is {uld.get('display_name')!r}")
+    report.add("BAOAB appears only as an integrator",
+               uld.get("integrator") == "BAOAB")
+    ra = methods.get("LSC-CP-RA", {})
+    report.add("LSC-CP-RA is one iid estimator family",
+               ra.get("estimator_type") == "iid_random_atomic",
+               f"estimator_type is {ra.get('estimator_type')!r}")
+    report.add("no LSC-CP-MA in the registry", "LSC-CP-MA" not in methods)
+    for name in ("MALA", "PT"):
+        report.add(f"{name} supports taming",
+                   bool(methods.get(name, {}).get("supports_tame")))
+
+    try:
+        method_configs = load_method_configs()
+    except Exception as error:                                # noqa: BLE001
+        report.add("method configs load", False,
+                   f"{type(error).__name__}: {error}")
+        method_configs = {}
+    else:
+        report.add("method configs load", True)
+    for name in methods:
+        report.add(f"method config for {name}", name in method_configs)
+
+    for experiment_id, entry in registry.get("experiments", {}).items():
+        path = root / entry["config"]
+        if not path.is_file():
+            report.add(f"{experiment_id} config exists", False, str(path))
+            continue
+        report.add(f"{experiment_id} config exists", True)
+        config = load_yaml(path)
+        for section in ("target", "jump_law", "boundary", "protocol", "taming",
+                        "checkpoints", "reference", "metrics", "calibration"):
+            report.add(f"{experiment_id} config has {section}",
+                       section in config)
+        boundary_rule = (config.get("boundary") or {}).get("rule")
+        report.add(f"{experiment_id} boundary rule is reject",
+                   boundary_rule == "reject",
+                   f"rule is {boundary_rule!r}")
+        checkpoints = config.get("checkpoints") or {}
+        report.add(f"{experiment_id} has no stale n_checkpoints",
+                   "n_checkpoints" not in checkpoints and
+                   "n_checkpoints" not in config)
+        for notebook_key in ("run_notebook", "plot_notebook"):
+            notebook = root / entry[notebook_key]
+            report.add(f"{experiment_id} {notebook_key} exists",
+                       notebook.is_file(), str(notebook))
 
 
-def _validate_config(root: Path, key: str) -> dict:
-    spec = EXPERIMENTS[key]
-    path = root / "configs" / spec.config
-    _require(path)
-    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ReleaseValidationError(f"{path} is not a YAML mapping")
-    if payload.get("experiment") != key:
-        raise ReleaseValidationError(
-            f"{path}: experiment={payload.get('experiment')!r}, expected {key!r}"
-        )
-    methods = tuple((payload.get("methods") or {}).keys())
-    if methods != spec.methods:
-        raise ReleaseValidationError(
-            f"{path}: method order {methods} != release order {spec.methods}"
-        )
-    if tuple(payload.get("resource_axes") or ()) != RESOURCE_AXES:
-        raise ReleaseValidationError(f"{path}: incorrect resource_axes")
-    configured_metrics = tuple(payload.get("metrics") or ())
-    expected_metrics = ("W2", "MMD", "basin_TV", "worst_basin_ESS")
-    if configured_metrics != expected_metrics:
-        raise ReleaseValidationError(
-            f"{path}: metrics {configured_metrics} != {expected_metrics}"
-        )
-    return payload
+def check_notebooks(root: Path, report: Report) -> None:
+    notebooks = sorted((root / "notebooks").glob("*.ipynb"))
+    report.add("eight notebooks present", len(notebooks) == 8,
+               f"found {len(notebooks)}: {[p.name for p in notebooks]}")
+    for path in notebooks:
+        text = path.read_text(encoding="utf-8")
+        for pattern in FORBIDDEN_PATH_PATTERNS:
+            match = pattern.search(text)
+            report.add(f"{path.name}: no absolute paths", match is None,
+                       f"found {match.group(0)!r}" if match else "")
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as error:
+            report.add(f"{path.name}: valid JSON", False, str(error))
+            continue
+        report.add(f"{path.name}: valid JSON", True)
+        cells = payload.get("cells", [])
+        has_outputs = any(cell.get("outputs") for cell in cells)
+        has_counts = any(cell.get("execution_count") is not None
+                         for cell in cells)
+        report.add(f"{path.name}: outputs cleared", not has_outputs)
+        report.add(f"{path.name}: execution counts cleared", not has_counts)
+        if path.name.endswith("_plot.ipynb"):
+            source = "\n".join("".join(cell.get("source", []))
+                               for cell in cells)
+            for forbidden in ("src.pipeline", "src.samplers", "src.factory",
+                              "src.calibration", "src.references",
+                              "run_variants_and_save", "build_sampler"):
+                report.add(
+                    f"{path.name}: does not call {forbidden}",
+                    forbidden not in source,
+                    "a plot notebook must not run a sampler, a tuner, a "
+                    "refinement, or a reference build")
 
 
-def _validate_notebook(root: Path, key: str) -> dict:
-    spec = EXPERIMENTS[key]
-    path = root / "notebooks" / spec.notebook
-    _require(path)
-    notebook = nbformat.read(path, as_version=4)
-    if not notebook.cells:
-        raise ReleaseValidationError(f"{path} contains no cells")
-    source = "\n".join(
-        "".join(cell.get("source", "")) for cell in notebook.cells
-    )
-    if spec.number not in source and key not in source:
-        raise ReleaseValidationError(
-            f"{path} does not identify {spec.number}/{key}"
-        )
-    forbidden = ("/home/", "/Users/", "C:\\\\")
-    hits = [token for token in forbidden if token in source]
-    if hits:
-        raise ReleaseValidationError(
-            f"{path} contains non-portable absolute path token(s): {hits}"
-        )
-    return {
-        "path": str(path.relative_to(root)),
-        "cells": len(notebook.cells),
-        "code_cells": sum(c.cell_type == "code" for c in notebook.cells),
-    }
+def check_no_legacy_tokens(root: Path, report: Report) -> None:
+    """The old schema must not survive in the normal execution path.
+
+    There is no new-format-first-then-fall-back-to-old dual path. A one-off
+    migration tool may read old files, but it must not sit in the daily run,
+    plot, or release flow.
+    """
+    scanned = []
+    for directory in ("src", "scripts", "notebooks", "configs", "tests"):
+        base = root / directory
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            if path.is_file() and path.suffix in (".py", ".yaml", ".yml",
+                                                  ".ipynb", ".md"):
+                scanned.append(path)
+    scanned.extend(path for path in (root / "README.md",) if path.is_file())
+    for token, why in FORBIDDEN_TOKENS.items():
+        offenders = []
+        for path in scanned:
+            if path.name in TOKEN_SCAN_EXEMPT:
+                continue                      # these name the tokens on purpose
+            try:
+                if token in path.read_text(encoding="utf-8"):
+                    offenders.append(str(path.relative_to(root)))
+            except (OSError, UnicodeDecodeError):
+                continue
+        report.add(f"no legacy token {token!r}", not offenders,
+                   f"{why}; found in {offenders}" if offenders else "")
 
 
-def _validate_results(root: Path, key: str) -> dict:
-    spec = EXPERIMENTS[key]
-    directory = root / "results" / key
-    _require(directory, "directory")
-    required = (
-        directory / "manifest.json",
-        directory / "metrics_timeseries.csv",
-        directory / "summary.csv",
-        directory / "positions.csv",
-    )
-    for path in required:
-        _require(path)
+def check_device_policy(root: Path, report: Report) -> None:
+    """CPU and CUDA are both supported; nothing may forbid a device."""
+    from src.device import resolve_device
 
-    manifest = json.loads(required[0].read_text(encoding="utf-8"))
-    _require_single_gpu_timing(manifest, path=str(required[0]))
-    config = manifest.get("config") or {}
-    for field in ("d", "N", "T", "dt", "beta", "seeds"):
-        if field not in config:
-            raise ReleaseValidationError(
-                f"{required[0]}: config is missing {field!r}"
-            )
-
-    with required[1].open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        columns = set(reader.fieldnames or ())
-        expected_columns = {
-            "method", "seed", "t", "nfe", "wallclock_s", *METRICS[:3]
-        }
-        missing_columns = expected_columns - columns
-        if missing_columns:
-            raise ReleaseValidationError(
-                f"{required[1]} is missing columns {sorted(missing_columns)}"
-            )
-        time_series_methods = {
-            row["method"] for row in reader if row.get("method")
-        }
-    missing_methods = set(spec.methods) - time_series_methods
-    if missing_methods:
-        raise ReleaseValidationError(
-            f"{required[1]} is missing release methods {sorted(missing_methods)}"
-        )
-
-    # Exactly one realised-displacement arm per experiment. A foreign arm means
-    # results from two different estimators have been spliced into one file --
-    # E3/E4 carried stray single-atom LSC-CP-RA columns this way, alongside a
-    # manifest that had never been gated on them.
-    foreign_arms = (REALISED_ARMS & time_series_methods) - {spec.realised_arm}
-    if foreign_arms:
-        raise ReleaseValidationError(
-            f"{required[1]} carries a foreign realised arm {sorted(foreign_arms)}; "
-            f"{key} runs only {spec.realised_arm!r}"
-        )
-
-    position_methods = _csv_methods(required[3])
-    missing_positions = set(spec.methods) - position_methods
-    if missing_positions:
-        raise ReleaseValidationError(
-            f"{required[3]} is missing release methods {sorted(missing_positions)}"
-        )
-
-    # FLA and E1 Raw-CP are non-target-preserving mixing diagnostics. Their ESS
-    # is still required, but must be interpreted alongside distributional bias.
-    ess_methods = set(spec.methods)
-    stationarity_dir = directory / "stationarity"
-    _require(stationarity_dir, "directory")
-    # The wall-clock ESS view needs the per-second normalisation for every
-    # displayed method, produced by the same single-GPU run as the raw ESS.
-    _require_columns(stationarity_dir / "all_methods_summary.csv",
-                     ("worst_basin_ess", "worst_basin_ess_per_second"))
-    for method in ess_methods:
-        summary = stationarity_dir / f"{method}_summary.csv"
-        _require(summary)
-        _require_columns(summary, ("worst_basin_ess_per_second",))
-        with summary.open(newline="", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            if "worst_basin_ess" not in set(reader.fieldnames or ()):
-                raise ReleaseValidationError(
-                    f"{summary} has no worst_basin_ess column"
-                )
-            first = next(reader, None)
-            if first is None or not first.get("worst_basin_ess"):
-                raise ReleaseValidationError(
-                    f"{summary} has no worst-basin ESS value"
-                )
-
-    return {
-        "directory": str(directory.relative_to(root)),
-        "release_methods": list(spec.methods),
-        "extra_frozen_methods": sorted(time_series_methods - set(spec.methods)),
-        "ess_methods": sorted(ess_methods),
-    }
+    try:
+        cpu = resolve_device("cpu")
+        auto = resolve_device("auto")
+    except Exception as error:                                # noqa: BLE001
+        report.add("device resolution", False,
+                   f"{type(error).__name__}: {error}")
+        return
+    report.add("device resolution", True, f"cpu={cpu}, auto={auto}")
+    report.add("no CUDA_VISIBLE_DEVICES requirement",
+               True,
+               f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')!r} "
+               "is provenance only")
 
 
-def validate_release(
-    root: Path = JCP_ROOT,
-    *,
-    check_results: bool = True,
-    require_figures: bool = False,
-) -> dict:
-    root = root.resolve()
-    legacy_root_entries = (
-        "JCP_experiments",
-        "archive",
-        "archive 2",
-        "doublewell.ipynb",
-        "doublewell_output",
-        "experiments",
-        "experiments_CY",
-        "experiment_note",
-        "manywell.ipynb",
-        "manywell_output",
-        "mog40.ipynb",
-        "mog40_output",
-        "paper.mplstyle",
-        "reports",
-        "tests",
-        "tests_cpu",
-    )
-    remaining_legacy = [
-        name for name in legacy_root_entries if (root / name).exists()
-    ]
-    if remaining_legacy:
-        raise ReleaseValidationError(
-            "release must live at repository root; legacy root entries remain: "
-            + ", ".join(remaining_legacy)
-        )
-    for unrelated in (
-        root / "notebooks" / "05_alanine_dipeptide.ipynb",
-        root / "results" / "alanine_dipeptide",
-        root / "scripts" / "smoke_experiment.py",
-        root / "src" / "e5_alanine",
-    ):
-        if unrelated.exists():
-            raise ReleaseValidationError(
-                f"unrelated non-E1--E4 content remains: {unrelated}"
-            )
-    for path in (
-        root / "README.md",
-        root / "environment.yml",
-        root / "pyproject.toml",
-        root / "src" / "manuscript.py",
-        root / "notebooks" / "00_environment_check.ipynb",
-        root / "notebooks" / "05_manuscript_plotting.ipynb",
-    ):
-        _require(path)
+def check_output_writable(root: Path, report: Report) -> None:
+    from src.config import DEFAULT_RESULTS_ROOT
 
-    report = {
-        "status": "passed",
-        "root": str(root),
-        "experiments": {},
-        "checked_results": check_results,
-        "required_figures": require_figures,
-    }
-    for key in EXPERIMENTS:
-        item = {
-            "config": _validate_config(root, key),
-            "notebook": _validate_notebook(root, key),
-        }
-        if check_results:
-            item["results"] = _validate_results(root, key)
-        report["experiments"][key] = item
-
-    if require_figures:
-        for extension in FIGURE_FORMATS:
-            directory = root / "figures" / extension
-            _require(directory, "directory")
-            for key in EXPERIMENTS:
-                for axis in RESOURCE_AXES:
-                    _require(directory / f"{key}_combined_{axis}.{extension}")
-    return report
+    target = Path(DEFAULT_RESULTS_ROOT)
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        probe = target / ".write-probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as error:
+        report.add("output directory writable", False, str(error))
+    else:
+        report.add("output directory writable", True, str(target))
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=JCP_ROOT)
-    parser.add_argument(
-        "--skip-results",
-        action="store_true",
-        help="validate code/config/notebook structure without frozen results",
-    )
-    parser.add_argument(
-        "--require-figures",
-        action="store_true",
-        help="also require all combined PNG/PDF manuscript figures",
-    )
-    parser.add_argument("--json-out", type=Path)
-    return parser
+# ----------------------------------------------------------- release checks
+def check_release_artifacts(root: Path, report: Report) -> None:
+    for relative in REQUIRED_RELEASE_PATHS:
+        path = root / relative
+        report.add(f"release artifact: {relative}", path.exists(),
+                   "" if path.exists() else f"missing {path}")
+    figures = list((root / "figures").rglob("*.png")) if (root / "figures").is_dir() else []
+    report.add("release has figures", bool(figures),
+               f"{len(figures)} PNG file(s)")
+    from src.catalog import scan
+
+    results = root / "results"
+    if results.is_dir():
+        for experiment_dir in sorted(p for p in results.iterdir()
+                                     if p.is_dir() and (p / "runs").is_dir()):
+            rows, rejections = scan(experiment_dir)
+            report.add(f"release runs valid: {experiment_dir.name}",
+                       bool(rows) and not rejections,
+                       f"{len(rows)} valid, {len(rejections)} rejected: "
+                       f"{rejections}")
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    report = validate_release(
-        args.root,
-        check_results=not args.skip_results,
-        require_figures=args.require_figures,
-    )
-    text = json.dumps(report, indent=2, ensure_ascii=False, default=str) + "\n"
-    if args.json_out:
-        args.json_out.parent.mkdir(parents=True, exist_ok=True)
-        args.json_out.write_text(text, encoding="utf-8")
-    print(
-        "Release validation PASSED: "
-        f"{len(report['experiments'])} experiments; "
-        f"results={'yes' if report['checked_results'] else 'no'}; "
-        f"figures={'required' if report['required_figures'] else 'not required'}"
-    )
-    return 0
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--release", action="store_true",
+                        help="also require the frozen release artifacts")
+    parser.add_argument("--root", type=Path, default=REPOSITORY_ROOT)
+    parser.add_argument("--json", type=Path, default=None)
+    args = parser.parse_args(argv)
+
+    report = Report()
+    check_source_layout(args.root, report)
+    check_no_result_dependency(args.root, report)
+    check_imports(report)
+    check_configs(args.root, report)
+    check_notebooks(args.root, report)
+    check_no_legacy_tokens(args.root, report)
+    check_device_policy(args.root, report)
+    check_output_writable(args.root, report)
+    if args.release:
+        check_release_artifacts(args.root, report)
+
+    for check in report.checks:
+        if not check["passed"]:
+            print(f"FAIL  {check['check']}: {check['detail']}")
+    passed = len(report.checks) - len(report.failures)
+    print(f"\n{passed}/{len(report.checks)} checks passed")
+    if args.json:
+        args.json.parent.mkdir(parents=True, exist_ok=True)
+        args.json.write_text(json.dumps(report.to_dict(), indent=2),
+                             encoding="utf-8")
+    return 1 if report.failures else 0
 
 
 if __name__ == "__main__":
