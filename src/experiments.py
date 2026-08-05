@@ -20,16 +20,15 @@ from .potentials import (PHASES, QUARTIC_CHAIN_MINIMA,
 from .samplers import LatentRectBox, RectBox, UnboundedBox
 
 
-def _reject_unknown_keys(section: dict, allowed: set[str], *,
-                         section_name: str = "", **kwargs) -> None:
+def _reject_unknown_keys(mapping: dict, allowed: set[str], *,
+                         label: str) -> None:
     """Fail on a configuration key this builder does not understand.
 
     Retired options are deleted from the schema rather than defaulted, so a
     stale configuration that still carries one is an error instead of a setting
     that is silently ignored.
     """
-    label = section_name or kwargs.get("section", "configuration section")
-    unknown = sorted(set(section) - allowed)
+    unknown = sorted(set(mapping) - allowed)
     if unknown:
         raise ValueError(
             f"{label} has unrecognised key(s) {unknown}; known keys are "
@@ -199,9 +198,10 @@ def _build_e4(config: dict, target, device) -> dict:
     weights = torch.full((n_atoms,), 1.0 / n_atoms, dtype=torch.float64,
                          device=device)
     h = 0.1 * float(atoms.norm(dim=1).min().item())
-    _reject_unknown_keys(config["jump_law"], {
-        "kind", "drop_diagonals", "weights_uniform", "h_rule", "intensity"},
-        section="E4 jump_law")
+    _reject_unknown_keys(
+        config["jump_law"],
+        {"kind", "drop_diagonals", "weights_uniform", "h_rule", "intensity"},
+        label="E4 jump_law")
     law = ShellJumpLaw(atoms, weights, h=h)
     cp_cap = 2.0 * h
 

@@ -111,6 +111,50 @@ class MoG40Reference(Reference):
     def p_star(self) -> torch.Tensor:
         return self.descriptor_masses
 
+    def emc_at_sample_size(self, n: int, *, replicates: int = 200,
+                           seed: int = 606060) -> dict:
+        """Coverage an EXACT sample of ``n`` points attains, with its spread.
+
+        The asymptotic ``emc_star`` is not the line a finite sample should be
+        held to. Normalized entropy is a plug-in statistic with a downward bias
+        of order ``(K - 1) / (2 n log K)``, so at the production particle count
+        that bias is several orders of magnitude larger than the reference
+        deficit, and a perfect sampler would still sit visibly below
+        ``emc_star``. Drawing exact samples of the same size and measuring their
+        coverage with the same estimator makes the comparison like-for-like: the
+        bias appears on both sides and cancels.
+
+        This is the E2 analogue of the reference-versus-reference sampling floor
+        E1 reports for ``W_2``.
+        """
+        n = int(n)
+        if n < 1:
+            raise ValueError("n must be a positive integer")
+        generator = frozen_generator(self.device, seed)
+        values = []
+        for _ in range(int(replicates)):
+            draw = self.sample(n, generator)
+            counts = torch.bincount(self.assign(draw),
+                                    minlength=self.n_components)
+            values.append(_normalized_entropy(
+                counts.to(torch.float64) / counts.sum()))
+        stacked = torch.stack(values)
+        mean = float(stacked.mean().item())
+        return {
+            "n": n,
+            "replicates": int(replicates),
+            "seed": int(seed),
+            "emc_mean": mean,
+            "emc_std": float(stacked.std(unbiased=True).item()),
+            "emc_standard_error": float(
+                stacked.std(unbiased=True).item() / math.sqrt(replicates)),
+            "emc_star_asymptotic": self.emc_star,
+            "plugin_bias_at_n": (self.n_components - 1)
+                                / (2.0 * n * math.log(self.n_components)),
+            "definition": ("mean normalized occupancy entropy of exact samples "
+                           "of the same size, so the plug-in bias cancels"),
+        }
+
     # -- construction ------------------------------------------------------
     @staticmethod
     def provenance_for(config: dict, target) -> dict:

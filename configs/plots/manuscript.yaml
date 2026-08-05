@@ -125,12 +125,25 @@ E2:
     E2.2_mode_metrics:
       kind: mode_metric_panel
       caption: >-
-        Mode coverage and mode weights. The reference line on the coverage panel
-        is the frozen hard-assignment reference value, not one.
+        Mode coverage and mode weights. The coverage reference is the coverage an
+        exact sample of the same size attains, drawn as a band; the asymptotic
+        value is shown faintly for context. Neither is one.
       panels:
         - kind: curve
           metric: {column: EMC, label: "EMC"}
-          reference_line: {source: reference.emc_star, label: "$\\mathrm{EMC}^\\star$"}
+          # Normalized entropy is a plug-in statistic with a downward bias of
+          # order (K-1)/(2 N log K). At N = 2500 that bias is 2.1e-3, while the
+          # asymptotic reference sits 3e-5 below one -- so a perfect sampler
+          # plotted against the asymptotic line would look deficient by four
+          # standard deviations. The band is what an exact sample of the same
+          # size actually attains, which is the like-for-like comparison.
+          reference_band:
+            source: reference.emc_at_particles
+            label: "exact sample, same $N$"
+          reference_line:
+            source: reference.emc_star
+            label: "$\\mathrm{EMC}^\\star$ (asymptotic)"
+            style: {alpha: 0.35, linestyle: ":"}
           columns: [simulation_time, fee]
         - kind: curve
           metric: {column: mode_weight_JS, label: "mode-weight $D_{\\mathrm{JS}}$", log_y: true}
