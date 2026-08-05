@@ -17,11 +17,13 @@ import warnings
 import numpy as np
 import torch
 
+from .device import DEFAULT_DEVICE
+
 
 # ---------------------------------------------------------------- E1 (1D)
 class Grid1DInverseCDF:
     def __init__(self, log_density, lo: float, hi: float, n_grid: int = 200_001,
-                 device="cuda") -> None:
+                 device=DEFAULT_DEVICE) -> None:
         x = torch.linspace(lo, hi, n_grid, dtype=torch.float64, device=device)
         logp = log_density(x)
         p = torch.exp(logp - logp.max())
@@ -42,7 +44,7 @@ class Grid1DInverseCDF:
 class Grid2DSampler:
     """Categorical over fine cells + uniform jitter within the cell."""
 
-    def __init__(self, log_density, lo, hi, shape=(2400, 2400), device="cuda") -> None:
+    def __init__(self, log_density, lo, hi, shape=(2400, 2400), device=DEFAULT_DEVICE) -> None:
         self.lo = torch.as_tensor(lo, dtype=torch.float64, device=device)
         self.hi = torch.as_tensor(hi, dtype=torch.float64, device=device)
         self.shape = shape
@@ -281,7 +283,7 @@ class GradientFlowBasinMap2D:
     )
 
     def __init__(self, grad_fn, minima: torch.Tensor, lo, hi,
-                 n_grid: int = 600, device="cuda", cache: str | None = None,
+                 n_grid: int = 600, device=DEFAULT_DEVICE, cache: str | None = None,
                  dt_flow: float = 1.5e-4, n_flow: int = 40_000,
                  *, allow_legacy_unverified: bool = False) -> None:
         # dt_flow is set by the stiffest Hessian eigenvalue among the 2D

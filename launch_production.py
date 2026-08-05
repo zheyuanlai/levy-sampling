@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -19,6 +20,8 @@ HERE = Path(__file__).resolve().parent
 REPOSITORY_ROOT = HERE
 DEFAULT_OUTPUT_ROOT = REPOSITORY_ROOT / "results" / "jcp_sampling"
 HARD_MAX_CONCURRENT = 2
+# Slot label for "no GPU": one child at a time, every CUDA device hidden.
+CPU_SLOT = "cpu"
 
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
@@ -94,9 +97,39 @@ def parse_gpus(value: str) -> tuple[str, ...]:
         raise argparse.ArgumentTypeError("--gpus must contain at least one index")
     if len(set(gpus)) != len(gpus):
         raise argparse.ArgumentTypeError("--gpus indices must be unique")
+    if gpus == (CPU_SLOT,):
+        return gpus
     if any(not gpu.isdigit() for gpu in gpus):
-        raise argparse.ArgumentTypeError("--gpus must be comma-separated integer indices")
+        raise argparse.ArgumentTypeError(
+            f"--gpus must be comma-separated integer indices, or the single "
+            f"value {CPU_SLOT!r} to run without a GPU")
     return gpus
+
+
+def _default_gpus() -> tuple[str, ...]:
+    """``JCP_GPU`` when set, else a GPU slot on a CUDA host and CPU otherwise.
+
+    Detection deliberately avoids importing torch here: the launcher is a
+    process orchestrator, and importing torch in the parent would fix
+    ``CUDA_VISIBLE_DEVICES`` before any child sets its own.
+    """
+    requested = os.environ.get("JCP_GPU")
+    if requested:
+        return parse_gpus(requested)
+    return parse_gpus("4" if _has_visible_gpu() else CPU_SLOT)
+
+
+def _has_visible_gpu() -> bool:
+    """True when ``nvidia-smi`` lists at least one device on this host."""
+    if shutil.which("nvidia-smi") is None:
+        return False
+    try:
+        result = subprocess.run(["nvidia-smi", "-L"], capture_output=True,
+                                text=True, check=False, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and any(
+        line.startswith("GPU ") for line in result.stdout.splitlines())
 
 
 def parse_experiments(value: str) -> tuple[str, ...]:
@@ -114,9 +147,9 @@ def parse_experiments(value: str) -> tuple[str, ...]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--gpus", type=parse_gpus,
-        default=parse_gpus(os.environ.get("JCP_GPU", "4")),
-        help="physical GPU indices, e.g. --gpus 0,1",
+        "--gpus", type=parse_gpus, default=_default_gpus(),
+        help=(f"physical GPU indices, e.g. --gpus 0,1, or --gpus {CPU_SLOT} to "
+              "run on CPU (the default when this host has no GPU)"),
     )
     parser.add_argument(
         "--max-concurrent", type=int, default=1,
@@ -159,16 +192,18 @@ def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
 def job_environment(base: dict[str, str], *, gpu: str,
                     selected_gpus: Iterable[str], run_id: str,
                     methods: str, results_root: Path) -> dict[str, str]:
-    """Return the one-physical-GPU child environment."""
+    """Return the one-physical-GPU child environment (or the CPU one)."""
     env = dict(base)
-    env["CUDA_VISIBLE_DEVICES"] = gpu
+    # The CPU slot hides every device instead of pinning one; gpu_guard passes
+    # the sentinel through and src/device.py then resolves the run to CPU.
+    env["CUDA_VISIBLE_DEVICES"] = "" if gpu == CPU_SLOT else gpu
     env["JCP_GPU"] = gpu
     existing = {item.strip() for item in env.get("JCP_EXTRA_GPUS", "").split(",")
-                if item.strip()}
+                if item.strip() and item.strip() != CPU_SLOT}
     # Supplying --gpus is an explicit opt-in for indices outside the historical
     # 4-7 allow-list. Include all requested devices so gpu_guard accepts each
     # one while every child still sees exactly one CUDA_VISIBLE_DEVICES entry.
-    existing.update(str(item) for item in selected_gpus)
+    existing.update(str(item) for item in selected_gpus if item != CPU_SLOT)
     env["JCP_EXTRA_GPUS"] = ",".join(sorted(existing, key=int))
     env["JCP_RUN_ID"] = run_id
     # Keep portable POSIX spellings such as /tmp instead of resolving platform

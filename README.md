@@ -198,6 +198,29 @@ starting the full notebooks. Launch the E1--E4 campaign with:
 GPU indices are examples; replace them with devices assigned to you. Passing
 `--gpus` explicitly opts those devices into the repository GPU guard.
 
+### Running without a GPU
+
+The same campaign runs on CPU when no CUDA device is visible — same code path,
+same float64 numerics, just far slower. Nothing needs to be passed: `src/device.py`
+resolves the device once, and the module defaults, notebooks, and launcher all
+read it from there.
+
+```bash
+./run_production.sh --gpus cpu --max-concurrent 1
+```
+
+`--gpus cpu` (equivalently `JCP_GPU=cpu`) claims no device: `gpu_guard` hides
+every GPU rather than pinning one, so it is not subject to the 4–7 allow-list.
+It is also the launcher's default when the host has no GPU at all.
+
+Two caveats. Wall-clock is a reported axis, so CPU timings are not comparable
+to the published GPU numbers and `scripts/validate_release.py` will reject
+them for a release run. And a `torch.Generator` seeded on CPU does not
+reproduce the CUDA stream for the same seed, so a CPU run is internally
+reproducible and statistically valid but is not bitwise comparable to the GPU
+run of that seed; `hardware_manifest()` records the resolved `device` for every
+run.
+
 Because wall-clock is a reported axis, the published campaign is run with
 `--max-concurrent 1` on a single **idle** GPU, so no two experiments and no
 foreign process ever share a device with a timed sampler. Running on several

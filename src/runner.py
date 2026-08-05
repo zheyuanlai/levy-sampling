@@ -34,6 +34,8 @@ import time
 import numpy as np
 import torch
 
+from .device import synchronize as device_synchronize
+
 MANUSCRIPT_METRIC_COLUMNS = (
     "FES_RMSE_kBT", "FES_outside_mass", "basin_KL_target",
     "basin_map_outside_mass", "nonfinite_count",
@@ -126,9 +128,12 @@ class RefinementError(RuntimeError):
 
 
 def _cuda_synchronize() -> None:
-    """Synchronize CUDA timing when CUDA is available; otherwise a no-op."""
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
+    """Synchronize CUDA timing when CUDA is available; otherwise a no-op.
+
+    On a CPU-only host every timed region is already synchronous, so the
+    timing policy in the module docstring holds unchanged.
+    """
+    device_synchronize()
 
 
 def _uniform_checkpoint_steps(n_steps: int, steps_per_ck: int) -> list[int]:
@@ -236,6 +241,9 @@ def hardware_manifest() -> dict:
         "gpu": gpu_name,
         "gpu_count_visible": gpu_count,
         "cuda_available": cuda_available,
+        # The device this host resolves to; "cpu" runs are valid but are not
+        # bitwise comparable to a GPU run of the same seed (different RNG).
+        "device": "cuda" if cuda_available else "cpu",
         "torch": torch.__version__,
         "cuda": torch.version.cuda,
         "python": platform.python_version(),

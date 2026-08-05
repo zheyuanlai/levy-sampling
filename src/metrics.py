@@ -15,6 +15,8 @@ import math
 import numpy as np
 import torch
 
+from .device import DEFAULT_DEVICE
+
 
 # ------------------------------------------------------------------- W2
 def w2_exact_1d(x: torch.Tensor, y: torch.Tensor) -> float:
@@ -26,7 +28,7 @@ def w2_exact_1d(x: torch.Tensor, y: torch.Tensor) -> float:
 
 
 def make_projections(d: int, L: int = 200, seed: int = 777,
-                     device: str | torch.device = "cuda") -> torch.Tensor:
+                     device: str | torch.device = DEFAULT_DEVICE) -> torch.Tensor:
     gen = torch.Generator(device=device)
     gen.manual_seed(seed)
     theta = torch.randn(L, d, generator=gen, device=device, dtype=torch.float64)
@@ -904,7 +906,7 @@ def committed_mfpt(labels_t: np.ndarray, home: int, far: int, dt: float,
 
 def bias_floors(sample_ref, two_sample_fns: dict, one_sample_fns: dict, n: int,
                 replicates: int = 20, seed0: int = 5000,
-                device: str | torch.device = "cuda") -> dict:
+                device: str | torch.device = DEFAULT_DEVICE) -> dict:
     """For each metric: the metric between two INDEPENDENT reference samples
     of size n (two_sample_fns: name -> fn(x, y)), or the metric of one fresh
     reference sample against the target (one_sample_fns: name -> fn(x), for

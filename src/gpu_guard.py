@@ -6,11 +6,17 @@ A specific GPU can be explicitly opted-in for a run via the env var
 JCP_EXTRA_GPUS (comma-separated), e.g. `JCP_EXTRA_GPUS=0` -- use ONLY when you
 have verified that GPU is free and belongs to your group. The committed default
 is unchanged (4-7 only).
+
+`select_gpu("cpu")` asks for no GPU at all: it hides every device, so the run
+falls through to the CPU path in src/device.py. It takes no GPU from anyone and
+is therefore not subject to the allow-list.
 """
 import os
 import sys
 
 ALLOWED = {"4", "5", "6", "7"}
+# Sentinels meaning "claim no GPU"; a host with no CUDA at all needs no pinning.
+CPU_ALIASES = {"cpu", "none", ""}
 
 
 def _allowed() -> set[str]:
@@ -20,7 +26,12 @@ def _allowed() -> set[str]:
 
 
 def select_gpu(index: str | int) -> None:
-    idx = str(index)
+    idx = str(index).strip()
+    if idx.lower() in CPU_ALIASES:
+        if "torch" in sys.modules:
+            raise RuntimeError("select_gpu() must be called before importing torch.")
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
+        return
     if idx not in _allowed():
         raise RuntimeError(
             f"GPU {idx} is forbidden. Allowed: {sorted(_allowed())} "

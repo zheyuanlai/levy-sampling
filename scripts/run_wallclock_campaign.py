@@ -12,6 +12,10 @@ the reinstated wall-clock columns and figures). Use the launcher for ordinary
 reruns; use this driver to bootstrap a new contract.
 
     python scripts/run_wallclock_campaign.py --gpu 0 --run-id my-run
+
+Pass ``--gpu cpu`` on a host with no CUDA device: the child then sees no GPU
+at all and src/device.py resolves the run to CPU. Serial execution still
+holds, but CPU wall-clock is not comparable to the published GPU numbers.
 """
 from __future__ import annotations
 
@@ -69,7 +73,8 @@ def _utc_now() -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--gpu", default="0", help="single physical GPU index")
+    parser.add_argument("--gpu", default="0",
+                        help="single physical GPU index, or 'cpu' for no GPU")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--experiments", default=",".join(ORDER))
     parser.add_argument("--results-root", type=Path,
@@ -118,9 +123,12 @@ def main(argv: list[str] | None = None) -> int:
         job_dir = run_dir / name
         job_dir.mkdir(parents=True, exist_ok=False)
         env = dict(os.environ)
-        env["CUDA_VISIBLE_DEVICES"] = args.gpu
+        # "cpu" claims no device: hide every GPU instead of pinning one, and
+        # leave the gpu_guard allow-list untouched (there is nothing to allow).
+        on_cpu = args.gpu.strip().lower() == "cpu"
+        env["CUDA_VISIBLE_DEVICES"] = "" if on_cpu else args.gpu
         env["JCP_GPU"] = args.gpu
-        env["JCP_EXTRA_GPUS"] = args.gpu
+        env["JCP_EXTRA_GPUS"] = "" if on_cpu else args.gpu
         env["JCP_RUN_ID"] = args.run_id
         env["JCP_RESULTS_ROOT"] = str(args.results_root.resolve())
         env["JCP_METHODS"] = ",".join(RUN_MATRIX[name])

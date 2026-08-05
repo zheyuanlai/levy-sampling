@@ -16,6 +16,7 @@ import torch
 
 from .config import (M_PHI, Q_RHO, Q_THETA, RunConfig,
                      diffusion_seed, init_seed, jump_seed)
+from .device import DEFAULT_DEVICE
 from .jumps import AnnulusJumpLaw, ShellJumpLaw, gauss_legendre_01
 from .potentials import (CoupledPhi4, DoubleWell1D, MB3_CRITICAL,
                          MB3Latent2D, MoG40, PHI4_MINIMA,
@@ -69,7 +70,7 @@ class Experiment:
 
 
 # ===================================================================== E1
-def build_e1(device="cuda") -> Experiment:
+def build_e1(device=DEFAULT_DEVICE) -> Experiment:
     pot = DoubleWell1D()
     # N=16000 / 24 seeds: the production metrics plateau at their MC-noise
     # floor, and at N=4000 x 5 seeds the tail band CV reached 0.6-0.7 for the
@@ -122,7 +123,7 @@ def build_e1(device="cuda") -> Experiment:
 
 
 # ===================================================================== E2
-def build_e2(device="cuda") -> Experiment:
+def build_e2(device=DEFAULT_DEVICE) -> Experiment:
     # 24 seeds (N kept at 2500: the exact ShellScore's per-step quadrature cost
     # scales with the batched ensemble, and E2 runs the exact+RA dual matrix)
     cfg = RunConfig(name="mog40", d=2, n_particles=2500, T=100.0, dt=0.01,
@@ -193,7 +194,7 @@ def build_e2(device="cuda") -> Experiment:
 
 
 # ===================================================================== E3
-def build_e3(device="cuda", basin_cache: str | None = None,
+def build_e3(device=DEFAULT_DEVICE, basin_cache: str | None = None,
              beta: float = 24.0, *,
              basin_n_grid: int = 600,
              basin_flow_steps: int = 40_000,
@@ -401,7 +402,7 @@ def _phi4_sampling_box_design(means: torch.Tensor, atoms: torch.Tensor,
 
 
 # ===================================================================== E4
-def build_e4(device="cuda", basin_cache: str | None = None,
+def build_e4(device=DEFAULT_DEVICE, basin_cache: str | None = None,
              jitter_sigma: float = 0.0, *,
              basin_n_grid: int = 800,
              basin_flow_steps: int = 40_000,
@@ -751,7 +752,7 @@ def make_batched_factory(exp: Experiment, dt: float, pt_betas: torch.Tensor,
 
 # ============================================================ metric wiring
 def make_metrics(exp: Experiment, n: int, ref_seed: int = 424242,
-                 device="cuda", floor_replicates: int = 20):
+                 device=DEFAULT_DEVICE, floor_replicates: int = 20):
     """Frozen reference sample (size n = run's N), frozen projections,
     frozen MMD bandwidth, bias floors. Returns (metrics_fn, floors)."""
     g_ref = torch.Generator(device=device)

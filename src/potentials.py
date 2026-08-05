@@ -17,6 +17,8 @@ import math
 import numpy as np
 import torch
 
+from .device import DEFAULT_DEVICE
+
 
 class _CounterFreeze:
     """Save the evaluation counters on enter, restore them on exit -- so any
@@ -113,7 +115,7 @@ class MoG40(Potential):
     d = 2
     name = "mog40"
 
-    def __init__(self, beta: float = 8.0, device: str | torch.device = "cuda") -> None:
+    def __init__(self, beta: float = 8.0, device: str | torch.device = DEFAULT_DEVICE) -> None:
         super().__init__()
         self.beta = beta
         rng = np.random.default_rng(0)
@@ -198,7 +200,7 @@ class TransformedMuellerBrown10D(Potential):
     s = 40.0
     sigma_aux = 0.4
 
-    def __init__(self, device: str | torch.device = "cuda") -> None:
+    def __init__(self, device: str | torch.device = DEFAULT_DEVICE) -> None:
         super().__init__()
         rng = np.random.default_rng(12345)
         Q, _ = np.linalg.qr(rng.standard_normal((10, 10)))
@@ -409,7 +411,7 @@ class TransformedMB4Well10D(Potential):
     name = "mb4well_10d"
     sigma_aux = 0.4
 
-    def __init__(self, device: str | torch.device = "cuda") -> None:
+    def __init__(self, device: str | torch.device = DEFAULT_DEVICE) -> None:
         super().__init__()
         rng = np.random.default_rng(12345)
         Q, _ = np.linalg.qr(rng.standard_normal((10, 10)))
@@ -547,7 +549,7 @@ class TransformedMB3Well10D(Potential):
     name = "mb3well_10d"
     sigma_aux = 0.4
 
-    def __init__(self, device: str | torch.device = "cuda") -> None:
+    def __init__(self, device: str | torch.device = DEFAULT_DEVICE) -> None:
         super().__init__()
         rng = np.random.default_rng(12345)
         Q, _ = np.linalg.qr(rng.standard_normal((10, 10)))

@@ -55,11 +55,10 @@ def _json_safe(value: Any) -> Any:
 def _cuda_synchronize_if_available() -> None:
     """Synchronize CUDA when torch has an active CUDA backend; otherwise no-op."""
     try:
-        import torch
-    except ImportError:
+        from .device import synchronize
+    except ImportError:          # torch absent: this module stays importable
         return
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
+    synchronize()
 
 
 def _as_numpy(value: Any) -> np.ndarray:

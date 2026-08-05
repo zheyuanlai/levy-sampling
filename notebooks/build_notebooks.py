@@ -159,9 +159,9 @@ def cell_setup(exp_name: str, builder: str, extra: str = "") -> str:
 import os, sys, math, time, json, re, hashlib
 sys.path.insert(0, os.path.abspath(".."))
 from src.gpu_guard import select_gpu
-select_gpu(int(os.environ.get("JCP_GPU", "4")))
+select_gpu(os.environ.get("JCP_GPU", "4"))   # JCP_GPU=cpu claims no GPU
 import torch
-assert torch.cuda.device_count() == 1
+from src.device import require_single_device
 torch.set_default_dtype(torch.float64)
 import numpy as np
 import pandas as pd
@@ -182,7 +182,7 @@ from src.stationarity import (collect_stationary_trajectories,
                               flat_summary_rows, write_stationarity_csv,
                               write_stationarity_npz)
 
-DEV = "cuda"
+DEV = require_single_device()   # exactly one GPU when CUDA is visible, else cpu
 RUN_ID = os.environ.get("JCP_RUN_ID")
 if not RUN_ID:
     RUN_ID = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + f"-p{{os.getpid()}}"
