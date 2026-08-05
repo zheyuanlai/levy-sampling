@@ -207,18 +207,24 @@ def test_the_e1_reference_round_trips_through_disk(e1_reference, tmp_path):
 # ==================================================================== E2
 def test_the_descriptor_is_the_argmax_of_the_component_log_density(
         e2_reference):
-    """``assign`` must agree label for label with an independent argmax."""
+    """``assign`` must agree label for label with an independent argmax.
+
+    The independent side evaluates the documented density
+    ``log N(x; mu_k, I_2) = -||x - mu_k||^2 / 2 - log(2 pi)`` from distances
+    computed by a different algorithm (``cdist``), so the two agree only if the
+    rule really is the argmax and not something that merely resembles it.
+    """
     experiment, reference = e2_reference
     generator = frozen_generator(reference.device, 20260805)
-    points = 30.0 * (torch.rand(4096, 2, generator=generator,
-                                dtype=torch.float64,
-                                device=reference.device) - 0.5) * 2.0
-    means = experiment.target.potential.mu
-    # log N(x; mu_k, I_2) = -||x - mu_k||^2 / 2 - log(2 pi): the additive
-    # constant cannot move an argmax, so the squared distance suffices.
-    squared = ((points.unsqueeze(1) - means.unsqueeze(0)) ** 2).sum(-1)
-    independent = squared.argmin(dim=1)
-    assert torch.equal(reference.assign(points), independent)
+    box = 60.0 * (torch.rand(2048, 2, generator=generator, dtype=torch.float64,
+                             device=reference.device) - 0.5)
+    points = torch.cat([box, reference.sample(2048, generator)])
+    means = experiment.target.extras["component_means"]
+    log_density = -0.5 * torch.cdist(points, means) ** 2 - math.log(2.0 * math.pi)
+    ordered = torch.sort(log_density, dim=1, descending=True).values
+    # No point may sit on a Voronoi boundary, or rounding could flip its label.
+    assert float((ordered[:, 0] - ordered[:, 1]).min().item()) > 1e-9
+    assert torch.equal(reference.assign(points), log_density.argmax(dim=1))
 
 
 def test_descriptor_masses_form_a_strictly_positive_distribution(e2_reference):
@@ -545,6 +551,80 @@ def test_the_heat_capacity_is_taken_from_total_not_per_site_energies():
         expected, rel=8.0 * EPS)
     understated = O.heat_capacity_per_site(energies / n_sites, beta, n_sites)
     assert understated == pytest.approx(expected / n_sites ** 2, rel=1e-12)
+
+
+def test_the_weighted_e4_estimators_reduce_to_the_unweighted_ones(
+        e4_experiment, e4_configurations):
+    """The SNIS arm uses the weighted aggregators. Each one documents that it
+    reduces to its unweighted counterpart at uniform weights, and the reference
+    would be inconsistent between its two arms if any of them did not.
+    """
+    target = e4_experiment.target
+    x = e4_configurations
+    n = int(x.shape[0])
+    weights = torch.full((n,), 1.0 / n, dtype=torch.float64, device=x.device)
+    beta, n_sites = float(target.beta), int(target.potential.n_sites)
+    minima = target.extras["refined_site_minima"]
+
+    m = O.order_parameter(target, x)
+    energies = O.energy_per_site(target, x)
+    coherences = O.coherence(target, x)
+    correlations = O.two_point_correlation(target, x)
+    kinks = O.kink_density(target, x, minima)
+    tolerance = 1e-11
+
+    pairs = [
+        (O.order_parameter_mean(m), O.order_parameter_mean_weighted(m, weights)),
+        (O.energy_per_site_mean(energies),
+         O.energy_per_site_mean_weighted(energies, weights)),
+        (O.energy_per_site_variance(energies),
+         O.energy_per_site_variance_weighted(energies, weights)),
+        (O.coherence_mean(coherences),
+         O.coherence_mean_weighted(coherences, weights)),
+        (O.two_point_correlation_mean(correlations),
+         O.two_point_correlation_mean_weighted(correlations, weights)),
+        (O.kink_density_mean(kinks), O.kink_density_mean_weighted(kinks, weights)),
+        (O.susceptibility(m, beta, n_sites),
+         O.susceptibility_weighted(m, weights, beta, n_sites)),
+    ]
+    for unweighted, weighted in pairs:
+        assert torch.allclose(unweighted, weighted, rtol=tolerance,
+                              atol=tolerance)
+    total = energies * n_sites
+    assert O.heat_capacity_per_site(total, beta, n_sites) == pytest.approx(
+        O.heat_capacity_per_site_weighted(total, weights, beta, n_sites),
+        rel=tolerance)
+    assert O.binder_cumulant(m) == pytest.approx(
+        O.binder_cumulant_weighted(m, weights), rel=tolerance)
+
+
+def test_the_derived_correlation_quantities_match_their_formulas(
+        e4_experiment, e4_configurations):
+    """``C_conn(r) = C(r) - ||E[m]||^2`` and the two relative errors the
+    cross-check gates quote.
+    """
+    target = e4_experiment.target
+    x = e4_configurations
+    m = O.order_parameter(target, x)
+    mean_m = O.order_parameter_mean(m)
+    correlation = O.two_point_correlation_mean(O.two_point_correlation(target, x))
+    connected = O.connected_two_point_correlation(correlation, mean_m)
+    assert torch.allclose(connected, correlation - (mean_m * mean_m).sum(),
+                          rtol=8.0 * EPS, atol=8.0 * EPS)
+
+    reference_matrix = torch.tensor([[2.0, 0.5], [0.5, 3.0]],
+                                    dtype=torch.float64)
+    estimate = reference_matrix + torch.tensor([[0.1, 0.0], [0.0, -0.2]],
+                                               dtype=torch.float64)
+    expected = (math.sqrt(0.1 ** 2 + 0.2 ** 2)
+                / math.sqrt(4.0 + 0.25 + 0.25 + 9.0))
+    assert O.relative_frobenius_error(estimate, reference_matrix) == \
+        pytest.approx(expected, rel=8.0 * EPS)
+
+    star = torch.tensor([1.0, 0.5, 0.25], dtype=torch.float64)
+    hat = star + torch.tensor([0.1, -0.1, 0.0], dtype=torch.float64)
+    assert O.correlation_relative_l2(hat, star) == pytest.approx(
+        math.sqrt(0.02 / (1.0 + 0.25 + 0.0625)), rel=8.0 * EPS)
 
 
 def test_phase_probabilities_normalize_over_the_inside_samples_only():
