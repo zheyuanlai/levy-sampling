@@ -16,11 +16,19 @@ point; the swap is the usual product-target involution. After burn-in the cold
 replica's unweighted 24-D configurations become the official reference sample
 bank, tagged with run id, chain id, and iteration index.
 
-**Independent cross-check -- Laplace-mixture SNIS.** A four-component Gaussian
-mixture centred on the coherent states, with covariances from the regularised
-inverse Hessians at ``beta``, is used as an importance proposal. The weights are
-used *directly* for weighted estimates: SNIS is a weighted cross-check, not a
-second unweighted sample bank.
+**Independent cross-check -- Laplace-mixture SNIS.** A Gaussian mixture with
+covariances from the regularised inverse Hessians at ``beta`` is used as an
+importance proposal. The weights are used *directly* for weighted estimates:
+SNIS is a weighted cross-check, not a second unweighted sample bank.
+
+The mixture has two blocks. Four components sit on the homogeneous coherent
+states and carry ``1 - kink_weight_share`` of the proposal mass. A second,
+small block covers the nonzero-kink region, which the coherent block cannot
+reach: its stiffest component standard deviation is about ``0.03`` while a site
+has to move by about ``2`` to change its phase label, so a coherent-only
+mixture proposes no kinked configuration in any feasible number of draws and is
+blind to a region the PT arm does sample. :func:`_kink_component_bank` builds
+that block and documents which configurations it covers and why.
 
 Uncertainty discipline
 ----------------------
@@ -62,6 +70,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 import copy
 import math
+import statistics
 
 import numpy as np
 import torch
@@ -70,7 +79,7 @@ import yaml
 from .. import metrics, observables
 from ..device import resolve_device
 from ..observables import OUTSIDE_LABEL, GradientFlowBasinMap2D
-from ..potentials import site_potential_grad
+from ..potentials import newton_refine, site_potential_grad
 from ..samplers import geometric_ladder
 from .base import (Reference, check_positive_int, check_seed, frozen_generator,
                    load_npz, read_json, save_npz, write_json)
@@ -91,6 +100,14 @@ _BASIN_MAP_DEFAULTS = {"bound": 4.0, "n_grid": 600, "dt_flow": 1.5e-4,
                        "n_flow": 20_000}
 _GRID_DEFAULTS = {"lo": -2.5, "hi": 2.5, "n_bins": 200,
                   "kde_bandwidth_rule": "silverman_2d"}
+#: Kink block of the SNIS proposal. Overridable from ``reference.snis``; the
+#: resolved values go into the provenance, so changing one builds a different
+#: reference instead of silently reusing the stored one. The share is justified
+#: in :func:`_kink_component_bank`.
+_SNIS_KINK_DEFAULTS = {"kink_weight_share": 0.05,
+                       "kink_wall_width_sites": 2.0,
+                       "kink_wall_separations": [3, 6, 9],
+                       "kink_relaxation_steps": 4000}
 _SNIS_CHUNK = 50_000
 
 
@@ -193,6 +210,55 @@ def _gate(metric: str, threshold, observed, *, direction: str,
     }
     record.update(extra)
     return record
+
+
+def _multiple_comparison_fields(threshold_in_se: float, n_comparisons: int,
+                                ) -> dict:
+    """How much a max-over-comparisons gate inflates its own significance.
+
+    A bound ``|difference| <= k SE`` is a two-sided test at per-comparison level
+    ``alpha_1 = erfc(k / sqrt 2)``. Taking the maximum over ``M`` comparisons
+    and testing that against the same ``k`` raises the false-failure rate to
+    ``1 - (1 - alpha_1)^M`` when the comparisons are independent; the bound that
+    would hold the *family* at ``alpha_1`` is
+    ``k* = -Phi^-1(alpha_1 / (2 M))``. The threshold is frozen and is not
+    adjusted by any of this: these fields exist so a reader sees the inflation
+    instead of having to infer it.
+    """
+    m = max(int(n_comparisons), 1)
+    k = _finite(threshold_in_se)
+    # A NaN threshold gives NaN fields; an infinite one (a deliberately
+    # disabled gate) gives a zero significance and an infinite equivalent bound.
+    single = math.erfc(k / math.sqrt(2.0)) if k >= 0.0 else float("nan")
+    if math.isnan(single):
+        family, bonferroni = float("nan"), float("nan")
+    elif single <= 0.0:
+        family, bonferroni = 0.0, float("inf")
+    else:
+        family = 1.0 - (1.0 - single) ** m
+        bonferroni = -statistics.NormalDist().inv_cdf(
+            min(single / (2.0 * m), 0.5))
+    return {
+        "n_comparisons": m,
+        "per_comparison_two_sided_significance": single,
+        "family_wise_significance_under_independence": family,
+        "bonferroni_equivalent_threshold_in_se": bonferroni,
+    }
+
+
+def _multiple_comparison_note(fields: Mapping) -> str:
+    """One sentence stating the inflation recorded by the fields above."""
+    return (
+        f". The reported value is a maximum over "
+        f"{fields['n_comparisons']} comparisons, so its significance is "
+        f"inflated: the frozen bound is a per-comparison two-sided test at "
+        f"{fields['per_comparison_two_sided_significance']:.4g}, which over "
+        f"{fields['n_comparisons']} independent comparisons is a family-wise "
+        f"false-failure probability of "
+        f"{fields['family_wise_significance_under_independence']:.4g}, and the "
+        f"bound that would hold the family at the per-comparison level is "
+        f"{fields['bonferroni_equivalent_threshold_in_se']:.4g} SE. The "
+        f"threshold is frozen and is NOT adjusted for this")
 
 
 def _tolerance_gate(metric: str, difference, *, floor: float, multiplier: float,
@@ -372,19 +438,287 @@ def _unflatten_like(vector: np.ndarray, template: Mapping) -> dict:
 
 
 # ========================================================= Laplace proposal
+def _hessians_at(potential, points: torch.Tensor) -> torch.Tensor:
+    """Symmetrised ``d^2 V`` at each row of ``points``.
+
+    The same construction as ``src.targets._coherent_hessians``, so every
+    component covariance in the proposal comes from one definition of the
+    Hessian.
+    """
+    from torch.autograd.functional import hessian as autograd_hessian
+
+    blocks = []
+    for point in points:
+        block = autograd_hessian(lambda q: potential.V(q.unsqueeze(0))[0],
+                                 point.clone())
+        blocks.append(0.5 * (block + block.T))
+    return torch.stack(blocks)
+
+
+def _adjacent_phase_pairs(minima: torch.Tensor) -> list[tuple[int, int]]:
+    """Phase index pairs whose refined site minima differ in exactly one sign.
+
+    The two diagonal pairs are dropped for the reason ``E4.yaml`` drops the
+    diagonal jump atoms: the interface between them runs over the field-zero
+    hilltop at the centre of the phase square, not over a saddle.
+    """
+    signs = torch.sign(minima)
+    return [(first, second)
+            for first in range(int(minima.shape[0]))
+            for second in range(first + 1, int(minima.shape[0]))
+            if int((signs[first] != signs[second]).sum().item()) == 1]
+
+
+def _wall_mean(potential, minima: torch.Tensor, first: int, second: int,
+               separation: int, width: float) -> torch.Tensor:
+    """A kink/antikink pair: phase ``first`` on sites ``[0, separation)``.
+
+    ``s_i = (tanh(d_i(0) / w) - tanh(d_i(separation) / w)) / 2`` with ``d_i(c)``
+    the periodic signed site distance from ``i`` to ``c``, and
+    ``q_i = v_second + s_i (v_first - v_second)``. The chain is periodic, so a
+    single domain wall is impossible and the walls come in pairs.
+    """
+    n_sites = int(potential.n_sites)
+    index = torch.arange(n_sites, dtype=minima.dtype, device=minima.device)
+
+    def distance(centre: float) -> torch.Tensor:
+        raw = torch.remainder(index - centre, float(n_sites))
+        return torch.where(raw > n_sites / 2.0, raw - n_sites, raw)
+
+    profile = 0.5 * (torch.tanh(distance(0.0) / width)
+                     - torch.tanh(distance(float(separation)) / width))
+    # On the far arc the two tanh tails subtract to a small negative number;
+    # clamping keeps the mean inside the segment joining the two minima.
+    profile = profile.clamp(0.0, 1.0).unsqueeze(1)
+    return (minima[second] + profile * (minima[first] - minima[second])
+            ).reshape(-1)
+
+
+def _relax_to_critical_point(potential, x: torch.Tensor, steps: int
+                             ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Batched gradient descent onto the nearest critical point of ``V``.
+
+    The largest Hessian eigenvalue is bounded by
+    ``L = 4 kappa / delta + delta (12 max_i |q_i|^2 + 4 + |c_xy|)`` -- the
+    discrete Laplacian's eigenvalues lie in ``[0, 4]`` and the second term
+    bounds ``||W''||`` -- so the fixed step ``0.5 / L`` is stable. Returns the
+    relaxed points and their final gradient norms, which are recorded rather
+    than asserted away.
+    """
+    site_curvature = (12.0 * float(x.abs().max().item()) ** 2 + 4.0
+                      + abs(float(potential.coefficients["cxy"])))
+    step = 0.5 / (4.0 * potential.kappa / potential.delta
+                  + potential.delta * site_curvature)
+    z = x.clone()
+    for _ in range(int(steps)):
+        z = z - step * potential.grad_V(z)
+    return z, potential.grad_V(z).norm(dim=-1)
+
+
+def _phase_boundary_saddle(potential, minima: torch.Tensor, first: int,
+                           second: int) -> torch.Tensor:
+    """The refined saddle of the site potential ``W`` between two phases.
+
+    For a homogeneous configuration ``q_i = v`` the gradient energy vanishes and
+    ``V = W(v)``, so a critical point of ``W`` is a critical point of the chain.
+    Newton is started from the midpoint of the two refined minima.
+    """
+    coefficients = potential.coefficients
+    v = newton_refine(lambda u: site_potential_grad(u, coefficients),
+                      0.5 * (minima[first] + minima[second]))
+    residual = float(site_potential_grad(v.unsqueeze(0), coefficients)
+                     .norm().item())
+    if not residual < 1e-8:
+        raise FloatingPointError(
+            f"the phase-boundary saddle between phases {first} and {second} did "
+            f"not refine: |grad W| = {residual:.3e}")
+    return v
+
+
+def _kink_component_bank(target, settings: Mapping, *, verbose: bool) -> dict:
+    """Proposal components for the nonzero-kink region, with their Hessians.
+
+    Candidates come from the periodic kink/antikink construction of
+    :func:`_wall_mean`: for every adjacent phase pair and every configured wall
+    separation, the chain sits in one phase on one arc and in the other phase
+    on the rest, each wall smoothed over ``kink_wall_width_sites`` sites. Each
+    candidate is then relaxed onto a critical point, because a Laplace
+    approximation about a point that is not one approximates nothing.
+
+    Whether a pair survives that relaxation is a property of the chain, not a
+    choice. The chain's own wall profile has width ``sqrt(kappa / 2) / delta``
+    sites; when that exceeds ``N_s`` the pair has nothing to sit on, gradient
+    descent annihilates it, and the mean returns to a homogeneous coherent
+    state. On the E4 setting (``kappa = 2.5``, ``N_s = 12``) the width is 13.4
+    sites against a 12-site chain and every candidate annihilates.
+
+    A pair that annihilates is replaced by the homogeneous phase-boundary
+    saddle ``1_{N_s} (x) v`` for the same phase pair, with ``v`` the saddle of
+    ``W`` between the two minima. That is where the PT arm's nonzero-kink
+    configurations actually are: near-homogeneous chains part-way through a
+    collective flip, one component within thermal noise of zero, so the
+    nearest-minimum site labels split even though no domain wall exists. On the
+    E4 setting the saddle sits ``beta (V - V_min) = 8.2`` above the ground
+    state, which matches the region's measured occupancy, and 43% of the draws
+    from such a component carry a nonzero kink density.
+
+    The block's total proposal share is ``kink_weight_share``, split between its
+    components by the Laplace rule. The region carries about ``2.8e-4`` of the
+    target mass, so the default ``0.05`` over-samples it by two orders of
+    magnitude on purpose: the cross-check has to *resolve* the region, not touch
+    it. That is not paid for out of the other diagnostics. These components are
+    far broader than the four tight coherent ones, so they also fill the
+    inter-basin tails the coherent block under-covered: over six independent
+    seed bases at ``2e5`` proposals the ESS fraction rises from ``0.40-0.59``
+    with the coherent block alone to ``0.67-0.71``, the largest normalized
+    weight falls from ``5.7e-4 - 2.2e-3`` to ``1.2e-4 - 4.4e-4``, and the kink
+    region gets ``3.0e3 - 3.7e3`` weighted effective draws. A ``0.02`` share
+    left one of those seeds at an ESS fraction of ``0.44``, and a ``0.10`` share
+    left one with a kink-region effective count of ``1.1e3`` against ``7e3``
+    for the others; ``0.05`` was uniform over all six.
+    """
+    potential = target.potential
+    minima = target.extras["refined_site_minima"]
+    phases = list(target.extras["phases"])
+    pairs = _adjacent_phase_pairs(minima)
+    separations = [int(value) for value in settings["kink_wall_separations"]]
+    width = float(settings["kink_wall_width_sites"])
+    steps = int(settings["kink_relaxation_steps"])
+    n_sites = int(potential.n_sites)
+    profile_width = math.sqrt(potential.kappa / 2.0) / potential.delta
+
+    candidates = torch.stack([_wall_mean(potential, minima, first, second,
+                                         separation, width)
+                              for first, second in pairs
+                              for separation in separations])
+    _progress(verbose, f"relaxing {candidates.shape[0]} kink/antikink candidates "
+                       f"for {steps} gradient-descent steps")
+    relaxed, gradients = _relax_to_critical_point(potential, candidates, steps)
+    kink_before = potential.kink_density(candidates, minima)
+    kink_after = potential.kink_density(relaxed, minima)
+    energy_before = potential.V(candidates)
+    energy_after = potential.V(relaxed)
+
+    candidate_records, means, admitted = [], [], []
+    for pair_index, (first, second) in enumerate(pairs):
+        label = f"{phases[first]}|{phases[second]}"
+        survivors = []
+        for offset, separation in enumerate(separations):
+            row = pair_index * len(separations) + offset
+            survived = bool(kink_after[row].item() > 0.0)
+            candidate_records.append({
+                "phase_pair": label,
+                "wall_separation_sites": separation,
+                "energy_before_relaxation": float(energy_before[row].item()),
+                "energy_after_relaxation": float(energy_after[row].item()),
+                "kink_density_before_relaxation": float(kink_before[row].item()),
+                "kink_density_after_relaxation": float(kink_after[row].item()),
+                "gradient_norm_after_relaxation": float(gradients[row].item()),
+                "outcome": ("relaxed_to_kinked_critical_point" if survived
+                            else "pair_annihilated_to_homogeneous_state"),
+            })
+            if survived:
+                survivors.append(row)
+        distinct = _distinct_rows(relaxed, survivors)
+        for row in distinct:
+            means.append(relaxed[row])
+            admitted.append({
+                "family": "relaxed_kink_antikink_pair",
+                "phase_pair": label,
+                "wall_separation_sites": separations[row % len(separations)],
+                "kink_density_of_mean": float(kink_after[row].item()),
+            })
+        if not distinct:
+            saddle = _phase_boundary_saddle(potential, minima, first, second)
+            means.append(saddle.repeat(n_sites))
+            admitted.append({
+                "family": "homogeneous_phase_boundary_saddle",
+                "phase_pair": label,
+                "site_value": saddle.detach().cpu().tolist(),
+                "reason": ("every kink/antikink candidate for this pair "
+                           "annihilated under relaxation"),
+            })
+
+    means = torch.stack(means)
+    hessians = _hessians_at(potential, means)
+    eigenvalues, vectors = torch.linalg.eigh(hessians)
+    negative = eigenvalues < 0.0
+    reflected = torch.where(negative, -eigenvalues, eigenvalues)
+    surrogate = vectors @ torch.diag_embed(reflected) @ vectors.transpose(-1, -2)
+    surrogate = 0.5 * (surrogate + surrogate.transpose(-1, -2))
+    hessians = torch.where(negative.any(dim=-1).reshape(-1, 1, 1), surrogate,
+                           hessians)
+    energies = potential.V(means)
+    for index, record in enumerate(admitted):
+        record["mean_energy"] = float(energies[index].item())
+        record["reflected_eigenvalues"] = (
+            eigenvalues[index][negative[index]].detach().cpu().tolist())
+
+    n_survived = int((kink_after > 0.0).sum().item())
+    return {
+        "means": means,
+        "hessians": hessians,
+        "record": {
+            "n_components": int(means.shape[0]),
+            "phase_pairs": [f"{phases[a]}|{phases[b]}" for a, b in pairs],
+            "wall_separations_sites": separations,
+            "wall_width_sites": width,
+            "relaxation_steps": steps,
+            "continuum_wall_width_sites": profile_width,
+            "n_candidates": int(candidates.shape[0]),
+            "n_candidates_surviving_relaxation": n_survived,
+            "candidates": candidate_records,
+            "components": admitted,
+            "construction": (
+                "kink/antikink pair means from a tanh wall profile, relaxed by "
+                "gradient descent onto a critical point; a pair that "
+                "annihilates is replaced by the homogeneous phase-boundary "
+                "saddle for the same phase pair"),
+            "wall_fits_on_the_chain": bool(profile_width <= n_sites),
+            "positive_definite_rule": (
+                "a kink mean need not be a minimum, so the Hessian eigenvalues "
+                "are reflected lambda -> |lambda| where negative and left alone "
+                "otherwise; they are never clamped, so the width along an "
+                "unstable direction stays 1 / sqrt(beta |lambda|), the "
+                "curvature scale of the barrier itself. The reflected "
+                "eigenvalues are listed per component."),
+        },
+    }
+
+
+def _distinct_rows(x: torch.Tensor, rows: Sequence[int],
+                   tolerance: float = 1e-6) -> list[int]:
+    """The rows of ``x[rows]`` that are not duplicates of an earlier one."""
+    kept: list[int] = []
+    for row in rows:
+        if all(float((x[row] - x[other]).abs().max().item()) > tolerance
+               for other in kept):
+            kept.append(int(row))
+    return kept
+
+
 class _LaplaceMixture:
-    """``q(x) = sum_s omega_s N(x; mu_s, Sigma_s)`` around the coherent states.
+    """``q(x) = sum_s omega_s N(x; mu_s, Sigma_s)`` over two component blocks.
 
     ``Sigma_s = (H_s + reg I)^-1 / beta`` is the regularised inverse Hessian at
     ``beta``: the regularisation is added to the Hessian diagonal *before*
     inversion, and both the value and the fact that it was applied are recorded.
-    ``omega_s`` are the Laplace weights ``exp(-beta V(mu_s)) det(H_s + reg I)^-1/2``
-    normalised to sum to one.
+
+    The leading block is centred on the coherent states; the trailing
+    ``n_kink_components`` rows are the kink block of
+    :func:`_kink_component_bank`. ``omega_s`` are the Laplace weights
+    ``exp(-beta V(mu_s)) det(H_s + reg I)^-1/2`` normalised *within* each block,
+    the blocks then carrying ``1 - kink_weight_share`` and ``kink_weight_share``.
+    The kink region holds a fraction ``~1e-4`` of the target mass, so its share
+    is set deliberately rather than inherited from a Laplace weight that would
+    make the block unreachable again.
     """
 
     def __init__(self, means: torch.Tensor, hessians: torch.Tensor,
                  energies: torch.Tensor, beta: float,
-                 regularization: float) -> None:
+                 regularization: float, *, n_kink_components: int = 0,
+                 kink_weight_share: float = 0.0,
+                 kink_record: Mapping | None = None) -> None:
         if means.ndim != 2 or hessians.ndim != 3:
             raise ValueError("means must be (K, d) and hessians (K, d, d)")
         self.beta = float(beta)
@@ -392,13 +726,23 @@ class _LaplaceMixture:
         self.means = means
         n_components, dimension = means.shape
         self.n_components, self.d = int(n_components), int(dimension)
+        self.n_kink = int(n_kink_components)
+        self.n_coherent = self.n_components - self.n_kink
+        self.kink_weight_share = float(kink_weight_share)
+        self.kink_record = dict(kink_record or {})
+        if self.n_kink and not 0.0 < self.kink_weight_share < 1.0:
+            raise ValueError(
+                f"kink_weight_share must lie strictly in (0, 1), got "
+                f"{self.kink_weight_share}")
+        if self.n_coherent < 1:
+            raise ValueError("the mixture needs at least one coherent component")
         eye = torch.eye(self.d, dtype=means.dtype, device=means.device)
         regularised = hessians + self.regularization * eye
         regularised = 0.5 * (regularised + regularised.transpose(-1, -2))
         sign, logdet = torch.linalg.slogdet(regularised)
         if not bool((sign > 0).all().item()):
             raise ValueError(
-                "the regularised coherent Hessians must be positive definite; "
+                "the regularised component Hessians must be positive definite; "
                 "increase hessian_regularization")
         self.regularised_hessians = regularised
         covariance = torch.linalg.inv(regularised) / self.beta
@@ -406,7 +750,17 @@ class _LaplaceMixture:
         self.covariances = covariance
         self.cholesky = torch.linalg.cholesky(covariance)
         self.precisions = self.beta * regularised
-        log_weights = -self.beta * energies - 0.5 * logdet
+        laplace = -self.beta * energies - 0.5 * logdet
+        if self.n_kink:
+            coherent = laplace[:self.n_coherent]
+            kink = laplace[self.n_coherent:]
+            log_weights = torch.cat([
+                coherent - torch.logsumexp(coherent, dim=0)
+                + math.log1p(-self.kink_weight_share),
+                kink - torch.logsumexp(kink, dim=0)
+                + math.log(self.kink_weight_share)])
+        else:
+            log_weights = laplace
         self.log_weights = log_weights - torch.logsumexp(log_weights, dim=0)
         self.weights = torch.exp(self.log_weights)
         self.cumulative_weights = torch.cumsum(self.weights, dim=0)
@@ -449,14 +803,41 @@ class _LaplaceMixture:
         return {
             "family": "laplace_gaussian_mixture",
             "n_components": self.n_components,
+            "n_coherent_components": self.n_coherent,
+            "n_kink_components": self.n_kink,
+            "component_block": (["coherent"] * self.n_coherent
+                                + ["kink"] * self.n_kink),
             "dimension": self.d,
             "beta": self.beta,
             "hessian_regularization": self.regularization,
             "covariance_rule": "Sigma_s = (H_s + reg I)^-1 / beta",
-            "weight_rule": "omega_s ~ exp(-beta V(mu_s)) det(H_s + reg I)^-1/2",
+            "weight_rule": (
+                "omega_s ~ exp(-beta V(mu_s)) det(H_s + reg I)^-1/2 normalised "
+                "within each block; the coherent block then carries "
+                "1 - kink_weight_share and the kink block kink_weight_share"),
+            "kink_weight_share": self.kink_weight_share,
+            "realised_kink_weight_share": float(
+                self.weights[self.n_coherent:].sum().item())
+            if self.n_kink else 0.0,
             "component_weights": self.weights.detach().cpu().tolist(),
             "log_component_weights": self.log_weights.detach().cpu().tolist(),
+            "kink_components": self.kink_record,
         }
+
+
+def _build_laplace_mixture(target, beta: float, snis_settings: Mapping,
+                           kink_settings: Mapping, *, verbose: bool
+                           ) -> _LaplaceMixture:
+    """The SNIS proposal: the coherent block plus the kink block."""
+    bank = _kink_component_bank(target, kink_settings, verbose=verbose)
+    means = torch.cat([target.extras["coherent_states"], bank["means"]])
+    hessians = torch.cat([target.extras["coherent_hessians"], bank["hessians"]])
+    return _LaplaceMixture(
+        means, hessians, target.value(means, cost_class="baseline"), beta,
+        float(snis_settings["hessian_regularization"]),
+        n_kink_components=int(bank["means"].shape[0]),
+        kink_weight_share=float(kink_settings["kink_weight_share"]),
+        kink_record=bank["record"])
 
 
 # ================================================================ PT-MALA
@@ -1143,8 +1524,8 @@ def _block_length_gate(acceptance: Mapping, *, block_length: int,
 # ================================================================ SNIS gates
 def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
                 phases: Sequence[str], beta: float, n_sites: int,
-                coherence_decile: float,
-                pt_kink_density_mean: float) -> tuple[list[dict], dict]:
+                coherence_decile: float, pt_kink_density_mean: float,
+                kink_weight_share: float) -> tuple[list[dict], dict]:
     gates = acceptance["snis_gates"]
     coverage_required = gates["require_coverage"]
     weights = snis["weights"]
@@ -1194,20 +1575,32 @@ def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
             direction="min",
             message=(f"smallest proposal count over the {len(phases)} phases; "
                      f"per-phase proposal counts {proposal_counts.tolist()}")))
-    kink_covered = int((features[:, layout["kink"]] > 0.0).sum().item())
+    kink_mask = features[:, layout["kink"]] > 0.0
+    kink_covered = int(kink_mask.sum().item())
+    kink_weighted_mass = float(weights[kink_mask].sum().item())
+    kink_effective_count = metrics.weighted_effective_count(weights, kink_mask)
+    kink_weighted_density = float(
+        (weights * features[:, layout["kink"]]).sum().item())
     if bool(coverage_required.get("nonzero_kink_configurations", True)):
         records.append(_gate(
             "snis_coverage_nonzero_kink", 1, kink_covered, direction="min",
             message=(
-                "proposals carrying at least one kinked neighbour pair; the "
-                f"PT-MALA reference puts mean kink density "
-                f"{pt_kink_density_mean:.4g} there. A Laplace mixture centred "
-                "on the HOMOGENEOUS coherent states reaches a kinked "
-                "configuration only by exciting the stiff gradient modes, so "
-                "zero coverage here is a property of the proposal, not of the "
-                "sample size: follow the frozen escalation order and improve "
-                "the SNIS proposal (for example by adding kink-carrying "
-                "components) rather than enlarging the proposal count")))
+                "proposals carrying at least one kinked neighbour pair. They "
+                f"hold {kink_weighted_mass:.4g} of the normalized weight for a "
+                f"weighted effective count of {kink_effective_count:.4g} and a "
+                f"weighted mean kink density of {kink_weighted_density:.4g}, "
+                f"against {pt_kink_density_mean:.4g} from PT-MALA. The kink "
+                f"block of the proposal carries a share {kink_weight_share:.4g}. "
+                "Zero here would be a property of the proposal rather than of "
+                "the sample size -- a mixture on the HOMOGENEOUS coherent "
+                "states alone reaches a kinked configuration only by exciting "
+                "the stiff gradient modes -- so it is fixed by improving the "
+                "proposal, per the frozen escalation order, never by enlarging "
+                "the proposal count"),
+            weighted_mass=kink_weighted_mass,
+            weighted_effective_count=kink_effective_count,
+            weighted_mean_kink_density=kink_weighted_density,
+            proposal_kink_weight_share=float(kink_weight_share)))
     decile_covered = int(
         (features[:, layout["G"]] >= coherence_decile).sum().item())
     if bool(coverage_required.get("coherence_upper_decile", True)):
@@ -1229,7 +1622,13 @@ def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
     multiplier = float(gates["max_run_difference_in_combined_se"])
 
     def agreement(name: str, extract, error, message: str) -> None:
-        worst = 0.0
+        """One gate holding the worst of ``run pairs x quantities`` comparisons.
+
+        The maximum is what the acceptance file asks for, but it is a maximum
+        over many two-sided tests, so the record also carries the size of that
+        family and the significance it implies.
+        """
+        worst, comparisons = 0.0, 0
         for first in range(len(per_run)):
             for second in range(first + 1, len(per_run)):
                 a = np.atleast_1d(np.asarray(extract(per_run[first]),
@@ -1244,10 +1643,12 @@ def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
                 with np.errstate(divide="ignore", invalid="ignore"):
                     ratio = np.where(combined > 0.0,
                                      np.abs(a - b) / combined, np.inf)
+                comparisons += int(ratio.size)
                 worst = max(worst, float(np.nanmax(ratio)))
+        fields = _multiple_comparison_fields(multiplier, comparisons)
         records.append(_gate(
             f"snis_run_agreement_{name}", multiplier, worst, direction="max",
-            message=message))
+            message=message + _multiple_comparison_note(fields), **fields))
 
     agreement("phase_probability",
               lambda run: run["phase_probabilities"],
@@ -1281,6 +1682,10 @@ def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
         "proposal_phase_counts": proposal_counts.tolist(),
         "proposal_phase_fractions": (proposal_counts / n_proposals).tolist(),
         "coverage_nonzero_kink_count": kink_covered,
+        "coverage_nonzero_kink_weighted_mass": kink_weighted_mass,
+        "coverage_nonzero_kink_weighted_effective_count": kink_effective_count,
+        "weighted_kink_density": kink_weighted_density,
+        "proposal_kink_weight_share": float(kink_weight_share),
         "coverage_coherence_upper_decile_count": decile_covered,
         "coherence_upper_decile_threshold": float(coherence_decile),
         "per_run": [{key: value for key, value in _as_numpy_stats(run).items()}
@@ -1745,6 +2150,13 @@ class CoupledQuarticChainReference(Reference):
             "coverage_nonzero_kink_count": np.asarray(
                 self.snis["diagnostics"]["coverage_nonzero_kink_count"],
                 dtype=np.int64),
+            "coverage_nonzero_kink_weighted_mass": np.asarray(
+                self.snis["diagnostics"]["coverage_nonzero_kink_weighted_mass"],
+                dtype=float),
+            "coverage_nonzero_kink_weighted_effective_count": np.asarray(
+                self.snis["diagnostics"][
+                    "coverage_nonzero_kink_weighted_effective_count"],
+                dtype=float),
             "coverage_coherence_upper_decile_count": np.asarray(
                 self.snis["diagnostics"][
                     "coverage_coherence_upper_decile_count"], dtype=np.int64),
@@ -2095,6 +2507,10 @@ def _provenance_record(config: Mapping, target, acceptance: Mapping,
         "acceptance": copy.deepcopy(dict(acceptance)),
         "basin_map": dict(basin_settings),
         "order_parameter_grid": dict(grid_settings),
+        # Resolved here rather than left to the module defaults, so a changed
+        # default is a changed identity instead of a silently reused reference.
+        "snis_kink_components": _resolved(reference_config.get("snis"),
+                                          _SNIS_KINK_DEFAULTS),
         "metrics": {
             "mmd_bandwidth_rule": (metric_config.get("mmd", {})
                                    .get("bandwidth_rule",
@@ -2214,11 +2630,9 @@ def _construct(config: Mapping, target, device, *, acceptance, acceptance_path,
 
     _progress(verbose, "drawing the Laplace-mixture SNIS cross-check")
     snis_settings = dict(reference_config["snis"])
-    energies = target.value(target.extras["coherent_states"],
-                            cost_class="baseline")
-    mixture = _LaplaceMixture(target.extras["coherent_states"],
-                              target.extras["coherent_hessians"], energies,
-                              beta, float(snis_settings["hessian_regularization"]))
+    kink_settings = _resolved(snis_settings, _SNIS_KINK_DEFAULTS)
+    mixture = _build_laplace_mixture(target, beta, snis_settings, kink_settings,
+                                     verbose=verbose)
     snis = _run_snis(target, snis_settings, mixture=mixture, basin_map=basin_map,
                      site_minima=site_minima, layout=layout, verbose=verbose)
     snis_point = _as_numpy_stats(_canonical_estimates(
@@ -2258,7 +2672,8 @@ def _construct(config: Mapping, target, device, *, acceptance, acceptance_path,
     snis_records, snis_diagnostics = _snis_gates(
         acceptance, snis=snis, layout=layout, phases=phases, beta=beta,
         n_sites=n_sites, coherence_decile=coherence_decile,
-        pt_kink_density_mean=float(pt_point["kink_density_mean"]))
+        pt_kink_density_mean=float(pt_point["kink_density_mean"]),
+        kink_weight_share=mixture.kink_weight_share)
     records.extend(snis_records)
     records.extend(_cross_check_gates(
         acceptance, phases=phases, pt_point=pt_point, pt_se=pt_se,
