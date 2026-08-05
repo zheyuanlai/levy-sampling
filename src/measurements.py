@@ -303,6 +303,18 @@ class MullerBrownMeasurements(MeasurementSuite):
 
 
 # ======================================================================== E4
+#: Reference targets the E4 metrics quote. These are the names
+#: :mod:`src.references.e4` freezes, which are the names
+#: :func:`src.observables.e4_observable_set` defines -- ``heat_capacity_per_site``
+#: rather than ``heat_capacity``, because the statistic is per site.
+_REQUIRED_E4_TARGETS = (
+    "phase_probabilities", "susceptibility", "two_point_correlation",
+    "order_parameter_mean", "energy_per_site_mean", "energy_per_site_variance",
+    "coherence_mean", "kink_density_mean", "heat_capacity_per_site",
+    "binder_cumulant",
+)
+
+
 class CoupledQuarticChainMeasurements(MeasurementSuite):
     """Static equilibrium observables of the coupled quartic chain.
 
@@ -324,7 +336,17 @@ class CoupledQuarticChainMeasurements(MeasurementSuite):
         self.site_minima = self.target.extras["refined_site_minima"]
         self.n_sites = int(self.target.extras["n_sites"])
         self.beta = float(self.target.beta)
-        self.targets = reference.observable_targets
+        # ``observable_targets`` is keyed by the reference's statistic names and
+        # each entry is a RECORD, not a bare number: {"value", "standard_error",
+        # "standard_error_method", "bootstrap_seed", "bootstrap_replicates",
+        # "block_length"}. The metrics read ``value`` and nothing else; the
+        # uncertainty fields belong to the reference's own validation report.
+        self.targets = dict(reference.observable_targets)
+        missing = sorted(set(_REQUIRED_E4_TARGETS) - set(self.targets))
+        if missing:
+            raise KeyError(
+                f"the E4 reference is missing observable target(s) {missing}; "
+                f"it provides {sorted(self.targets)}")
         self.n_phases = len(self.target.extras["phases"])
         self._description = {
             "reference_kind": reference.kind,
@@ -340,9 +362,16 @@ class CoupledQuarticChainMeasurements(MeasurementSuite):
             "excludes_path_event_metrics": True,
         }
 
+    def _reference_value(self, key: str):
+        """The frozen point estimate of one reference target."""
+        return self.targets[key]["value"]
+
     def _reference_tensor(self, key: str) -> torch.Tensor:
-        return torch.as_tensor(self.targets[key], dtype=torch.float64,
+        return torch.as_tensor(self._reference_value(key), dtype=torch.float64,
                                device=self.device)
+
+    def _reference_scalar(self, key: str) -> float:
+        return float(self._reference_value(key))
 
     def metrics(self, x: torch.Tensor) -> dict[str, float]:
         m = O.order_parameter(self.target, x)
@@ -369,7 +398,7 @@ class CoupledQuarticChainMeasurements(MeasurementSuite):
                 m, self.reference_order_parameter, self.bandwidth),
             "energy_per_site_MAE": abs(
                 float(energy_per_site.mean().item())
-                - float(self.targets["energy_per_site_mean"])),
+                - self._reference_scalar("energy_per_site_mean")),
             "susceptibility_relative_frobenius": O.relative_frobenius_error(
                 chi, chi_star),
             # supplement
@@ -380,20 +409,25 @@ class CoupledQuarticChainMeasurements(MeasurementSuite):
             "phase_outside_mass": outside_mass,
             "energy_per_site_variance_error": abs(
                 float(energy_per_site.var(unbiased=True).item())
-                - float(self.targets["energy_per_site_variance"])),
+                - self._reference_scalar("energy_per_site_variance")),
             "coherence_mean_error": abs(
                 float(coherence.mean().item())
-                - float(self.targets["coherence_mean"])),
+                - self._reference_scalar("coherence_mean")),
             "correlation_relative_L2": O.correlation_relative_l2(
                 correlation, correlation_star),
             "kink_density_error": abs(
                 float(kink.mean().item())
-                - float(self.targets["kink_density_mean"])),
+                - self._reference_scalar("kink_density_mean")),
+            # The reference names this statistic by its definition,
+            # c_V = beta^2 Var[V] / N_s, so the target key is
+            # ``heat_capacity_per_site``. The reported metric keeps its shorter
+            # historical column name.
             "heat_capacity_error": abs(
                 O.heat_capacity_per_site(total_energy, self.beta, self.n_sites)
-                - float(self.targets["heat_capacity"])),
+                - self._reference_scalar("heat_capacity_per_site")),
             "binder_cumulant_error": abs(
-                O.binder_cumulant(m) - float(self.targets["binder_cumulant"])),
+                O.binder_cumulant(m)
+                - self._reference_scalar("binder_cumulant")),
             "order_parameter_mean_error": float(
                 (m.mean(dim=0) - m_star).norm().item()),
             "marginal_KS_mx": M.ks_distance_samples(

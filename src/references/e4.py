@@ -1143,7 +1143,8 @@ def _block_length_gate(acceptance: Mapping, *, block_length: int,
 # ================================================================ SNIS gates
 def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
                 phases: Sequence[str], beta: float, n_sites: int,
-                coherence_decile: float) -> tuple[list[dict], dict]:
+                coherence_decile: float,
+                pt_kink_density_mean: float) -> tuple[list[dict], dict]:
     gates = acceptance["snis_gates"]
     coverage_required = gates["require_coverage"]
     weights = snis["weights"]
@@ -1197,7 +1198,16 @@ def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
     if bool(coverage_required.get("nonzero_kink_configurations", True)):
         records.append(_gate(
             "snis_coverage_nonzero_kink", 1, kink_covered, direction="min",
-            message="proposals carrying at least one kinked neighbour pair"))
+            message=(
+                "proposals carrying at least one kinked neighbour pair; the "
+                f"PT-MALA reference puts mean kink density "
+                f"{pt_kink_density_mean:.4g} there. A Laplace mixture centred "
+                "on the HOMOGENEOUS coherent states reaches a kinked "
+                "configuration only by exciting the stiff gradient modes, so "
+                "zero coverage here is a property of the proposal, not of the "
+                "sample size: follow the frozen escalation order and improve "
+                "the SNIS proposal (for example by adding kink-carrying "
+                "components) rather than enlarging the proposal count")))
     decile_covered = int(
         (features[:, layout["G"]] >= coherence_decile).sum().item())
     if bool(coverage_required.get("coherence_upper_decile", True)):
@@ -1572,6 +1582,23 @@ class CoupledQuarticChainReference(Reference):
         self.last_sample_record: dict | None = None
 
     # -- identity ----------------------------------------------------------
+    @classmethod
+    def provenance_for(cls, config: Mapping, target) -> dict:
+        """The provenance the current configuration would build.
+
+        ``src.references.build_or_load`` calls this to decide whether a stored
+        reference may be reused, so it must depend only on the configuration
+        and the target -- never on anything a build measures.
+        """
+        acceptance, path = _load_acceptance(config)
+        return _provenance_record(
+            config, target, acceptance, path,
+            basin_settings=_resolved(config["reference"].get("basin_map"),
+                                     _BASIN_MAP_DEFAULTS),
+            grid_settings=_resolved(
+                config["reference"].get("order_parameter_grid"),
+                _GRID_DEFAULTS))
+
     @property
     def provenance(self) -> dict:
         """The configuration-determined identity, without touching ``describe``.
@@ -1951,6 +1978,10 @@ def build_reference(*args, **kwargs) -> CoupledQuarticChainReference:
     directory in any order, as keywords or positionally, so it can be driven
     either by ``src.references.build_or_load`` or directly from a script.
 
+    Always builds. Reuse of a stored directory is the caller's decision --
+    ``src.references.build_or_load`` makes it from the provenance hash -- and
+    is available here only by passing ``reuse=True``.
+
     Raises :class:`ReferenceValidationError` when any frozen acceptance gate
     fails. The validation record is written first, so the failure is
     inspectable and the caller exits nonzero without an official reference
@@ -1971,6 +2002,7 @@ def build_reference(*args, **kwargs) -> CoupledQuarticChainReference:
             if directory is None:
                 directory = value
     device = kwargs.pop("device", None)
+    reuse = bool(kwargs.pop("reuse", False))
     rebuild = bool(kwargs.pop("rebuild", False))
     verbose = bool(kwargs.pop("verbose", False))
     write = bool(kwargs.pop("save", True))
@@ -1999,7 +2031,15 @@ def build_reference(*args, **kwargs) -> CoupledQuarticChainReference:
         config, target, acceptance, resolved_acceptance_path,
         basin_settings=basin_settings, grid_settings=grid_settings)
 
-    if directory is not None and not rebuild:
+    if directory is not None:
+        # The basin-map cache is written during construction, so the output
+        # directory has to exist before the build starts, not only at save().
+        directory.mkdir(parents=True, exist_ok=True)
+    # Cache reuse belongs to ``src.references.build_or_load``, which decides
+    # whether to build at all; a call that reaches here builds unless it asks
+    # for reuse explicitly, so ``rebuild=True`` can never be defeated by a
+    # stale directory.
+    if directory is not None and reuse and not rebuild:
         existing = _try_load(directory, target, device, provenance)
         if existing is not None:
             _progress(verbose, f"reusing the stored reference in {directory}")
@@ -2217,7 +2257,8 @@ def _construct(config: Mapping, target, device, *, acceptance, acceptance_path,
                                  ["min_effective_blocks"]) * block_length))
     snis_records, snis_diagnostics = _snis_gates(
         acceptance, snis=snis, layout=layout, phases=phases, beta=beta,
-        n_sites=n_sites, coherence_decile=coherence_decile)
+        n_sites=n_sites, coherence_decile=coherence_decile,
+        pt_kink_density_mean=float(pt_point["kink_density_mean"]))
     records.extend(snis_records)
     records.extend(_cross_check_gates(
         acceptance, phases=phases, pt_point=pt_point, pt_se=pt_se,

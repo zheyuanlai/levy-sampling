@@ -2118,7 +2118,8 @@ def supplement_panels(runs, spec: dict, registry: dict = None, *,
             raise ValueError(
                 f"supplement_panels does not know panel kind {kind!r}")
         if not axes.get_title():
-            _set_title(axes, quantity)
+            _set_title(axes, ", ".join(map(str, quantity))
+                       if isinstance(quantity, (list, tuple)) else quantity)
 
     for axes in axes_grid[len(panels):]:
         axes.set_visible(False)

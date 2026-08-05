@@ -26,3 +26,9 @@ dev = [
 
 [tool.setuptools]
 packages = ["src", "src.references"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "slow: longer-running reference construction",
+]
