@@ -53,6 +53,7 @@ FORBIDDEN_TOKENS = {
     "build_notebooks": "the notebook generator is removed; notebooks are source",
     "--require-figures": "release validation never gates a run",
     "run_wallclock_campaign": "wall-clock is not a formal scientific cost metric",
+    "launch_production": "the bounded GPU launcher is removed; use scripts/run_experiment.py",
     "recompute_fla_stationarity": "stationarity is a generic per-variant entry point",
 }
 
