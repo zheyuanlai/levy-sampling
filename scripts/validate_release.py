@@ -58,7 +58,7 @@ FORBIDDEN_TOKENS = {
 
 #: Files allowed to name the forbidden tokens, because their job is to assert
 #: those things are gone. Everything else is scanned.
-TOKEN_SCAN_EXEMPT = {"validate_release.py", "test_lsc.py",
+TOKEN_SCAN_EXEMPT = {"validate_release.py", "test_lsc.py", "test_pipeline.py",
                      "test_legacy_removal.py"}
 
 #: Files that must be present for the source package to be runnable from zero.

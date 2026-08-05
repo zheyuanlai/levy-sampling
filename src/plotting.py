@@ -41,14 +41,17 @@ from .results import json_safe, read_manifest
 __all__ = [
     "RunData", "Snapshot",
     "apply_style", "load_plot_config", "load_registry", "figure_spec",
-    "load_runs", "method_style", "seed_aggregate",
+    "load_runs", "load_reference_artifacts", "method_style", "seed_aggregate",
     "check_fee_comparability", "check_extra_potential_eligibility",
     "select_snapshot", "tame_view_filters",
     "shared_limits", "points_per_panel", "assert_panels_consistent",
-    "curve_figure", "twin_axis_cdf_figure", "contour_scatter_grid",
-    "snapshot_matrix", "mode_metric_panel", "supplement_panels",
-    "save_figure", "figure_provenance",
+    "curve_figure", "snapshot_figure", "twin_axis_cdf_figure",
+    "contour_scatter_grid", "snapshot_matrix", "mode_metric_panel",
+    "supplement_panels", "save_figure", "figure_provenance",
 ]
+
+#: Sentinel telling an argument apart from an explicitly passed ``None``.
+_UNSET = object()
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_DIR = REPOSITORY_ROOT / "configs"
@@ -74,6 +77,26 @@ DEFAULT_UNCERTAINTY = {
     "interval": 0.95,
     "bootstrap_replicates": 2000,
     "bootstrap_seed": 5150,
+}
+
+#: Axes every official curve is produced against when a spec names none.
+DEFAULT_CURVE_X_AXES = ("simulation_time", "fee")
+
+#: Quantities a supplement panel may take from a saved snapshot array by
+#: slicing it. These are display-only views of a saved array, never a
+#: recomputed observable.
+_DERIVED_SNAPSHOT_QUANTITIES = {
+    "mx": ("order_parameter", 0),
+    "my": ("order_parameter", 1),
+    "m_norm": ("order_parameter", "norm"),
+}
+
+#: Saved metric-column families a supplement panel may read as a vector.
+_METRIC_FAMILY_PREFIXES = {
+    "two_point_correlation": "correlation_r",
+    "phase_occupancy": "phase_occupancy_",
+    "susceptibility": "susceptibility_",
+    "occupancy_ratio": "mode_occupancy_ratio_",
 }
 
 #: The extra-potential axis counts LSC score potential evaluations only. The
@@ -303,6 +326,19 @@ class RunData:
     def fee_cost_unit(self):
         return self.manifest.get("fee_cost_unit")
 
+    @property
+    def experiment_dir(self) -> Path:
+        """``<results root>/<experiment key>``, from the run's own location.
+
+        The layout is fixed by ``src.results.RunPaths``:
+        ``<experiment dir>/runs/<method>/<run id>``.
+        """
+        return self.run_dir.parents[2]
+
+    @property
+    def reference_dir(self) -> Path:
+        return self.experiment_dir / "reference"
+
     # -- lazy sample accessors --------------------------------------------
     def snapshot_paths(self) -> list:
         directory = self.run_dir / "sample_snapshots"
@@ -410,9 +446,14 @@ def _variant_filter(row: dict, variants) -> bool:
     return any(_matches_parameters(row, entry) for entry in dicts)
 
 
-def load_runs(experiment_dir, *, methods=None, variants=None, tame=None,
-              latest_only: bool = True) -> list:
+def load_runs(experiment_dir, spec=None, *, methods=_UNSET, variants=_UNSET,
+              tame=_UNSET, latest_only=_UNSET) -> list:
     """Load every completed run of one experiment that passes the filters.
+
+    A figure specification may be passed positionally, which is what the plot
+    notebooks do: ``methods``, ``variants``, and the tame filter implied by
+    ``tame_view`` are then read from the spec. An explicit keyword argument
+    always wins over the spec.
 
     Manifests are scanned directly rather than through ``catalog.csv``: this
     module is read-only and must not create or refresh a derived index.
@@ -424,6 +465,18 @@ def load_runs(experiment_dir, *, methods=None, variants=None, tame=None,
     if not experiment_dir.is_dir():
         raise FileNotFoundError(
             f"experiment directory not found: {experiment_dir}")
+    spec = dict(spec or {})
+    if methods is _UNSET:
+        methods = spec.get("methods")
+        if methods is None and spec.get("rows"):
+            methods = list(spec["rows"])
+    if variants is _UNSET:
+        variants = spec.get("variants")
+    if tame is _UNSET:
+        view = spec.get("tame_view")
+        tame = None if view is None else tame_view_filters(view).tame
+    if latest_only is _UNSET:
+        latest_only = bool(spec.get("latest_run_only", True))
     if methods is None:
         rows = select_runs(experiment_dir, tame=tame, latest_only=latest_only,
                            from_manifests=True)

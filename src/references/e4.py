@@ -70,7 +70,7 @@ import yaml
 from .. import metrics, observables
 from ..device import resolve_device
 from ..observables import OUTSIDE_LABEL, GradientFlowBasinMap2D
-from ..potentials import PHASES, site_potential_grad
+from ..potentials import site_potential_grad
 from ..samplers import geometric_ladder
 from .base import (Reference, check_positive_int, check_seed, frozen_generator,
                    load_npz, read_json, save_npz, write_json)
@@ -293,6 +293,10 @@ def _derive(row: np.ndarray, layout: _Layout, *, beta: float,
     if not np.isfinite(total) or total <= 0.0:
         raise ValueError("a summary row must carry positive total mass")
     denominator = total - total_squared / total
+    if not np.isfinite(denominator) or denominator <= 0.0:
+        raise ValueError(
+            "the summary row carries no second-moment information: "
+            f"A - A2/A = {denominator!r} (the effective sample size is ~1)")
 
     def mean(name: str) -> float:
         return float(sums[layout[name]] / total)
@@ -410,7 +414,9 @@ class _LaplaceMixture:
         self.log_normalizers = -0.5 * (self.d * math.log(2.0 * math.pi)
                                        + logdet_covariance)
 
-    def sample(self, n: int, generator: torch.Generator) -> torch.Tensor:
+    def sample(self, n: int, generator: torch.Generator
+               ) -> tuple[torch.Tensor, torch.Tensor]:
+        """``(draws, component_index)`` for ``n`` proposals from the mixture."""
         device, dtype = self.means.device, self.means.dtype
         gen_device = generator.device
         u = torch.rand(n, generator=generator, device=gen_device,
@@ -735,7 +741,7 @@ def _as_numpy_stats(stats: Mapping) -> dict:
 
 # ==================================================================== SNIS
 def _run_snis(target, settings: Mapping, *, mixture, basin_map, site_minima,
-              layout: _Layout, n_phases: int, verbose: bool) -> dict:
+              layout: _Layout, verbose: bool) -> dict:
     """Independent Laplace-mixture SNIS runs with directly weighted estimates."""
     device = target.device
     n_runs = check_positive_int(settings["n_runs"], "snis.n_runs")
@@ -1000,9 +1006,7 @@ def _bootstrap_statistics(summaries: np.ndarray, layout: _Layout, *,
 # ============================================================== PT-MALA gates
 def _pt_gates(acceptance: Mapping, *, pt, series: Mapping, label_series,
               phases: Sequence[str], continuous: Sequence[str],
-              indicators: Sequence[str], block_length: int,
-              point: Mapping, standard_errors: Mapping,
-              bootstrap: Mapping) -> list[dict]:
+              indicators: Sequence[str], block_length: int) -> list[dict]:
     gates = acceptance["pt_mala_gates"]
     uncertainty = acceptance["uncertainty"]
     n_phases = len(phases)
@@ -1061,7 +1065,7 @@ def _pt_gates(acceptance: Mapping, *, pt, series: Mapping, label_series,
         records.append(_gate(
             f"pt_tail_ess_{name}", gates["min_tail_ess"],
             metrics.tail_ess(series[name]), direction="min",
-            message=f"tail ESS (min of the 5% and 95% quantile indicators)"))
+            message="tail ESS (min of the 5% and 95% quantile indicators)"))
     for name in indicators:
         records.append(_gate(
             f"pt_phase_indicator_ess_{name}",
@@ -1215,10 +1219,8 @@ def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
     multiplier = float(gates["max_run_difference_in_combined_se"])
 
     def agreement(name: str, extract, error, message: str) -> None:
-        worst, detail = 0.0, []
+        worst = 0.0
         for first in range(len(per_run)):
-            detail.append(float(np.max(np.abs(np.atleast_1d(
-                np.asarray(extract(per_run[first]), dtype=float))))))
             for second in range(first + 1, len(per_run)):
                 a = np.atleast_1d(np.asarray(extract(per_run[first]),
                                              dtype=float)).reshape(-1)
@@ -1655,10 +1657,10 @@ class CoupledQuarticChainReference(Reference):
                  kink_density=self.extras["pt_kink_density"],
                  two_point_correlation=self.extras["pt_two_point_correlation"],
                  betas=np.asarray(self.pt["betas"], dtype=float),
-                 mala_acceptance=np.asarray(self.pt["mala_acceptance"],
-                                            dtype=float),
-                 swap_acceptance=np.asarray(self.pt["swap_acceptance"],
-                                            dtype=float),
+                 mala_acceptance=np.asarray(
+                     self.pt["mala_acceptance_per_replica"], dtype=float),
+                 swap_acceptance=np.asarray(
+                     self.pt["swap_acceptance_per_pair"], dtype=float),
                  block_length=np.asarray(self.pt["block_length"],
                                          dtype=np.int64),
                  n_blocks_per_chain=np.asarray(self.pt["n_blocks_per_chain"],
@@ -1666,7 +1668,8 @@ class CoupledQuarticChainReference(Reference):
                  n_chains=np.asarray(self.pt["n_chains"], dtype=np.int64),
                  n_checkpoints=np.asarray(self.pt["n_checkpoints"],
                                           dtype=np.int64),
-                 saved_steps=np.asarray(self.pt["saved_steps"], dtype=np.int64))
+                 saved_steps=np.asarray(self.extras["pt_saved_steps"],
+                                        dtype=np.int64))
         save_npz(directory / GRID_FILE,
                  **{key: value for key, value in self.grid.items()
                     if isinstance(value, (torch.Tensor, np.ndarray))},
@@ -1685,7 +1688,7 @@ class CoupledQuarticChainReference(Reference):
             "proposals": self.extras["snis_proposals"],
             "log_weights": self.extras["snis_log_weights"],
             "normalized_weights": self.extras["snis_weights"],
-            "run_id": np.asarray(self.snis["run_id"], dtype=np.int64),
+            "run_id": np.asarray(self.extras["snis_run_id"], dtype=np.int64),
             "component": self.extras["snis_component"],
             "phase_label": self.extras["snis_labels"],
             "order_parameter": self.extras["snis_order_parameter"],
@@ -1775,6 +1778,7 @@ class CoupledQuarticChainReference(Reference):
                                                 device=device)
         sample_bank = tensor(samples["configurations"])
         extras = {
+            "pt_saved_steps": np.asarray(samples["saved_steps"], dtype=np.int64),
             "pt_labels": np.asarray(samples["phase_label"], dtype=np.int64),
             "pt_energy_per_site": tensor(samples["energy_per_site"]),
             "pt_coherence": tensor(samples["coherence"]),
@@ -1783,6 +1787,7 @@ class CoupledQuarticChainReference(Reference):
             "snis_proposals": tensor(snis_arrays["proposals"]),
             "snis_log_weights": tensor(snis_arrays["log_weights"]),
             "snis_weights": tensor(snis_arrays["normalized_weights"]),
+            "snis_run_id": np.asarray(snis_arrays["run_id"], dtype=np.int64),
             "snis_component": np.asarray(snis_arrays["component"],
                                          dtype=np.int64),
             "snis_labels": np.asarray(snis_arrays["phase_label"],
@@ -1867,17 +1872,39 @@ class CoupledQuarticChainReference(Reference):
         return record
 
 
+#: ``src.results.json_safe`` writes non-finite floats as these sentinels.
+_JSON_SENTINELS = {"nan": float("nan"), "inf": float("inf"),
+                   "-inf": float("-inf")}
+
+
 def _restore_targets(payload: Mapping, device) -> dict:
+    """Rebuild the frozen targets from ``reference.json``.
+
+    ``json_safe`` stores non-finite floats as the sentinel strings ``"nan"``,
+    ``"inf"``, and ``"-inf"``; they are turned back into floats here so a
+    loaded reference exposes numbers, never strings.
+    """
     out = {}
     for name, record in payload.items():
         entry = dict(record)
         for key in ("value", "standard_error"):
             value = entry.get(key)
-            if isinstance(value, list):
-                entry[key] = torch.as_tensor(np.asarray(value, dtype=float),
-                                             dtype=torch.float64, device=device)
+            if isinstance(value, str):
+                entry[key] = _JSON_SENTINELS.get(value, value)
+            elif isinstance(value, list):
+                entry[key] = torch.as_tensor(
+                    np.asarray(_replace_sentinels(value), dtype=float),
+                    dtype=torch.float64, device=device)
         out[name] = entry
     return out
+
+
+def _replace_sentinels(value):
+    if isinstance(value, list):
+        return [_replace_sentinels(item) for item in value]
+    if isinstance(value, str):
+        return _JSON_SENTINELS.get(value, value)
+    return value
 
 
 # ================================================================ the builder
@@ -2153,8 +2180,7 @@ def _construct(config: Mapping, target, device, *, acceptance, acceptance_path,
                               target.extras["coherent_hessians"], energies,
                               beta, float(snis_settings["hessian_regularization"]))
     snis = _run_snis(target, snis_settings, mixture=mixture, basin_map=basin_map,
-                     site_minima=site_minima, layout=layout, n_phases=n_phases,
-                     verbose=verbose)
+                     site_minima=site_minima, layout=layout, verbose=verbose)
     snis_point = _as_numpy_stats(_canonical_estimates(
         target, snis["per_sample"], weights=snis["weights"], n_phases=n_phases))
     _check_summary_algebra(
@@ -2181,8 +2207,7 @@ def _construct(config: Mapping, target, device, *, acceptance, acceptance_path,
     records = _pt_gates(
         acceptance, pt=pt, series=series, label_series=label_series,
         phases=phases, continuous=continuous, indicators=indicators,
-        block_length=block_length, point=pt_point, standard_errors=pt_se,
-        bootstrap=bootstrap)
+        block_length=block_length)
     records.append(_block_length_gate(
         acceptance, block_length=block_length,
         n_blocks_per_chain=n_blocks_per_chain,
@@ -2252,7 +2277,8 @@ def _construct(config: Mapping, target, device, *, acceptance, acceptance_path,
         "max_integrated_autocorrelation_time": _finite(max_tau),
         "block_rule": acceptance["uncertainty"]["block_rule"],
         "kernel": "mh_corrected_mala_with_recomputed_reverse_drift",
-        "saved_steps": pt["saved_steps"],
+        "first_saved_step": int(pt["saved_steps"][0]),
+        "last_saved_step": int(pt["saved_steps"][-1]),
         "estimates": pt_point,
         "standard_errors": pt_se,
         "phase_visits_per_chain": [
@@ -2283,11 +2309,13 @@ def _construct(config: Mapping, target, device, *, acceptance, acceptance_path,
         },
     }
     extras = {
+        "pt_saved_steps": pt["saved_steps"],
         "pt_labels": labels,
         "pt_energy_per_site": pt_per_sample["energy_per_site"],
         "pt_coherence": pt_per_sample["coherence"],
         "pt_kink_density": pt_per_sample["kink_density"],
         "pt_two_point_correlation": pt_per_sample["two_point_correlation"],
+        "snis_run_id": snis["run_id"],
         "snis_proposals": snis["proposals"],
         "snis_log_weights": snis["log_weights"],
         "snis_weights": snis["weights"],
