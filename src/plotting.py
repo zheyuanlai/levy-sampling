@@ -25,6 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 import csv
+import json
 import math
 import warnings
 
@@ -499,6 +500,259 @@ def load_runs(experiment_dir, spec=None, *, methods=_UNSET, variants=_UNSET,
     runs.sort(key=lambda run: (order.get(run.method, len(order)), run.method,
                                run.variant_label, run.tame))
     return runs
+
+
+# ------------------------------------------------------- reference artifacts
+class _MissingArtifact:
+    """Placeholder for a reference file that is not on disk.
+
+    Held in the artifact dict so a figure that needs the value fails naming the
+    file, while a figure that does not need it still draws.
+    """
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def __repr__(self) -> str:                       # pragma: no cover
+        return f"<missing: {self.message}>"
+
+
+def _unwrap_artifact(value, what: str):
+    if isinstance(value, _MissingArtifact):
+        raise FileNotFoundError(f"{what}: {value.message}")
+    return value
+
+
+def _load_npz(path: Path) -> dict:
+    with np.load(path, allow_pickle=False) as handle:
+        return {name: handle[name] for name in handle.files}
+
+
+def _load_json(path: Path) -> dict:
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+_REFERENCE_CACHE: dict = {}
+
+
+def load_reference_artifacts(experiment_dir, *, refresh: bool = False) -> dict:
+    """Read one experiment's saved reference directory.
+
+    Plain numpy and json reads only: the reference builders are never imported,
+    so this stays inside the module's import rule. Files that are absent become
+    :class:`_MissingArtifact` placeholders, so a figure that needs one fails
+    naming the file instead of drawing nothing.
+    """
+    experiment_dir = Path(experiment_dir)
+    key = str(experiment_dir.resolve())
+    if not refresh and key in _REFERENCE_CACHE:
+        return _REFERENCE_CACHE[key]
+    directory = experiment_dir / "reference"
+    if not directory.is_dir():
+        raise FileNotFoundError(
+            f"no saved reference directory at {directory}; the run notebook "
+            "builds it, and the plot notebook only reads it")
+
+    record = _load_json(directory / "reference.json") \
+        if (directory / "reference.json").is_file() else {}
+    experiment_id = str(record.get("experiment_id")
+                        or experiment_dir.name.split("_")[0])
+    artifacts = {
+        "experiment_id": experiment_id,
+        "reference_dir": str(directory),
+        "record": record,
+        "files": sorted(path.name for path in directory.iterdir()
+                        if path.is_file()),
+    }
+    builder = {"E1": _reference_e1, "E2": _reference_e2, "E3": _reference_e3,
+               "E4": _reference_e4}.get(experiment_id)
+    if builder is None:
+        raise KeyError(
+            f"no reference reader for experiment {experiment_id!r}; "
+            f"{directory} holds {artifacts['files']}")
+    builder(directory, record, artifacts)
+    _REFERENCE_CACHE[key] = artifacts
+    return artifacts
+
+
+def _missing(directory: Path, name: str) -> _MissingArtifact:
+    return _MissingArtifact(f"{directory / name} is not on disk")
+
+
+def _reference_e1(directory: Path, record: dict, out: dict) -> None:
+    """E1: the inverse-CDF grid, the potential behind it, and the W2 floor."""
+    grid_file = directory / "reference_grid.npz"
+    if grid_file.is_file():
+        arrays = _load_npz(grid_file)
+        x = np.asarray(arrays["grid"], dtype=float).ravel()
+        out["cdf"] = {"x": x, "F": np.asarray(arrays["cdf"], dtype=float).ravel()}
+        out["pdf"] = {"x": x, "p": np.asarray(arrays["pdf"], dtype=float).ravel()}
+        beta = float((record.get("provenance") or {}).get("beta", 1.0))
+        # The saved reference density is exp(-beta V) normalised over the box,
+        # so the potential behind the CDFs is a monotone transform of a saved
+        # array, up to the additive normalisation constant. No potential is
+        # evaluated here.
+        density = out["pdf"]["p"]
+        with np.errstate(divide="ignore"):
+            potential = -np.log(np.where(density > 0.0, density, np.nan)) / beta
+        out["potential"] = {"x": x, "V": potential - np.nanmin(potential),
+                            "source": "saved reference density"}
+    else:
+        for key in ("cdf", "pdf", "potential"):
+            out[key] = _missing(directory, "reference_grid.npz")
+
+    validation_file = directory / "reference_validation.json"
+    if validation_file.is_file():
+        validation = _load_json(validation_file)
+        out["validation"] = validation
+        self_w2 = validation.get("self_w2") or {}
+        if "mean" in self_w2:
+            mean, sd = float(self_w2["mean"]), float(self_w2.get("sd", 0.0))
+            # The reference-versus-reference floor is a saved number; the band
+            # is mean +- one standard deviation over its replicates.
+            out["sampling_floor"] = {"W2_exact_1d": {
+                "lo": mean - sd, "hi": mean + sd, "mean": mean, "sd": sd,
+                "source": str(validation_file)}}
+        else:
+            out["sampling_floor"] = _MissingArtifact(
+                f"{validation_file} records no self_w2 mean")
+    else:
+        out["validation"] = _missing(directory, "reference_validation.json")
+        out["sampling_floor"] = _missing(directory,
+                                         "reference_validation.json")
+
+
+def _reference_e2(directory: Path, record: dict, out: dict) -> None:
+    """E2: frozen descriptor masses, EMC*, and a background from the bank."""
+    masses_file = directory / "descriptor_masses.npz"
+    if masses_file.is_file():
+        arrays = _load_npz(masses_file)
+        p_star = np.asarray(arrays["p_star"], dtype=float).ravel()
+        out["p_star"] = p_star
+        # One fixed mode order, taken from the frozen reference masses and used
+        # unchanged for every method.
+        out["mode_order"] = [f"{index:03d}"
+                             for index in np.argsort(-p_star, kind="stable")]
+        out["mode_order_rule"] = "descending reference descriptor mass p*"
+    else:
+        out["p_star"] = _missing(directory, "descriptor_masses.npz")
+        out["mode_order"] = None
+
+    emc = record.get("emc_star")
+    if emc is None:
+        diagnostics = directory / "diagnostics.json"
+        if diagnostics.is_file():
+            emc = _load_json(diagnostics).get("emc_star")
+    out["emc_star"] = (float(emc) if emc is not None
+                       else _MissingArtifact(
+                           f"neither {directory / 'reference.json'} nor "
+                           f"{directory / 'diagnostics.json'} records emc_star"))
+
+    bank_file = directory / "reference_samples.npz"
+    if bank_file.is_file():
+        bank = np.asarray(_load_npz(bank_file)["sample_bank"], dtype=float)
+        out["background"] = _density_background(
+            bank, label="exact reference log-density",
+            source=str(bank_file))
+    else:
+        out["background"] = _missing(directory, "reference_samples.npz")
+
+
+def _reference_e3(directory: Path, record: dict, out: dict) -> None:
+    """E3: the CV grid and the reference free-energy surface on it."""
+    grid_file = directory / "cv_grid.npz"
+    fes_file = directory / "fes_grid.npz"
+    if grid_file.is_file() and fes_file.is_file():
+        grid = _load_npz(grid_file)
+        axis_1 = np.asarray(grid["axis_1"], dtype=float).ravel()
+        axis_2 = np.asarray(grid["axis_2"], dtype=float).ravel()
+        # The surfaces are stored with "ij" indexing (axis_1 first), while a
+        # contour plot wants (len(y), len(x)).
+        out["background"] = {
+            "x": axis_1, "y": axis_2,
+            "z": np.asarray(_load_npz(fes_file)["fes_grid"], dtype=float).T,
+            "label": "reference CV free-energy surface",
+            "is_estimate": False, "source": str(fes_file)}
+    else:
+        out["background"] = _missing(
+            directory, "cv_grid.npz / fes_grid.npz")
+    density_file = directory / "density_grid.npz"
+    out["density_grid"] = (
+        np.asarray(_load_npz(density_file)["density_grid"], dtype=float).T
+        if density_file.is_file() else _missing(directory, "density_grid.npz"))
+    diagnostics = directory / "diagnostics.json"
+    out["validation"] = (_load_json(diagnostics).get("validation", {})
+                         if diagnostics.is_file()
+                         else _missing(directory, "diagnostics.json"))
+
+
+def _reference_e4(directory: Path, record: dict, out: dict) -> None:
+    """E4: the order-parameter free-energy estimate and the validation record."""
+    grid_file = directory / "reference_order_parameter_grid.npz"
+    if grid_file.is_file():
+        grid = _load_npz(grid_file)
+        out["background"] = {
+            "x": np.asarray(grid["m_x_centers"], dtype=float).ravel(),
+            "y": np.asarray(grid["m_y_centers"], dtype=float).ravel(),
+            "z": np.asarray(grid["free_energy"], dtype=float).T,
+            "label": "reference free-energy estimate",
+            # A binned estimate from the PT bank, not an exact surface.
+            "is_estimate": True, "source": str(grid_file)}
+        out["p_star"] = np.asarray(grid["p_star"], dtype=float)
+    else:
+        out["background"] = _missing(
+            directory, "reference_order_parameter_grid.npz")
+        out["p_star"] = _missing(directory,
+                                 "reference_order_parameter_grid.npz")
+    validation_file = directory / "reference_validation.json"
+    out["validation"] = (_load_json(validation_file)
+                         if validation_file.is_file()
+                         else _missing(directory, "reference_validation.json"))
+
+
+def _density_background(samples, *, label: str, source: str,
+                        bins: int = 120) -> dict:
+    """Display-only log-density surface of a saved exact reference bank.
+
+    A binned rendering of samples that were already saved. It is background
+    decoration and never stands in for a metric.
+    """
+    samples = np.asarray(samples, dtype=float)
+    if samples.ndim != 2 or samples.shape[1] < 2:
+        raise ValueError("a density background needs (N, 2) saved samples, got "
+                         f"shape {samples.shape}")
+    counts, x_edges, y_edges = np.histogram2d(samples[:, 0], samples[:, 1],
+                                              bins=bins, density=True)
+    with np.errstate(divide="ignore"):
+        z = np.log(np.where(counts > 0.0, counts, np.nan))
+    floor = np.nanpercentile(z, 1.0)
+    return {"x": 0.5 * (x_edges[1:] + x_edges[:-1]),
+            "y": 0.5 * (y_edges[1:] + y_edges[:-1]),
+            "z": np.nan_to_num(z, nan=floor).T,
+            "label": label, "is_estimate": True, "source": source}
+
+
+def _resolve_reference(runs, reference):
+    """The caller's reference, or the one saved next to these runs."""
+    if reference is not None:
+        return dict(reference)
+    return load_reference_artifacts(runs[0].experiment_dir)
+
+
+def _resolve_background(runs, spec, background, reference):
+    """The saved background surface named by the spec."""
+    if background is not None:
+        return dict(background)
+    artifacts = _resolve_reference(runs, reference)
+    surface = artifacts.get("background")
+    if surface is None:
+        raise KeyError(
+            f"the saved reference at {artifacts.get('reference_dir')} carries "
+            f"no background surface for {spec.get('background', 'this figure')}")
+    return dict(_unwrap_artifact(
+        surface, f"figure {spec.get('name', spec.get('kind'))} needs the "
+                 f"background {spec.get('background', '')}".strip()))
 
 
 # --------------------------------------------------------------- run styling
@@ -1069,119 +1323,215 @@ def _record_provenance(figure: Figure, payload: dict) -> None:
 
 
 # ------------------------------------------------------------ figure builders
-def curve_figure(runs, spec: dict, registry: dict, *, x_axis: str) -> Figure:
-    """``kind: metric_grid`` -- one metric per row against one x axis.
+def curve_figure(runs, spec: dict, registry: dict = None, *, x_axis=None,
+                 reference=None) -> Figure:
+    """``kind: metric_grid`` -- rows are metrics, columns are the x axes.
 
-    Every official curve is produced against both the simulation-time axis and
-    the FEE axis by calling this twice. The extra-potential axis is a separate,
-    LSC-only figure with a fixed title.
+    With no ``x_axis`` the axes come from ``spec['columns']``, so one call
+    produces the metric-by-axis grid the plot config describes: every official
+    curve against simulation time and against force-equivalent cost. Passing
+    ``x_axis`` restricts the figure to that single axis. A ``mode_metric_panel``
+    spec is routed to :func:`mode_metric_panel`.
     """
     runs = _require_runs(runs, "curve_figure")
-    spec = dict(spec or {})
+    registry = load_registry() if registry is None else registry
+    spec = _with_defaults(spec)
+    kind = spec.get("kind", "metric_grid")
+    if kind == "mode_metric_panel":
+        return mode_metric_panel(runs, spec, registry, reference=reference)
+    if kind != "metric_grid":
+        raise ValueError(
+            f"curve_figure draws metric_grid and mode_metric_panel specs, not "
+            f"{kind!r}; use snapshot_figure() for {kind!r}")
     metrics = list(spec.get("metrics") or [])
     if not metrics:
         raise ValueError("curve_figure needs spec['metrics']; none were given")
-    column = _x_column(x_axis)
-    _apply_gate(runs, spec, x_axis)
+    axes_names = ([x_axis] if x_axis is not None
+                  else list(spec.get("columns") or DEFAULT_CURVE_X_AXES))
+    if not axes_names:
+        raise ValueError("curve_figure needs at least one x axis; spec"
+                         "['columns'] is empty")
 
     title = spec.get("title")
-    if x_axis == "extra_potential":
+    if "extra_potential" in axes_names:
+        if len(axes_names) > 1:
+            raise ValueError(
+                "the extra-potential axis counts LSC score potential "
+                "evaluations only, so it is its own figure; it cannot share a "
+                f"grid with {axes_names}")
         if title not in (None, EXTRA_POTENTIAL_TITLE):
             raise ValueError("the extra-potential figure title must be "
                              f"{EXTRA_POTENTIAL_TITLE!r}, not {title!r}")
         title = EXTRA_POTENTIAL_TITLE
+    for name in axes_names:
+        _apply_gate(runs, spec, name)
 
+    floors = _sampling_floors(runs, spec, reference)
     uncertainty = spec.get("uncertainty")
     indices = _hyperparameter_indices(runs)
-    figure = _new_figure(4.6, 2.3 * len(metrics) + 0.9)
-    axes_grid = figure.subplots(len(metrics), 1, squeeze=False)[:, 0]
+    figure = _new_figure(3.4 * len(axes_names) + 0.6,
+                         2.2 * len(metrics) + 0.9)
+    axes_grid = figure.subplots(len(metrics), len(axes_names), squeeze=False)
     handles, labels, drawn = [], [], 0
+    floors_drawn, floors_absent = [], []
 
-    for axes, metric in zip(axes_grid, metrics):
+    for row, metric in enumerate(metrics):
         metric_column = metric["column"]
-        for run in runs:
-            if metric_column not in run.metrics:
-                continue
-            style = _run_style(registry, run, indices)
-            x, centre, lo, hi = seed_aggregate(run.metrics, metric_column,
-                                               column, uncertainty=uncertainty)
-            keep = np.isfinite(centre)
-            if not keep.any():
-                continue
-            drawn += 1
-            line, = axes.plot(x[keep], centre[keep], color=style["color"],
-                              linestyle=style["linestyle"],
-                              marker=style["marker"],
-                              markevery=max(1, int(keep.sum()) // 12),
-                              markersize=_MARKER_SIZE, label=style["label"])
-            axes.fill_between(x[keep], lo[keep], hi[keep], color=style["color"],
-                              alpha=_BAND_ALPHA, linewidth=0)
-            _collect(handles, labels, line, style["label"])
-        _draw_sampling_floor(axes, spec, metric)
-        axes.set_ylabel(_guard_display_text(metric.get("label", metric_column)))
-        if metric.get("log_y"):
-            axes.set_yscale("log")
-        if spec.get("log_x"):
-            axes.set_xscale("log")
+        for position, x_name in enumerate(axes_names):
+            axes = axes_grid[row][position]
+            column = _x_column(x_name)
+            for run in runs:
+                if metric_column not in run.metrics:
+                    continue
+                style = _run_style(registry, run, indices)
+                x, centre, lo, hi = seed_aggregate(run.metrics, metric_column,
+                                                   column,
+                                                   uncertainty=uncertainty)
+                keep = np.isfinite(centre)
+                if not keep.any():
+                    continue
+                drawn += 1
+                line, = axes.plot(x[keep], centre[keep], color=style["color"],
+                                  linestyle=style["linestyle"],
+                                  marker=style["marker"],
+                                  markevery=max(1, int(keep.sum()) // 12),
+                                  markersize=_MARKER_SIZE, label=style["label"])
+                axes.fill_between(x[keep], lo[keep], hi[keep],
+                                  color=style["color"], alpha=_BAND_ALPHA,
+                                  linewidth=0)
+                _collect(handles, labels, line, style["label"])
+            if floors is not None:
+                (floors_drawn if _draw_sampling_floor(axes, floors,
+                                                      metric_column)
+                 else floors_absent).append(metric_column)
+            if position == 0:
+                axes.set_ylabel(_guard_display_text(
+                    metric.get("label", metric_column)))
+            if metric.get("log_y"):
+                axes.set_yscale("log")
+            if spec.get("log_x"):
+                axes.set_xscale("log")
+            if row == len(metrics) - 1:
+                axes.set_xlabel(_x_label(spec, x_name))
     if drawn == 0:
         raise ValueError(
             "curve_figure drew nothing: none of the loaded runs carry the "
             f"columns {[metric['column'] for metric in metrics]}. The first "
             f"run saved {sorted(runs[0].metrics)}")
 
-    axes_grid[-1].set_xlabel(_x_label(spec, x_axis))
     if title:
         figure.suptitle(_guard_display_text(title))
     _figure_legend(figure, handles, labels)
     _record_provenance(figure, {
-        "kind": "metric_grid", "x_axis": x_axis, "x_column": column,
+        "kind": "metric_grid", "x_axes": axes_names,
+        "x_columns": [_x_column(name) for name in axes_names],
         "metrics": [metric["column"] for metric in metrics],
         "runs": [{"run_id": run.run_id, "variant_label": run.variant_label}
                  for run in runs],
         "fee_calibration_hashes": sorted({run.fee_calibration_hash
                                           for run in runs}),
+        "sampling_floor_drawn": sorted(set(floors_drawn)),
+        "sampling_floor_absent": sorted(set(floors_absent)),
     })
     return figure
 
 
-def _draw_sampling_floor(axes, spec: dict, metric: dict) -> None:
-    """Reference-versus-reference floor as a grey band, from saved numbers."""
+def _with_defaults(spec) -> dict:
+    """One figure spec with the plot config's file-level defaults folded in.
+
+    The notebooks pass the raw ``figures[...]`` entry, so the defaults have to
+    be supplied here rather than in a notebook cell.
+    """
+    spec = dict(spec or {})
+    spec.setdefault("uncertainty", DEFAULT_UNCERTAINTY)
+    spec.setdefault("x_axis_labels", DEFAULT_X_AXIS_LABELS)
+    spec.setdefault("snapshot_time_policy", "nearest_below")
+    return spec
+
+
+def _sampling_floors(runs, spec: dict, reference):
+    """The saved reference-versus-reference floors, when a spec asks for them."""
     if not spec.get("show_sampling_floor"):
-        return
+        return None
     floors = spec.get("sampling_floor")
-    column = metric["column"]
-    if not isinstance(floors, dict) or column not in floors:
+    if floors is None:
+        artifacts = _resolve_reference(runs, reference)
+        floors = _unwrap_artifact(
+            artifacts.get("sampling_floor",
+                          _MissingArtifact(
+                              "the saved reference records no sampling floor")),
+            "this figure sets show_sampling_floor")
+    if not isinstance(floors, dict) or not floors:
         raise ValueError(
-            "spec sets show_sampling_floor but supplies no saved floor for "
-            f"{column!r}. Pass spec['sampling_floor'] = {{column: {{'lo': ..., "
-            "'hi': ...}}}} read from the saved reference validation artifact; "
-            "this module never recomputes it.")
-    entry = floors[column]
+            "show_sampling_floor is set but the saved reference records no "
+            "reference-versus-reference floor; this module never recomputes "
+            "one")
+    return floors
+
+
+def _draw_sampling_floor(axes, floors: dict, column: str) -> bool:
+    """Grey band for one metric's saved floor. False when none was recorded."""
+    entry = floors.get(column)
+    if entry is None:
+        return False
     if isinstance(entry, dict):
         lo, hi = float(entry["lo"]), float(entry["hi"])
     else:
         lo = hi = float(entry)
     axes.axhspan(lo, hi, color="0.75", alpha=0.35, linewidth=0, zorder=0)
+    return True
 
 
-def twin_axis_cdf_figure(runs, spec: dict, registry: dict, *,
-                         reference: dict) -> Figure:
+def snapshot_figure(runs, spec: dict, registry: dict = None, *, reference=None,
+                    background=None) -> Figure:
+    """Draw whichever snapshot-based figure ``spec['kind']`` names.
+
+    The reference artifacts and the background surface are read from the saved
+    reference directory beside the runs unless the caller passes them.
+    """
+    runs = _require_runs(runs, "snapshot_figure")
+    registry = load_registry() if registry is None else registry
+    spec = _with_defaults(spec)
+    kind = spec.get("kind")
+    if kind == "twin_axis_cdf":
+        return twin_axis_cdf_figure(runs, spec, registry,
+                                    reference=reference)
+    if kind == "contour_scatter_grid":
+        return contour_scatter_grid(runs, spec, registry,
+                                    background=background, reference=reference)
+    if kind == "snapshot_matrix":
+        return snapshot_matrix(runs, spec, registry, background=background,
+                               reference=reference)
+    if kind == "supplement_panels":
+        return supplement_panels(runs, spec, registry, reference=reference,
+                                 background=background)
+    if kind == "mode_metric_panel":
+        return mode_metric_panel(runs, spec, registry, reference=reference)
+    raise ValueError(
+        f"snapshot_figure does not know figure kind {kind!r}; it draws "
+        "twin_axis_cdf, contour_scatter_grid, snapshot_matrix, "
+        "supplement_panels, and mode_metric_panel")
+
+
+def twin_axis_cdf_figure(runs, spec: dict, registry: dict = None, *,
+                         reference=None) -> Figure:
     """``kind: twin_axis_cdf`` -- CDFs on the left, the potential on the right.
 
     One figure with two y axes, not two panels. The CDFs are display-only
     renderings of the snapshot saved at the matched simulation time.
     """
     runs = _require_runs(runs, "twin_axis_cdf_figure")
-    spec = dict(spec or {})
-    if not isinstance(reference, dict) or not reference:
+    registry = load_registry() if registry is None else registry
+    spec = _with_defaults(spec)
+    reference = _resolve_reference(runs, reference)
+    if not reference:
         raise ValueError(
             "twin_axis_cdf_figure needs the saved reference: pass "
             "reference={'cdf': {'x': ..., 'F': ...} or 'samples': ..., "
             "'potential': {'x': ..., 'V': ...}}")
     left = dict(spec.get("left_axis") or {})
     right = dict(spec.get("right_axis") or {})
-    requested = float(spec.get("snapshot_time",
-                               (spec.get("snapshot_times") or [0.0])[-1]))
+    requested = _requested_snapshot_time(runs, spec)
     policy = str(spec.get("snapshot_time_policy", "nearest_below"))
 
     indices = _hyperparameter_indices(runs)
@@ -1190,6 +1540,8 @@ def twin_axis_cdf_figure(runs, spec: dict, registry: dict, *,
     twin = axes.twinx()
 
     potential = reference.get("potential")
+    if isinstance(potential, _MissingArtifact):
+        potential = None
     if potential is not None:
         style = dict(right.get("style") or {})
         twin.plot(np.asarray(potential["x"], dtype=float),
@@ -1219,9 +1571,14 @@ def twin_axis_cdf_figure(runs, spec: dict, registry: dict, *,
     if left.get("include_exact_target", True):
         exact = dict(left.get("exact_style") or {})
         base = _reference_style(registry)
-        if "cdf" in reference:
-            grid = np.asarray(reference["cdf"]["x"], dtype=float)
-            cdf = np.asarray(reference["cdf"]["F"], dtype=float)
+        saved_cdf = reference.get("cdf")
+        if isinstance(saved_cdf, _MissingArtifact) and "samples" in reference:
+            saved_cdf = None
+        if saved_cdf is not None:
+            saved_cdf = _unwrap_artifact(
+                saved_cdf, "this figure draws the exact target CDF")
+            grid = np.asarray(saved_cdf["x"], dtype=float)
+            cdf = np.asarray(saved_cdf["F"], dtype=float)
         elif "samples" in reference:
             grid, cdf = _empirical_cdf(reference["samples"])
         else:
@@ -1245,15 +1602,13 @@ def twin_axis_cdf_figure(runs, spec: dict, registry: dict, *,
     return figure
 
 
-def contour_scatter_grid(runs, spec: dict, registry: dict, *,
-                         background: dict) -> Figure:
+def contour_scatter_grid(runs, spec: dict, registry: dict = None, *,
+                         background=None, reference=None) -> Figure:
     """``kind: contour_scatter_grid`` -- one panel per method, sharing everything."""
     runs = _require_runs(runs, "contour_scatter_grid")
-    spec = dict(spec or {})
-    if not isinstance(background, dict) or not background:
-        raise ValueError(
-            "contour_scatter_grid needs the saved background surface: pass "
-            "background={'x': ..., 'y': ..., 'z': ...}")
+    registry = load_registry() if registry is None else registry
+    spec = _with_defaults(spec)
+    background = _resolve_background(runs, spec, background, reference)
     coordinates = str(spec.get("coordinates", "x"))
     if spec.get("snapshot_time") is None:
         raise ValueError("contour_scatter_grid needs spec['snapshot_time']")
@@ -1307,10 +1662,11 @@ def contour_scatter_grid(runs, spec: dict, registry: dict, *,
 
     consistency = assert_panels_consistent(panels)
     caption = spec.get("title")
+    estimate = bool(spec.get("background_is_estimate")
+                    or background.get("is_estimate"))
     if caption is None:
         caption = (f"matched simulation time $t={realised[0]['realised_t']:g}$"
-                   + (" (reference estimate background)"
-                      if spec.get("background_is_estimate") else ""))
+                   + (" (reference estimate background)" if estimate else ""))
     figure.suptitle(_guard_display_text(caption))
     _record_provenance(figure, {"kind": "contour_scatter_grid",
                                 "requested_time": requested,
@@ -1319,20 +1675,18 @@ def contour_scatter_grid(runs, spec: dict, registry: dict, *,
     return figure
 
 
-def snapshot_matrix(runs, spec: dict, registry: dict, *,
-                    background: dict) -> Figure:
+def snapshot_matrix(runs, spec: dict, registry: dict = None, *,
+                    background=None, reference=None) -> Figure:
     """``kind: snapshot_matrix`` -- methods down the rows, matched times across."""
     runs = _require_runs(runs, "snapshot_matrix")
-    spec = dict(spec or {})
+    registry = load_registry() if registry is None else registry
+    spec = _with_defaults(spec)
     if spec.get("annotate_critical_points"):
         raise ValueError(
             "annotate_critical_points is refused on purpose: this figure shows "
             "the CV distribution, not a kinetic story, so it carries no minima, "
             "saddle, basin-boundary, jump-arrow, or transition-path marks")
-    if not isinstance(background, dict) or not background:
-        raise ValueError(
-            "snapshot_matrix needs the saved background surface: pass "
-            "background={'x': ..., 'y': ..., 'z': ...}")
+    background = _resolve_background(runs, spec, background, reference)
     times = list(spec.get("snapshot_times") or [])
     if not times:
         raise ValueError("snapshot_matrix needs spec['snapshot_times']")
@@ -1399,8 +1753,8 @@ def snapshot_matrix(runs, spec: dict, registry: dict, *,
     return figure
 
 
-def mode_metric_panel(runs, spec: dict, registry: dict, *,
-                      reference: dict) -> Figure:
+def mode_metric_panel(runs, spec: dict, registry: dict = None, *,
+                      reference=None) -> Figure:
     """``kind: mode_metric_panel`` -- mode coverage, mode weights, occupancy.
 
     The coverage panel's reference line is the frozen ``EMC*`` the caller read
@@ -1409,8 +1763,9 @@ def mode_metric_panel(runs, spec: dict, registry: dict, *,
     the mode order is the reference's, fixed for every method.
     """
     runs = _require_runs(runs, "mode_metric_panel")
-    spec = dict(spec or {})
-    reference = dict(reference or {})
+    registry = load_registry() if registry is None else registry
+    spec = _with_defaults(spec)
+    reference = _resolve_reference(runs, reference)
     panels = list(spec.get("panels") or [])
     if not panels:
         raise ValueError("mode_metric_panel needs spec['panels']")
@@ -1511,12 +1866,12 @@ def _resolve_reference_value(line_spec, reference: dict) -> float:
     for part in key.split("."):
         if not isinstance(node, dict) or part not in node:
             raise KeyError(
-                f"the caller's reference has no {source!r} (looked for {part!r} "
+                f"the saved reference has no {source!r} (looked for {part!r} "
                 f"in {sorted(node) if isinstance(node, dict) else node}). This "
                 "line must be the frozen reference value; it is never defaulted "
                 "to 1.0.")
         node = node[part]
-    return float(node)
+    return float(_unwrap_artifact(node, f"the reference line {source!r}"))
 
 
 def _draw_occupancy_profile(axes_row, panel: dict, runs, registry, reference,
@@ -1525,28 +1880,33 @@ def _draw_occupancy_profile(axes_row, panel: dict, runs, registry, reference,
     times = list(panel.get("snapshot_times") or [])
     if not times:
         raise ValueError("occupancy_profile needs snapshot_times")
-    prefix = str(panel.get("column_prefix", "occupancy_ratio_"))
     order = reference.get("mode_order")
+    if isinstance(order, _MissingArtifact):
+        order = None
     realised = []
     for position, requested in enumerate(times):
         axes = axes_row[position]
         realised_here = None
         for run in runs:
-            names = sorted(name for name in run.metrics
-                           if name.startswith(prefix))
+            prefix, names = _metric_family(run, panel.get("quantity",
+                                                          "occupancy_ratio"),
+                                           panel.get("column_prefix"))
             if not names:
                 raise KeyError(
-                    f"run {run.run_id} saved no {prefix}* columns; this panel "
-                    "plots saved per-mode occupancy ratios and never "
-                    "recomputes them")
+                    f"run {run.run_id} saved no per-mode occupancy columns "
+                    f"(looked for a {prefix}* family); this panel plots saved "
+                    "occupancy ratios and never recomputes them")
             if order is not None:
-                lookup = {name[len(prefix):]: name for name in names}
-                missing = [str(mode) for mode in order if str(mode) not in lookup]
+                # One ordering, taken from the reference and applied to every
+                # method; the modes are never re-sorted per method.
+                lookup = {_mode_key(name[len(prefix):]): name for name in names}
+                missing = [str(mode) for mode in order
+                           if _mode_key(mode) not in lookup]
                 if missing:
                     raise KeyError(
                         f"the reference mode order names {missing} but run "
                         f"{run.run_id} saved {sorted(lookup)}")
-                names = [lookup[str(mode)] for mode in order]
+                names = [lookup[_mode_key(mode)] for mode in order]
             t_values = np.asarray(run.metrics["t"], dtype=float)
             grid = np.unique(t_values[np.isfinite(t_values)])
             candidates = grid[grid <= float(requested) + 1e-9]
@@ -1578,24 +1938,25 @@ def _draw_occupancy_profile(axes_row, panel: dict, runs, registry, reference,
     return realised
 
 
-def supplement_panels(runs, spec: dict, registry: dict, *,
-                      reference: dict) -> Figure:
+def supplement_panels(runs, spec: dict, registry: dict = None, *,
+                      reference=None, background=None) -> Figure:
     """``kind: supplement_panels`` -- the mixed supplementary grid.
 
-    Every panel renders a saved snapshot array or a value from the caller's
-    saved reference. A quantity that was not measured at run time is an error,
-    not something this module computes.
+    Every panel renders a saved snapshot array, a saved metric column, or a
+    value from the saved reference. A quantity that was not measured at run
+    time is an error, not something this module computes.
     """
     runs = _require_runs(runs, "supplement_panels")
-    spec = dict(spec or {})
-    reference = dict(reference or {})
+    registry = load_registry() if registry is None else registry
+    spec = _with_defaults(spec)
+    reference = _resolve_reference(runs, reference)
     panels = list(spec.get("panels") or [])
     if not panels:
         raise ValueError("supplement_panels needs spec['panels']")
-    requested = float(spec.get("snapshot_time",
-                               (spec.get("snapshot_times") or [0.0])[-1]))
+    requested = _requested_snapshot_time(runs, spec)
     policy = str(spec.get("snapshot_time_policy", "nearest_below"))
     n_points = int(spec.get("points_per_panel", 3000))
+    uncertainty = spec.get("uncertainty")
     indices = _hyperparameter_indices(runs)
     snapshots = {run.run_id: select_snapshot(run, requested, policy=policy)
                  for run in runs}
@@ -1647,13 +2008,23 @@ def supplement_panels(runs, spec: dict, registry: dict, *,
                 _collect(handles, labels, line, style["label"])
             axes.set_xlabel(_guard_display_text(quantity))
             axes.set_ylabel("density (fixed-bandwidth KDE)")
-        elif kind in ("radial_distribution", "correlation_profile"):
+        elif kind == "radial_distribution":
             for run in runs:
                 style = _run_style(registry, run, indices)
                 values = np.asarray(_snapshot_quantity(
-                    snapshots[run.run_id], quantity), dtype=float)
-                profile = values.mean(axis=0) if values.ndim > 1 else values
-                line, = axes.plot(np.arange(profile.size), profile,
+                    snapshots[run.run_id], quantity), dtype=float).ravel()
+                axes.hist(values, bins=int(panel.get("bins", 40)),
+                          histtype="step", density=True, color=style["color"],
+                          linestyle=style["linestyle"], label=style["label"])
+            axes.set_xlabel(_guard_display_text(quantity))
+            axes.set_ylabel("density")
+        elif kind == "correlation_profile":
+            for run in runs:
+                style = _run_style(registry, run, indices)
+                names, profile = _metric_vector(run, quantity, requested,
+                                                uncertainty,
+                                                panel.get("column_prefix"))
+                line, = axes.plot(np.arange(len(profile)), profile,
                                   color=style["color"],
                                   linestyle=style["linestyle"],
                                   marker=style["marker"],
@@ -1662,14 +2033,28 @@ def supplement_panels(runs, spec: dict, registry: dict, *,
                 _collect(handles, labels, line, style["label"])
             axes.set_xlabel("separation")
             axes.set_ylabel(_guard_display_text(quantity))
-        elif kind in ("occupancy_bars", "scalar_bars"):
+        elif kind == "occupancy_bars":
+            width = 0.8 / max(len(runs), 1)
+            names = []
+            for position, run in enumerate(runs):
+                style = _run_style(registry, run, indices)
+                names, values = _metric_vector(run, quantity, requested,
+                                               uncertainty,
+                                               panel.get("column_prefix"))
+                axes.bar(np.arange(len(values)) + position * width, values,
+                         width=width, color=style["color"], alpha=0.85,
+                         label=style["label"])
+            axes.set_xticks(np.arange(len(names)) + 0.4 - width / 2.0)
+            axes.set_xticklabels([_guard_display_text(name) for name in names],
+                                 fontsize=7, rotation=90)
+        elif kind == "scalar_bars":
             names = (list(quantity) if isinstance(quantity, (list, tuple))
                      else [quantity])
             width = 0.8 / max(len(runs), 1)
             for position, run in enumerate(runs):
                 style = _run_style(registry, run, indices)
-                values = [float(np.mean(_snapshot_quantity(
-                    snapshots[run.run_id], name))) for name in names]
+                values = [_metric_scalar(run, name, requested, uncertainty)
+                          for name in names]
                 axes.bar(np.arange(len(names)) + position * width, values,
                          width=width, color=style["color"], alpha=0.85,
                          label=style["label"])
@@ -1678,22 +2063,22 @@ def supplement_panels(runs, spec: dict, registry: dict, *,
                                  fontsize=7)
         elif kind == "matrix_heatmap":
             run = runs[0]
-            matrix = np.asarray(_snapshot_quantity(snapshots[run.run_id],
-                                                   quantity), dtype=float)
-            if matrix.ndim == 1:
-                matrix = matrix[None, :]
+            names, values = _metric_vector(run, quantity, requested,
+                                           uncertainty,
+                                           panel.get("column_prefix"))
+            side = int(round(math.sqrt(len(values))))
+            matrix = (np.asarray(values, dtype=float).reshape(side, side)
+                      if side * side == len(values)
+                      else np.asarray(values, dtype=float)[None, :])
             image = axes.imshow(matrix, cmap=_background_cmap(registry),
                                 aspect="auto")
             figure.colorbar(image, ax=axes, fraction=0.046)
             _set_title(axes,
                        f"{quantity} ({_display_name(registry, run.method)})")
         elif kind == "contour_scatter":
-            background = reference.get("background")
-            if not isinstance(background, dict):
-                raise KeyError(
-                    "the contour_scatter supplement panel needs "
-                    "reference['background'] = {'x': ..., 'y': ..., 'z': ...}")
-            levels = _draw_background(axes, background, registry)
+            surface = _resolve_background(runs, {**spec, **panel}, background,
+                                          reference)
+            levels = _draw_background(axes, surface, registry)
             clouds = []
             for run in runs:
                 points = np.asarray(_snapshot_quantity(
@@ -1746,9 +2131,118 @@ def supplement_panels(runs, spec: dict, registry: dict, *,
 
 
 def _snapshot_quantity(snapshot: Snapshot, name):
+    """A per-particle quantity from a saved snapshot.
+
+    Either an array the measurement suite saved, or a display-only slice of one
+    (``mx`` is column 0 of the saved order parameter). Nothing is recomputed
+    from the sample positions.
+    """
     if name is None:
         raise ValueError("a supplement panel needs a 'quantity'")
-    return snapshot.coordinates(str(name))
+    name = str(name)
+    if name in snapshot.arrays:
+        return snapshot.coordinates(name)
+    derived = _DERIVED_SNAPSHOT_QUANTITIES.get(name)
+    if derived is not None and derived[0] in snapshot.arrays:
+        source = np.asarray(snapshot.coordinates(derived[0]), dtype=float)
+        if derived[1] == "norm":
+            return np.linalg.norm(source, axis=-1)
+        return source[:, int(derived[1])]
+    raise KeyError(
+        f"{snapshot.path} saved no array {name!r}; it saved "
+        f"{sorted(snapshot.arrays)} and this module can slice "
+        f"{sorted(_DERIVED_SNAPSHOT_QUANTITIES)} out of them. The measurement "
+        "suite has to save the quantity at run time; plotting never recomputes "
+        "it.")
+
+
+def _mode_key(token):
+    text = str(token)
+    return int(text) if text.isdigit() else text
+
+
+def _metric_family(run: RunData, quantity, explicit_prefix=None):
+    """The saved metric-column family for one vector quantity.
+
+    Only numeric suffixes count, so ``susceptibility_`` picks up
+    ``susceptibility_00`` but not ``susceptibility_relative_frobenius``.
+    """
+    candidates = []
+    if explicit_prefix:
+        candidates.append(str(explicit_prefix))
+    known = _METRIC_FAMILY_PREFIXES.get(str(quantity))
+    if known:
+        candidates.append(known)
+    candidates += [f"mode_{quantity}_", f"{quantity}_"]
+    for prefix in candidates:
+        names = sorted(name for name in run.metrics
+                       if name.startswith(prefix)
+                       and name[len(prefix):].isdigit())
+        if names:
+            return prefix, names
+    return candidates[0], []
+
+
+def _metric_slot(run: RunData, requested_time: float):
+    """The saved checkpoint at or below ``requested_time`` and its row index."""
+    t_values = np.asarray(run.metrics["t"], dtype=float)
+    grid = np.unique(t_values[np.isfinite(t_values)])
+    candidates = grid[grid <= float(requested_time) + 1e-9]
+    if candidates.size == 0:
+        raise ValueError(f"run {run.run_id} has no checkpoint at or below "
+                         f"t={float(requested_time):g}")
+    realised = float(candidates.max())
+    return grid, int(np.argmin(np.abs(grid - realised))), realised
+
+
+def _metric_vector(run: RunData, quantity, requested_time, uncertainty,
+                   explicit_prefix=None):
+    """``(labels, values)`` of a saved metric-column family at a matched time."""
+    prefix, names = _metric_family(run, quantity, explicit_prefix)
+    if not names:
+        raise KeyError(
+            f"run {run.run_id} saved no {prefix}* metric columns for "
+            f"{quantity!r}; this panel plots saved numbers and never "
+            f"recomputes them. It saved {sorted(run.metrics)}")
+    _, slot, _ = _metric_slot(run, requested_time)
+    values = [float(seed_aggregate(run.metrics, name, "t",
+                                   uncertainty=uncertainty)[1][slot])
+              for name in names]
+    return [name[len(prefix):] for name in names], values
+
+
+def _metric_scalar(run: RunData, quantity, requested_time,
+                   uncertainty) -> float:
+    """One saved scalar metric at a matched time, by name or ``<name>_error``."""
+    for column in (str(quantity), f"{quantity}_error", f"{quantity}_mean"):
+        if column in run.metrics:
+            _, slot, _ = _metric_slot(run, requested_time)
+            return float(seed_aggregate(run.metrics, column, "t",
+                                        uncertainty=uncertainty)[1][slot])
+    raise KeyError(
+        f"run {run.run_id} saved no metric column for {quantity!r} (tried "
+        f"{quantity!r}, {quantity}_error, {quantity}_mean); this panel plots "
+        "saved numbers and never recomputes them")
+
+
+def _requested_snapshot_time(runs, spec: dict) -> float:
+    """The spec's snapshot time, or the latest time every run saved."""
+    for key in ("snapshot_time",):
+        if spec.get(key) is not None:
+            return float(spec[key])
+    times = spec.get("snapshot_times")
+    if times:
+        return float(times[-1])
+    common = None
+    for run in runs:
+        available = set(run.snapshot_times())
+        common = available if common is None else (common & available)
+    if not common:
+        raise ValueError(
+            "this figure names no snapshot_time and the loaded runs share no "
+            "saved checkpoint; snapshots are matched by simulation time and "
+            "never interpolated")
+    return float(max(common))
 
 
 def _resolve_reference_table(source, reference: dict) -> dict:
@@ -1758,12 +2252,39 @@ def _resolve_reference_table(source, reference: dict) -> dict:
     node = reference
     for part in [item for item in key.split(".") if item]:
         if not isinstance(node, dict) or part not in node:
-            raise KeyError(f"the caller's reference has no {source!r}")
-        node = node[part]
-    if not isinstance(node, dict):
-        raise TypeError(f"reference entry {source!r} is not a table of scalars")
-    return {str(key): value for key, value in node.items()
-            if isinstance(value, (int, float)) and not isinstance(value, bool)}
+            raise KeyError(f"the saved reference has no {source!r}")
+        node = _unwrap_artifact(node[part], f"the panel source {source!r}")
+    node = _unwrap_artifact(node, f"the panel source {source!r}")
+    table = _flatten_scalars(node)
+    if not table:
+        raise ValueError(
+            f"the saved reference entry {source!r} holds no numeric values to "
+            "draw")
+    return table
+
+
+def _flatten_scalars(node, prefix: str = "", depth: int = 1) -> dict:
+    """Numeric leaves of a saved validation record, one nesting level deep."""
+    out = {}
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                out[f"{prefix}{key}"] = float(value)
+            elif depth > 0 and isinstance(value, (dict, list)):
+                out.update(_flatten_scalars(value, f"{key}.", depth - 1))
+    elif isinstance(node, list):
+        for item in node:
+            if not isinstance(item, dict):
+                continue
+            name = (item.get("check") or item.get("name") or item.get("gate")
+                    or item.get("statistic"))
+            for field in ("value", "observed", "measured"):
+                value = item.get(field)
+                if isinstance(value, (int, float)) and not isinstance(value,
+                                                                      bool):
+                    out[f"{prefix}{name}"] = float(value)
+                    break
+    return out
 
 
 # ------------------------------------------------------------------- output
