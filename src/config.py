@@ -201,34 +201,63 @@ def default_variants(registry: dict, method_configs: dict, experiment_id: str,
 
 
 # -------------------------------------------------------------- checkpoints
-def checkpoint_steps(n_steps: int, *, dense_count: int, dense_fraction: float,
-                     sparse_count: int, include_initial: bool = True,
-                     include_terminal: bool = True) -> list[int]:
-    """One shared checkpoint schedule, identical across every method.
+def checkpoint_time_grid(final_time: float, *, dense_count: int,
+                         dense_fraction: float, sparse_count: int,
+                         include_initial: bool = True,
+                         include_terminal: bool = True) -> list[float]:
+    """The shared checkpoint schedule, defined in SIMULATION TIME.
 
     Dense early coverage, because the nonlocal methods equilibrate within about
-    one ``lambda^-1``, then sparse coverage to the end. Step 0 is included when
-    ``include_initial`` is set; every method starts from the same initial
-    ensemble, so those rows are identical by construction and anchor the curves.
+    one ``lambda^-1``, then sparse coverage to the end.
+
+    The schedule is in time rather than steps on purpose. Canonical and tamed
+    variants calibrate to different timesteps, so a step-based schedule would
+    put them on different time grids and the paired ablation would be comparing
+    curves sampled at different places. Defining it in time and mapping to steps
+    per timestep keeps every variant on one grid.
+
+    Time 0 is included when ``include_initial`` is set: every method starts from
+    the same initial ensemble, so those rows agree by construction and anchor
+    the curves.
     """
-    if n_steps < 1:
-        raise ValueError("n_steps must be positive")
+    if final_time <= 0.0:
+        raise ValueError("final_time must be positive")
     if dense_count < 1 or sparse_count < 1:
         raise ValueError("dense_count and sparse_count must be positive")
     if not 0.0 <= dense_fraction <= 1.0:
         raise ValueError("dense_fraction must lie in [0, 1]")
-    dense_end = min(n_steps, max(dense_count, int(round(n_steps * dense_fraction))))
-    dense = np.linspace(1, dense_end, min(dense_count, dense_end))
-    remaining = n_steps - dense_end
-    sparse = (np.linspace(dense_end + 1, n_steps, min(sparse_count, remaining))
-              if remaining > 0 else np.empty(0))
-    steps = sorted({int(round(value))
-                    for value in np.concatenate([dense, sparse])})
-    if include_terminal and steps[-1] != n_steps:
-        steps.append(n_steps)
+    dense_end = final_time * dense_fraction
+    dense = np.linspace(dense_end / dense_count, dense_end, dense_count)
+    sparse = np.linspace(dense_end, final_time, sparse_count + 1)[1:]
+    times = sorted(set(np.concatenate([dense, sparse]).tolist()))
+    if include_terminal and abs(times[-1] - final_time) > 1e-12:
+        times.append(float(final_time))
     if include_initial:
-        steps = [0] + steps
+        times = [0.0] + times
+    return [float(value) for value in times]
+
+
+def steps_from_times(times, dt: float, n_steps: int) -> list[int]:
+    """Map a time grid onto the nearest available steps for one timestep."""
+    steps = sorted({min(n_steps, max(0, int(round(time / dt))))
+                    for time in times})
+    if steps[-1] != n_steps:
+        steps.append(n_steps)
     return steps
+
+
+def checkpoint_steps(n_steps: int, *, dense_count: int, dense_fraction: float,
+                     sparse_count: int, include_initial: bool = True,
+                     include_terminal: bool = True) -> list[int]:
+    """The shared schedule expressed in steps for a run of ``n_steps``."""
+    if n_steps < 1:
+        raise ValueError("n_steps must be positive")
+    times = checkpoint_time_grid(
+        float(n_steps), dense_count=dense_count, dense_fraction=dense_fraction,
+        sparse_count=sparse_count, include_initial=include_initial,
+        include_terminal=include_terminal)
+    steps = steps_from_times(times, 1.0, n_steps)
+    return steps if include_initial else [step for step in steps if step > 0]
 
 
 def snapshot_checkpoints(steps: list[int], dt: float,
@@ -304,21 +333,27 @@ class ExperimentContext:
                             "jump_law": self.extras["resolved"]["jump_law"],
                             "boundary": self.extras["resolved"]["boundary"]})
 
-    def checkpoint_times(self, dt: float) -> list[float]:
-        return [step * dt for step in self.checkpoint_steps]
-
-    def steps_for(self, dt: float) -> int:
-        return int(round(self.final_time / float(dt)))
-
-    def schedule_for(self, dt: float) -> list[int]:
+    def checkpoint_time_grid(self) -> list[float]:
+        """The time grid every variant of this experiment is measured on."""
         checkpoints = self.config["checkpoints"]
-        return checkpoint_steps(
-            self.steps_for(dt),
+        return checkpoint_time_grid(
+            self.final_time,
             dense_count=int(checkpoints["dense"]["count"]),
             dense_fraction=float(checkpoints["dense"]["fraction"]),
             sparse_count=int(checkpoints["sparse"]["count"]),
             include_initial=bool(checkpoints.get("include_initial", True)),
             include_terminal=bool(checkpoints.get("include_terminal", True)))
+
+    def checkpoint_times(self, dt: float) -> list[float]:
+        """The realised times for one timestep, which is what a run records."""
+        return [step * dt for step in self.schedule_for(dt)]
+
+    def steps_for(self, dt: float) -> int:
+        return int(round(self.final_time / float(dt)))
+
+    def schedule_for(self, dt: float) -> list[int]:
+        return steps_from_times(self.checkpoint_time_grid(), float(dt),
+                                self.steps_for(dt))
 
     def tame_cap_for(self, variant: Variant) -> float | None:
         """Resolved taming cap: ``None`` for canonical, a number for tamed."""
