@@ -33,6 +33,12 @@ REVISION_NOTES_manuscript.md
 /figures/mb3well_10d/
 /figures/coupled_phi4/
 
+# Throwaway plumbing stage of the E4 jump-design study: one seed, 200
+# particles, T = 1. It exists to prove every arm constructs and runs, and
+# carries no statistics worth keeping. Pilot and production stages are tracked.
+/results/e4_jump_design/smoke/
+/figures/e4_jump_design/smoke/
+
 # campaign driver logs
 /campaign*.log
 

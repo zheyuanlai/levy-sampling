@@ -320,6 +320,12 @@ class MultiAtomShellScore:
         self.log_w_theta = torch.log(w_theta)
         self.log_lam = math.log(self.lam)
         self.gen = gen if gen is not None else torch.Generator(device=dev)
+        # Bank weights live on the score, not the law, so that a continuous
+        # jump law with no atoms can supply its own (see IIDBankScore). For a
+        # shell bank this is exactly law.weights.
+        self.weights = law.weights
+        self.A = law.A
+        self.d = law.d
 
     def sample_bank(self, n: int, gen: torch.Generator | None = None) -> torch.Tensor:
         """Draw one conditional-shell displacement per atom and particle.
@@ -353,7 +359,7 @@ class MultiAtomShellScore:
         The sampler retains this tensor and uses it again in the paired jump.
         """
         n, d = x.shape
-        A, Qt = self.law.A, self.q_theta
+        A, Qt = self.A, self.q_theta
         if R.shape != (n, A, d):
             raise ValueError(f"bank must have shape {(n, A, d)}, got {tuple(R.shape)}")
         if R.device != x.device or R.dtype != x.dtype:
@@ -365,7 +371,7 @@ class MultiAtomShellScore:
         # One global log accumulator per particle, matching ShellScore.  A
         # per-atom cap before summation would change relative atom weights when
         # clipping binds and would no longer be the score of the frozen bank.
-        log_terms = (self.log_lam + torch.log(self.law.weights).view(1, A)
+        log_terms = (self.log_lam + torch.log(self.weights).view(1, A)
                      + log_I)                                   # (N, A)
         M = log_terms.max(dim=1).values                          # (N,)
         scaled = torch.exp(log_terms - M.unsqueeze(1))           # (N, A)
@@ -381,7 +387,7 @@ class MultiAtomShellScore:
         Production per-particle banks use ``score_for_bank`` instead.
         """
         n, d = x.shape
-        A, Qt = self.law.A, self.q_theta
+        A, Qt = self.A, self.q_theta
         if R.shape != (A, d):
             raise ValueError(f"frozen bank must have shape {(A, d)}, got {tuple(R.shape)}")
         if R.device != x.device or R.dtype != x.dtype:
@@ -389,12 +395,80 @@ class MultiAtomShellScore:
         y = x.view(n, 1, 1, d) - self.theta.view(1, 1, Qt, 1) * R.view(1, A, 1, d)
         dV = _realized_chord_deltas(self.potential, x, y)        # (N, A, Qt)
         log_I = torch.logsumexp(self.log_w_theta.view(1, 1, Qt) - self.beta * dV, dim=2)
-        log_terms = torch.log(self.law.weights).view(1, A) + log_I
+        log_terms = torch.log(self.weights).view(1, A) + log_I
         return _log_parts(log_terms, R, self.log_lam)
 
     def __call__(self, x: torch.Tensor) -> tuple[torch.Tensor, dict]:
         """Compatibility score-only path; paired sampling retains the bank."""
         return self.score_for_bank(x, self.sample_bank(x.shape[0]))
+
+
+class IIDBankScore(MultiAtomShellScore):
+    """Paired random-measure score for a jump law with no finite atom set.
+
+    ``MultiAtomShellScore`` stratifies its bank: one draw per declared atom,
+    weighted by that atom's mass. A continuous nu has no atoms to stratify, so
+    the bank is instead A i.i.d. draws from kappa carrying equal weight 1/A,
+
+        nu_R(dr) = lambda * (1/A) * sum_a delta_{R_a}(dr),   R_a ~ kappa i.i.d.
+
+    Everything downstream is unchanged: conditional on the realised bank, score
+    and jumps use the same finite measure and the chord identity holds atom by
+    atom, and averaging over R recovers nu because E[nu_R] = lambda * kappa.
+
+    A is a pure estimator knob. The atomwise rates lambda*(1/A)*dt sum to
+    lambda*dt whatever A is, and each increment is distributed as kappa, so the
+    jump process is identical in law for every A -- only the variance of the
+    score changes. A = 1 reduces exactly to ``RandomAtomicShellScore``.
+
+    Cost is A*q_theta chord energies per particle per step, and unlike the
+    deterministic quadrature it needs the law only to be *sampleable*, which is
+    the whole point in dimensions where no product rule fits.
+    """
+
+    def __init__(self, potential, law, lam: float, beta: float, n_atoms: int,
+                 q_theta: int = None, m_max: float = M_MAX,
+                 gen: torch.Generator = None) -> None:
+        from .config import Q_THETA
+        if isinstance(n_atoms, bool) or int(n_atoms) != n_atoms or n_atoms < 1:
+            raise ValueError("n_atoms must be a positive integer")
+        if not hasattr(law, "sample"):
+            raise TypeError("an i.i.d. bank needs a sampleable jump law")
+        self.potential = potential
+        self.law = law
+        self.lam = float(lam)
+        self.beta = float(beta)
+        self.m_max = float(m_max)
+        self.q_theta = int(q_theta if q_theta is not None else Q_THETA)
+        if self.lam <= 0.0 or self.beta <= 0.0 or self.q_theta <= 0:
+            raise ValueError("lambda, beta, and q_theta must be positive")
+        if math.isnan(self.m_max):
+            raise ValueError("m_max must not be NaN")
+        self.A = int(n_atoms)
+        self.d = int(law.d)
+        dev = getattr(law, "device", torch.device("cpu"))
+        dtype = getattr(law, "dtype", torch.float64)
+        theta, w_theta = gauss_legendre_01(self.q_theta, dev, dtype=dtype)
+        self.theta = theta
+        self.log_w_theta = torch.log(w_theta)
+        self.log_lam = math.log(self.lam)
+        self.weights = torch.full((self.A,), 1.0 / self.A,
+                                  dtype=dtype, device=dev)
+        self.gen = gen if gen is not None else torch.Generator(device=dev)
+
+    def sample_bank(self, n: int, gen: torch.Generator | None = None) -> torch.Tensor:
+        """A i.i.d. draws per particle, shape (n, A, d).
+
+        State-free by construction, so the realised measure is independent of
+        the current chain state -- one of the two conditions the invariance
+        argument needs (the other, that the sampler reuse this same tensor for
+        its jump, is enforced by ``CompoundPoisson``).
+        """
+        if isinstance(n, bool) or int(n) != n or n < 1:
+            raise ValueError("n must be a positive integer")
+        n = int(n)
+        gen = self.gen if gen is None else gen
+        return self.law.sample(n * self.A, gen).reshape(n, self.A, self.d)
 
 
 # ============================================================== 4.3 MoG40

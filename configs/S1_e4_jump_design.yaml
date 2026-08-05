@@ -1,0 +1,101 @@
+schema_version: 1
+study: e4_jump_design
+display_name: "S1: E4 supplementary study of the jump measure nu"
+base_experiment: coupled_phi4
+builder: src.experiments.build_e4          # with jump_law= and basin_bounds=
+driver: scripts/e4_jump_design_study.py
+calibration: scripts/e4_jump_design_calibrate.py
+checks: scripts/check_e4_jump_design.py
+figures: scripts/replot_e4_jump_design.py
+results: results/e4_jump_design/<stage>/<design>_q<q>_L<L>/
+
+# This is a supplementary study, not a registered manuscript experiment. It is
+# deliberately absent from src/manuscript.py:EXPERIMENTS, so
+# scripts/validate_release.py neither requires nor inspects anything below, and
+# the frozen E1--E4 release is unaffected.
+registered_manuscript_experiment: false
+
+question: >
+  The manuscript states that the stationarity identity holds for any finite nu
+  satisfying its moment assumptions, so the choice of atoms affects efficiency
+  rather than correctness. Every experiment nevertheless uses a nu built from
+  the target's basin geometry. This study replaces E4's eight phase-edge atoms
+  with the symmetric alpha-stable family FLA already uses as the uncorrected
+  heavy-tailed control, which encodes nothing about the four coherent phases.
+
+jump_measure:
+  family: >
+    kappa = Law(sigma * eta) with eta in R^m having i.i.d. coordinates drawn
+    from SaS(1) conditioned on |eta_i| <= c. Coordinates come from
+    src.samplers.sample_sas, the Chambers-Mallows-Stuck routine FLA itself
+    uses, so the increment family is literally FLA's.
+  alpha: 1.7
+  jump_rate: 1.0
+  truncation_note: >
+    A genuine alpha-stable Levy measure has infinite activity and is therefore
+    not a compound-Poisson nu at all; restricting it to a finite shell is what
+    makes it admissible in the weak stationarity identity. The truncation is
+    applied coordinatewise so the law factorises, which is what allows a
+    deterministic product quadrature in two dimensions.
+  designs:
+    nu2: >
+      m = 2, one per-site displacement tiled coherently across all 12 sites.
+      Homogeneous, so CoupledPhi4's moment-exact V_delta fast path stays valid
+      and a q_u**2 product rule is affordable.
+    nu24: >
+      m = 24, applied directly to the state as FLA applies its noise. Site
+      displacements are independent, so a jump destroys chain coherence. A
+      product rule would need q_u**24 nodes, so only the realised-displacement
+      estimator can run it.
+
+grid:
+  fairness: >
+    lambda = 1 and the mean jump length E||R|| are held fixed across designs.
+    Both designs are matched to the phase-edge atoms' 6.9281; for nu2 that
+    means a per-site length of 6.9281/sqrt(12) = 2.0, the phase spacing.
+  truncation_mass: [0.90, 0.95, 0.99]      # q = P(|eta_i| <= c); c = 2.64, 3.47, 7.29
+  scale: [0.5, 1.0, 2.0]                   # multiplier L on the mean jump length
+  reference_point: {truncation_mass: 0.99, scale: 1.0}
+  layout: >
+    The bank sweep runs at the reference point; the sensitivity points lie on
+    the two axes through it, at a fixed bank size, so the axes stay separable.
+
+arms:
+  CP: "Raw-CP with the identical nu (the uncorrected ablation)"
+  LSC-CP: "deterministic product quadrature, q_u = 16; nu2 only"
+  LSC-CP-RA-<A>: "paired i.i.d. bank of size A"
+  bank_sizes: [1, 2, 4, 8, 16, 32]
+  converged_reference_bank: 128            # nu24 only; nu2 uses its exact arm
+  sensitivity_bank: 8
+  bank_note: >
+    A is an estimator knob, not a physics knob: the atomwise rates
+    lambda*(1/A)*dt sum to lambda*dt and each increment is distributed as
+    kappa, so the jump process is identical in law for every A and only the
+    score's variance changes. A = 1 reduces exactly to the single-atom
+    estimator.
+
+production:
+  dimension: 24
+  particles: 1000
+  final_time: 100.0
+  initial_dt: 0.002
+  beta: 8.0
+  seeds: 16
+  q_theta: 32                              # as selected by E4's own refinement
+  q_u: 16                                  # within 0.3% of q_u = 32
+  basin_half_width: 18.0                   # widest box in the grid
+  basin_n_grid: 3600                       # frozen 0.01 cell size, held constant
+  basin_note: >
+    One shared basin-map domain for every configuration, so all designs are
+    scored against one p_star; it reproduces the frozen E4 p_star to 2e-15.
+    Pinning the domain to the box makes the outside-mass diagnostic
+    structurally zero, since states are clipped into the box componentwise and
+    qbar is a mean of site coordinates.
+
+metrics: [W2, MMD, basin_TV]
+resource_axes: [t, nfe, score_quadrature_evaluations]
+wallclock_reported: false
+wallclock_note: >
+  The study runs on a shared GPU, so wall-clock is not comparable to the
+  manuscript's dedicated-device protocol and is not reported. Physical time,
+  NFE and chord-energy counts are hardware-independent.

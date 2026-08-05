@@ -538,7 +538,17 @@ class CompoundPoisson(SamplerBase):
             if not math.isclose(float(score.beta) * float(eps), 1.0,
                                 rel_tol=1e-12, abs_tol=1e-14):
                 raise ValueError("paired_multiatom requires eps = 1 / score.beta")
-            if law.atoms.device != self.x.device or law.atoms.dtype != self.x.dtype:
+            # A shell bank advertises its geometry through .atoms; a continuous
+            # law has none, so fall back to the law's own device/dtype.
+            atoms = getattr(law, "atoms", None)
+            law_device = (atoms.device if atoms is not None
+                          else getattr(law, "device", self.x.device))
+            law_dtype = (atoms.dtype if atoms is not None
+                         else getattr(law, "dtype", self.x.dtype))
+            # Resolve through an empty tensor so an index-free 'cuda' compares
+            # equal to the state's 'cuda:0'.
+            law_device = torch.empty(0, device=law_device).device
+            if law_device != self.x.device or law_dtype != self.x.dtype:
                 raise ValueError("paired_multiatom law and state must share device and dtype")
         self.jump_mode = jump_mode
         if jump_mode == "full":
@@ -689,7 +699,9 @@ class CompoundPoisson(SamplerBase):
         """
         n = self.x.shape[0]
         R = self.score.sample_bank(n, self.gen_jump)             # (N, A, d)
-        rates = (self.lam * self.dt * self.law.weights).view(1, -1).expand(n, -1)
+        # Bank weights come from the score: for a shell bank they are the law's
+        # atom masses, for an i.i.d. bank over a continuous law they are 1/A.
+        rates = (self.lam * self.dt * self.score.weights).view(1, -1).expand(n, -1)
         counts = torch.poisson(rates, generator=self.gen_jump)   # (N, A)
 
         g = self.pot.grad(self.x)

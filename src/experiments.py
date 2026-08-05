@@ -317,7 +317,8 @@ def _phi4_sampling_box_design(means: torch.Tensor, atoms: torch.Tensor,
                                h: float, hessians: torch.Tensor, *,
                                beta: float, pt_beta_min: float,
                                tail_probability: float = 1e-8,
-                               jitter_sigma: float = 0.0) -> dict:
+                               jitter_sigma: float = 0.0,
+                               componentwise_reach: float | None = None) -> dict:
     """Return a conservative high-probability numerical box for E4.
 
     The target is unbounded, so no finite box is an exact support bound.  Use a
@@ -325,6 +326,11 @@ def _phi4_sampling_box_design(means: torch.Tensor, atoms: torch.Tensor,
     tail budget, pad the target-temperature envelope by one maximum
     *componentwise* displacement from the shell law, also cover the hottest PT
     envelope, and round the half-width upward.  The default gives +/-5.
+
+    ``componentwise_reach`` overrides the shell-derived displacement bound for a
+    jump law that has no atoms (the truncated alpha-stable designs of the
+    jump-design study report their own bound).  ``atoms`` and ``h`` are then
+    used only for shape validation.
     """
     if (means.ndim != 2 or atoms.ndim != 2 or hessians.ndim != 3
             or means.shape[1] != atoms.shape[1]
@@ -338,8 +344,13 @@ def _phi4_sampling_box_design(means: torch.Tensor, atoms: torch.Tensor,
     if bool((atom_norms <= 0).any().item()):
         raise ValueError("phi4 jump atoms must be nonzero")
     units = atoms / atom_norms
-    max_componentwise_jump_reach = float(
-        (atoms.abs() + float(h) * units.abs()).amax().item())
+    if componentwise_reach is None:
+        max_componentwise_jump_reach = float(
+            (atoms.abs() + float(h) * units.abs()).amax().item())
+    else:
+        if not math.isfinite(componentwise_reach) or componentwise_reach <= 0.0:
+            raise ValueError("componentwise_reach must be finite and positive")
+        max_componentwise_jump_reach = float(componentwise_reach)
 
     n_modes, dimension = means.shape
     tail_quantile_probability = 1.0 - tail_probability / (
@@ -407,7 +418,28 @@ def build_e4(device=DEFAULT_DEVICE, basin_cache: str | None = None,
              basin_n_grid: int = 800,
              basin_flow_steps: int = 40_000,
              basin_flow_dt: float = 1.5e-4,
-             snis_proposals: int = 200_000) -> Experiment:
+             snis_proposals: int = 200_000,
+             jump_law=None,
+             basin_bounds: tuple[float, float] | None = None,
+             box_reach_multiplier: float = 1.0) -> Experiment:
+    """E4, the coupled two-component phi4 chain.
+
+    ``jump_law`` and ``basin_bounds`` exist for the jump-design study and are
+    ``None`` in the manuscript runs, where this function is byte-for-byte the
+    original: the eight phase-edge atoms, a +/-5 box, a (-4,4)^2 basin map and a
+    drift cap of 2h.  Supplying ``jump_law`` swaps nu and re-derives the three
+    quantities that depend on it -- the sampling box, the drift cap, and (with
+    ``basin_bounds``) the basin-map domain.  The target, the reference and the
+    collective variable are untouched, which is what makes different nu designs
+    comparable against one p_star.
+
+    ``box_reach_multiplier`` widens the jump allowance the box is sized for. The
+    default of one reproduces the manuscript's rule, that a single jump starting
+    inside the target envelope lands inside the box. A heavy-tailed nu keeps a
+    real population of particles out in excursions, where a *second* jump can
+    reach the wall, so a multiplier of two is the control that shows whether a
+    result depends on the box rather than on nu.
+    """
     pot = CoupledPhi4()
     cfg = RunConfig(name="coupled_phi4", d=24, n_particles=1000, T=100.0,
                     dt=0.002, seeds=tuple(range(16)))
@@ -441,7 +473,14 @@ def build_e4(device=DEFAULT_DEVICE, basin_cache: str | None = None,
     # Optional isotropic jitter, supported by sampled-bank RA/MA scores because
     # they use the realised displacements directly. Off by default; the
     # deterministic exact-quadrature score/certificate cannot use this law.
-    if jitter_sigma > 0.0:
+    if jump_law is not None:
+        if jitter_sigma > 0.0:
+            raise ValueError("jump_law and jitter_sigma are alternative ways to "
+                             "replace nu; pass at most one")
+        if int(jump_law.d) != cfg.d:
+            raise ValueError(f"jump_law has d = {jump_law.d}, expected {cfg.d}")
+        law = jump_law
+    elif jitter_sigma > 0.0:
         from .jumps import JitteredShellJumpLaw
         law = JitteredShellJumpLaw(atoms, weights, h, jitter_sigma)
     else:
@@ -458,7 +497,16 @@ def build_e4(device=DEFAULT_DEVICE, basin_cache: str | None = None,
     # occ(--)=0.324 and beats raw-CP W2 0.11 vs 0.27, basin 0.08 vs 0.22. Both
     # exact and multi-atom estimators agree at this cap (it is a deterministic
     # taming-saturation effect, not estimator variance).
-    drift_cap_e4 = 2.0 * float(h)
+    #
+    # For a swapped nu the same rule is expressed in the only scale a law
+    # without atoms has, its mean jump length: cap = 0.2 * E||R||. That is not a
+    # new convention -- h = 0.1 * min||r_a|| makes 2h = 0.2 * min||r_a||, so the
+    # phase-edge law satisfies it identically, and any alpha-stable design
+    # matched to the same mean length inherits the same numerical cap.
+    if jump_law is None:
+        drift_cap_e4 = 2.0 * float(h)
+    else:
+        drift_cap_e4 = 0.2 * float(law.mean_length())
 
     # Laplace reference: 24x24 Hessians at the coherent minima (autograd)
     from torch.autograd.functional import hessian as _th_hessian
@@ -474,7 +522,10 @@ def build_e4(device=DEFAULT_DEVICE, basin_cache: str | None = None,
     pt_beta_min_e4 = 1.0
     box_design = _phi4_sampling_box_design(
         means24, atoms, h, H24, beta=cfg.beta,
-        pt_beta_min=pt_beta_min_e4, jitter_sigma=jitter_sigma)
+        pt_beta_min=pt_beta_min_e4, jitter_sigma=jitter_sigma,
+        componentwise_reach=(None if jump_law is None
+                             else float(box_reach_multiplier)
+                             * float(law.max_componentwise_reach())))
     # The target/diffusion are unbounded: this is a declared high-probability
     # numerical overflow guard, not a truncation of the scientific model.
     box_half_width = box_design["sampling_box_half_width"]
@@ -493,8 +544,22 @@ def build_e4(device=DEFAULT_DEVICE, basin_cache: str | None = None,
     # assign() clamps out-of-domain points into boundary cells, which
     # mislabels exactly the LSC-CP-MA transport the study measures; +-4 with
     # unchanged cell size covers double-jump reach with margin.
+    #
+    # A swapped nu moves qbar much further, so the domain is instead pinned to
+    # the sampling box: every state is clipped into that box componentwise and
+    # qbar is a mean of site coordinates, so |qbar| <= box half-width and the
+    # outside-mass diagnostic is structurally zero. The study passes one shared
+    # domain to every configuration so that all of them are scored against a
+    # single p_star.
+    if basin_bounds is None:
+        basin_lo_hi = (-4.0, 4.0)
+    else:
+        basin_lo_hi = (float(basin_bounds[0]), float(basin_bounds[1]))
+        if not basin_lo_hi[0] < basin_lo_hi[1]:
+            raise ValueError("basin_bounds must be (lo, hi) with lo < hi")
     basins = GradientFlowBasinMap2D(
-        phi4_W_grad, V2, (-4.0, -4.0), (4.0, 4.0),
+        phi4_W_grad, V2, (basin_lo_hi[0], basin_lo_hi[0]),
+        (basin_lo_hi[1], basin_lo_hi[1]),
         n_grid=basin_n_grid, device=device, cache=basin_cache,
         dt_flow=basin_flow_dt, n_flow=basin_flow_steps)
 
@@ -542,6 +607,12 @@ def build_e4(device=DEFAULT_DEVICE, basin_cache: str | None = None,
                                                device=device, dtype=torch.float64)
 
     def make_score(q_theta=Q_THETA, q_rho=Q_RHO):
+        # ShellScore routes its quadrature through CoupledPhi4.V_delta, whose
+        # homogeneity assertion is cached after the first call and thereafter
+        # silently reduces every shift to its first site. Refuse up front rather
+        # than return wrong chord energies.
+        from .jump_designs import assert_homogeneous_for_v_delta
+        assert_homogeneous_for_v_delta(law, pot)
         return ShellScore(pot, law, cfg.lam, cfg.beta, q_theta, q_rho)
 
     # Kramers for the coherent -- escape: homogeneous soft modes dominate;
@@ -578,6 +649,13 @@ def build_e4(device=DEFAULT_DEVICE, basin_cache: str | None = None,
                 "barrier_minus_minus": barrier, "phases": phases,
                 "edge_pairs": edge_pairs, "jitter_sigma": jitter_sigma,
                 "sampling_box_design": box_design,
+                "jump_law_description": (
+                    law.describe() if hasattr(law, "describe") else
+                    {"type": type(law).__name__, "d": int(law.d),
+                     "n_atoms": int(getattr(law, "A", 0)),
+                     "shell_half_width": float(h),
+                     "mean_length": float(atoms.norm(dim=1).mean())}),
+                "cp_drift_cap": float(drift_cap_e4),
                 # Derived from the basin map itself so the outside-mass gate
                 # can never measure against a different domain than assign().
                 "basin_map_metric_bounds": [basins.lo.tolist(),
@@ -586,7 +664,10 @@ def build_e4(device=DEFAULT_DEVICE, basin_cache: str | None = None,
                 "reference_sample_method": "sampling_importance_resampling",
                 "reference_scalar_method": "direct_snis",
                 "builder_reference_parameters": {
-                    "basin_bounds": [[-4.0, -4.0], [4.0, 4.0]],
+                    # Read back off the basin map, never a second literal: a
+                    # duplicated copy of these bounds once made a domain widening
+                    # silently ineffective.
+                    "basin_bounds": [basins.lo.tolist(), basins.hi.tolist()],
                     "basin_n_grid": int(basin_n_grid),
                     "basin_flow_steps": int(basin_flow_steps),
                     "basin_flow_dt": float(basin_flow_dt),

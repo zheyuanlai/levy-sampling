@@ -296,6 +296,39 @@ python -m pip install -e .
 python scripts/validate_release.py --require-figures
 ```
 
+## S1. Supplementary study: the choice of jump measure in E4
+
+The manuscript argues that the stationarity identity holds for any finite
+\(\nu\) meeting its moment assumptions, so the choice of atoms affects
+efficiency rather than correctness — but every experiment uses a \(\nu\) read
+off the target's basin geometry. `configs/S1_e4_jump_design.yaml` documents a
+supplementary study that replaces E4's eight phase-edge atoms with the same
+symmetric \(\alpha\)-stable increment family FLA already uses as the
+uncorrected heavy-tailed control, in two forms: a two-dimensional per-site law
+tiled coherently across the chain, and the same coordinatewise law applied
+directly in all 24 dimensions as FLA applies its noise.
+
+The study is **not** a registered manuscript experiment. It is absent from
+`src/manuscript.py:EXPERIMENTS`, writes only under `results/e4_jump_design/`,
+and never touches `results/coupled_phi4/`, so `scripts/validate_release.py`
+neither requires nor inspects any of it and the frozen E1--E4 release is
+unaffected.
+
+```bash
+python scripts/e4_jump_design_calibrate.py    # design grid; read this first
+python scripts/check_e4_jump_design.py        # CPU consistency checks
+JCP_EXTRA_GPUS=2 python scripts/e4_jump_design_study.py --stage pilot --gpu 2
+JCP_EXTRA_GPUS=2 python scripts/e4_jump_design_study.py --stage production --gpu 2
+python scripts/replot_e4_jump_design.py --stage production
+```
+
+Findings and the numbers behind them are in `docs/e4_jump_design.md`. Two
+protocol differences from E1--E4 are deliberate: wall-clock is not reported,
+because the study runs on a shared GPU, and the cost axis is chord energies per
+particle per step alongside NFE, because the realised-displacement estimators
+evaluate every chord through the full lattice sweep rather than the
+moment-exact fast path, which NFE alone does not distinguish.
+
 ## Source of truth and provenance
 
 - `src/manuscript.py` is the single source of truth for the E1--E4 **internal**
