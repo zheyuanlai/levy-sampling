@@ -1,40 +1,33 @@
-# results: track the CSVs + manifest.json (figures are reproducible from these
-# plotting scripts); ignore caches/checkpoints
-results/**
-!results/**/
-!results/**/*.csv
-!results/**/manifest.json
+# Git holds the SOURCE package: src/, configs/, notebooks/, scripts/, tests/,
+# README, and the environment lock. That is everything needed to run from zero.
+#
+# The FROZEN RELEASE additionally carries results, figures, resolved configs,
+# manifests, and executed notebooks. It is assembled by
+# `scripts/build_release.py --frozen`, which zips the working tree, so those
+# artifacts do not need to be tracked here.
+
+# Run artifacts. Every variant writes its own directory under
+# results/<experiment>/runs/<method>/<run-id>/, all of it regenerable from the
+# source package, and catalog.csv is a derived index.
+results/
+figures/
+executed_notebooks/
+dist/
+
+# Reusable numerical caches: basin maps, FEE calibrations, reference banks.
+cache/
+.matplotlib-cache/
+
 __pycache__/
 *.pyc
+*.pyo
 .ipynb_checkpoints/
-*.npz
-# reusable numerical caches (basin maps etc.), not run results
-cache/
-dist/
-executed_notebooks/
-.matplotlib-cache/
+.pytest_cache/
+*.egg-info/
+
+*.log
 .DS_Store
-# internal working notes, kept local only
+
+# Internal working notes, kept local.
 REVISION_NOTES.md
 REVISION_NOTES_manuscript.md
-
-# Immutable per-run directories. A run writes results/jcp_sampling/<run-id>/
-# and then mirrors its released files into results/<experiment>/; the release
-# ships that mirror, not the ~100 MB duplicate under the run tree. The run
-# directory is the local source of truth and is kept out of git deliberately.
-/results/jcp_sampling/
-/results/iclr_sampling/
-
-# Per-experiment diagnostic figures written by mirror_into_repo. The same
-# plots are embedded in the executed notebooks, and the release layout ships
-# only the manuscript formats under figures/{png,tiff,svg,pdf}/.
-/figures/double_well/
-/figures/mog40/
-/figures/mb3well_10d/
-/figures/coupled_phi4/
-
-# campaign driver logs
-/campaign*.log
-
-# editable-install metadata
-*.egg-info/
