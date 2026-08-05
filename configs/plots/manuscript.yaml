@@ -65,7 +65,15 @@ E1:
         style: {color: "0.55", alpha: 0.35, linewidth: 1.2, zorder: 0}
         minimal_ticks: true
       snapshot_time: 100.0
-      tame_view: canonical_only
+      # Tamed, not canonical. The untamed Levy-score samplers are unstable at
+      # every timestep on the refinement grid -- the score saturates its
+      # magnitude cap and throws particles out of the numerical box -- so
+      # canonical LSC-CP does not exist to draw, and a canonical-only panel
+      # would silently omit the method the figure is about. Taming is a no-op
+      # for the local methods here (cap 1.0 is never reached in the well:
+      # canonical and tamed ULA agree to 4 significant figures on every
+      # metric), so this costs the comparison nothing.
+      tame_view: tamed_only
 
     E1.2_nonlocal_efficiency:
       kind: metric_grid

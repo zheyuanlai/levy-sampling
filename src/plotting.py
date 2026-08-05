@@ -447,6 +447,28 @@ def _variant_filter(row: dict, variants) -> bool:
     return any(_matches_parameters(row, entry) for entry in dicts)
 
 
+def _spec_methods(spec: dict):
+    """The method list a figure specification asks for.
+
+    Different figure kinds name their methods in different places: a metric
+    grid at the top level, a snapshot matrix under ``rows``, and the twin-axis
+    CDF under ``left_axis`` because its right axis carries the potential rather
+    than a method. Missing any of these would silently load every run in the
+    directory and draw methods the figure never asked for.
+    """
+    for key in ("methods", "rows"):
+        if spec.get(key):
+            return list(spec[key])
+    for section in ("left_axis", "right_axis"):
+        nested = spec.get(section) or {}
+        if nested.get("methods"):
+            return list(nested["methods"])
+    for panel in spec.get("panels") or ():
+        if isinstance(panel, dict) and panel.get("methods"):
+            return list(panel["methods"])
+    return None
+
+
 def load_runs(experiment_dir, spec=None, *, methods=_UNSET, variants=_UNSET,
               tame=_UNSET, latest_only=_UNSET) -> list:
     """Load every completed run of one experiment that passes the filters.
@@ -468,9 +490,7 @@ def load_runs(experiment_dir, spec=None, *, methods=_UNSET, variants=_UNSET,
             f"experiment directory not found: {experiment_dir}")
     spec = dict(spec or {})
     if methods is _UNSET:
-        methods = spec.get("methods")
-        if methods is None and spec.get("rows"):
-            methods = list(spec["rows"])
+        methods = _spec_methods(spec)
     if variants is _UNSET:
         variants = spec.get("variants")
     if tame is _UNSET:
@@ -1217,8 +1237,20 @@ def _figure_legend(figure: Figure, handles, labels, *, ncol: int = 4) -> None:
         return
     for label in labels:
         _guard_display_text(label)
-    figure.legend(handles, labels, loc="outside lower center",
-                  ncol=min(ncol, len(labels)), frameon=False)
+    # Variant labels carry the hyperparameter value and the tame state, so they
+    # run long. A fixed column count then pushes the outer entries past the
+    # figure edge and they are cropped on save. Budget columns by the widest
+    # label against the figure width instead.
+    longest = max(len(label) for label in labels)
+    width_inches = float(figure.get_size_inches()[0])
+    # 8 pt text runs about 18 characters per inch; the line handle and the
+    # inter-column gap cost roughly another eight characters per entry.
+    characters_per_inch = 18.0
+    affordable = max(1, int(width_inches * characters_per_inch / (longest + 8)))
+    figure.legend(handles, labels,
+                  loc="outside lower center",
+                  ncol=max(1, min(ncol, affordable, len(labels))),
+                  frameon=False)
 
 
 def _collect(handles: list, labels: list, handle, label: str) -> None:
@@ -2306,7 +2338,10 @@ def save_figure(figure: Figure, name: str, output_dir,
         # enough for a submission system.
         options = ({"pil_kwargs": {"compression": "tiff_lzw"}}
                    if suffix in ("tif", "tiff") else {})
-        figure.savefig(path, format=suffix, dpi=dpi, **options)
+        # bbox_inches="tight" so an outside legend is included in the saved
+        # page rather than cropped at the figure edge.
+        figure.savefig(path, format=suffix, dpi=dpi, bbox_inches="tight",
+                       **options)
         if not path.is_file() or path.stat().st_size == 0:
             raise IOError(f"save_figure wrote an empty file: {path}")
         written[suffix] = str(path)
