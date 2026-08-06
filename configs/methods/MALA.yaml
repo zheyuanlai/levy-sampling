@@ -22,6 +22,13 @@ calibration:
   dt:
     criteria: [acceptance, ess, stability]
     tolerance: 0.05
+    # The acceptance search doubles dt from initial_dt until acceptance
+    # falls into the band. On E2 the band is only reached at dt = 5.12,
+    # which is 10 doublings from initial_dt = 0.01; the previous fixed
+    # budget of 8 stopped at dt = 1.28 with acceptance still 0.93 and
+    # reported the variant uncalibratable. Iterations are cheap: the loop
+    # breaks as soon as the band is attained or the timestep oscillates.
+    acceptance_search_iterations: 14
     max_halvings: 6
   ess:
     minimum_pilot_fraction: 0.05

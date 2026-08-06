@@ -1,7 +1,7 @@
 {
   "calibration_hash": "72066fae31e67f07616eeae41de11d6f",
   "calibration_kind": "timestep",
-  "created_at_utc": "2026-08-06T14:31:42.351987Z",
+  "created_at_utc": "2026-08-06T17:19:44.695646Z",
   "device_provenance": {
     "cpu_model": "AMD EPYC 9554 64-Core Processor",
     "cuda_runtime_version": "13.0",
@@ -33,7 +33,7 @@
   },
   "git": {
     "branch": "refactor",
-    "commit": "910f6685a7746288fa4b76dc4fd3f9374c756256",
+    "commit": "177816b0e162cff28c5bcc4a44cc4c7679699365",
     "dirty": true
   },
   "has_stationarity": false,
@@ -43,7 +43,7 @@
   },
   "particles": 800,
   "reference_hash": "53af2ac3a1c61f75142147aab9cae27b",
-  "result_directory": "results/E3_muller_brown/runs/MALA/MALA-canonical-uncalibratable-20260806T143142314117Z",
+  "result_directory": "results/E3_muller_brown/runs/MALA/MALA-canonical-uncalibratable-20260806T171944647310Z",
   "rng": {
     "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
     "per_seed_generator": true,
@@ -98,7 +98,7 @@
     "method_family": "MALA"
   },
   "rng_pair_group_hash": "5fc6ca77e938b78fdfaae5e6c4cd8c1f",
-  "run_id": "MALA-canonical-uncalibratable-20260806T143142314117Z",
+  "run_id": "MALA-canonical-uncalibratable-20260806T171944647310Z",
   "schema_version": 2,
   "seeds": [
     0,
@@ -113,5 +113,5 @@
   "variant_hash": "30b2f4f94a3631decfa9212f4ad34940",
   "variant_label": "MALA, canonical",
   "variant_slug": "MALA-canonical",
-  "written_at_utc": "2026-08-06T14:31:42.352011Z"
+  "written_at_utc": "2026-08-06T17:19:44.695672Z"
 }

@@ -1,7 +1,7 @@
 {
-  "calibration_hash": "8d20f40c5dfcc2589fb83803a2742931",
+  "calibration_hash": "72066fae31e67f07616eeae41de11d6f",
   "calibration_kind": "timestep",
-  "created_at_utc": "2026-08-06T14:35:15.740381Z",
+  "created_at_utc": "2026-08-06T17:19:44.695646Z",
   "device_provenance": {
     "cpu_model": "AMD EPYC 9554 64-Core Processor",
     "cuda_runtime_version": "13.0",
@@ -27,23 +27,23 @@
   "fee_calibration_hash": "088ecf363630e7e9c4899a3eb827d2f6",
   "fee_cost_unit": "amortized_time_per_configuration",
   "files": {
-    "calibration.json": "be966d38d2d6c38cbe37696a83016011d36f29c2585515030c3f68c4583c0337",
-    "diagnostics.json": "ce91a503fb92b78a3d837583cdf3ae67e766ab64b53a83db30a0c72a59954d1e",
-    "resolved_config.yaml": "0f9f7036d8e299596f8bdd517483e366e523da9aa00dd26d2dcee5e642f6aa9e"
+    "calibration.json": "3d93834922437df5b9a3e343daa5494757afbbda5510f51d96a314b41b37fe01",
+    "diagnostics.json": "35d554f1c9608c9e2c3b8398ab0a53b91c74b011375d0e0e0a480490777f61d1",
+    "resolved_config.yaml": "c8156be085530ac328038a1c4430dfcbe6d8ce502378ccbc2ca87704e8d09f8e"
   },
   "git": {
     "branch": "refactor",
-    "commit": "910f6685a7746288fa4b76dc4fd3f9374c756256",
+    "commit": "177816b0e162cff28c5bcc4a44cc4c7679699365",
     "dirty": true
   },
   "has_stationarity": false,
   "method": "MALA",
   "parameters": {
-    "tame": true
+    "tame": false
   },
   "particles": 800,
   "reference_hash": "53af2ac3a1c61f75142147aab9cae27b",
-  "result_directory": "results/E3_muller_brown/runs/MALA/MALA-tamed-uncalibratable-20260806T143515702919Z",
+  "result_directory": "results/E3_muller_brown/runs/MALA/MALA-canonical-uncalibratable-20260806T171944647310Z",
   "rng": {
     "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
     "per_seed_generator": true,
@@ -98,7 +98,7 @@
     "method_family": "MALA"
   },
   "rng_pair_group_hash": "5fc6ca77e938b78fdfaae5e6c4cd8c1f",
-  "run_id": "MALA-tamed-uncalibratable-20260806T143515702919Z",
+  "run_id": "MALA-canonical-uncalibratable-20260806T171944647310Z",
   "schema_version": 2,
   "seeds": [
     0,
@@ -107,11 +107,11 @@
     3
   ],
   "status": "uncalibratable",
-  "tame": true,
-  "tame_cap": 1.0,
+  "tame": false,
+  "tame_cap": null,
   "target_hash": "ed94c0eda92286239de64b68502a0389",
-  "variant_hash": "08c004da545dcf2d029aaf023d64b5af",
-  "variant_label": "MALA, tamed",
-  "variant_slug": "MALA-tamed",
-  "written_at_utc": "2026-08-06T14:35:15.740410Z"
+  "variant_hash": "30b2f4f94a3631decfa9212f4ad34940",
+  "variant_label": "MALA, canonical",
+  "variant_slug": "MALA-canonical",
+  "written_at_utc": "2026-08-06T17:19:44.695672Z"
 }

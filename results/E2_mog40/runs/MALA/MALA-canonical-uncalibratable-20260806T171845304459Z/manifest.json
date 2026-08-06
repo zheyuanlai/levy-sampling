@@ -1,7 +1,7 @@
 {
-  "calibration_hash": "4f1ed77b3f05e8c88623be475664c657",
+  "calibration_hash": "7102bc4f65372d27e6c9e60a93314001",
   "calibration_kind": "timestep",
-  "created_at_utc": "2026-08-06T14:27:39.179392Z",
+  "created_at_utc": "2026-08-06T17:18:45.353510Z",
   "device_provenance": {
     "cpu_model": "AMD EPYC 9554 64-Core Processor",
     "cuda_runtime_version": "13.0",
@@ -27,13 +27,13 @@
   "fee_calibration_hash": "076536868d101ed21862549ee5a0e135",
   "fee_cost_unit": "amortized_time_per_configuration",
   "files": {
-    "calibration.json": "af16528995599e414a60241e349797a7304d9e22c4d13bf5a6b31aaac854bba5",
-    "diagnostics.json": "128fc4290fd67736986133ab1c6f4a69bcc87d3be4998503bfeb173cec654f4f",
-    "resolved_config.yaml": "cedc8d2db15f2ca4ee63d8f4f5cce78e7db01689e266bc2f69a9bc9b1d923873"
+    "calibration.json": "66d5ff4a0b70b946836e15ca6554c76d1854ce21add92deb3021abdfbc064bcf",
+    "diagnostics.json": "ef1d3d113c4abfbf721db5fd43c2aa5ac095b700f4e6164fe78ed6fe377ef846",
+    "resolved_config.yaml": "a1e66cd39752857ccda3d894255e6e2b6d5e2199d8fd4e4972f57e5102fca4b6"
   },
   "git": {
     "branch": "refactor",
-    "commit": "910f6685a7746288fa4b76dc4fd3f9374c756256",
+    "commit": "177816b0e162cff28c5bcc4a44cc4c7679699365",
     "dirty": true
   },
   "has_stationarity": false,
@@ -43,7 +43,7 @@
   },
   "particles": 1000,
   "reference_hash": "1ed7f635d25fe5cc00b6acb78b3f3fe4",
-  "result_directory": "results/E2_mog40/runs/MALA/MALA-canonical-uncalibratable-20260806T142739144777Z",
+  "result_directory": "results/E2_mog40/runs/MALA/MALA-canonical-uncalibratable-20260806T171845304459Z",
   "rng": {
     "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
     "per_seed_generator": true,
@@ -98,7 +98,7 @@
     "method_family": "MALA"
   },
   "rng_pair_group_hash": "5fc6ca77e938b78fdfaae5e6c4cd8c1f",
-  "run_id": "MALA-canonical-uncalibratable-20260806T142739144777Z",
+  "run_id": "MALA-canonical-uncalibratable-20260806T171845304459Z",
   "schema_version": 2,
   "seeds": [
     0,
@@ -113,5 +113,5 @@
   "variant_hash": "30b2f4f94a3631decfa9212f4ad34940",
   "variant_label": "MALA, canonical",
   "variant_slug": "MALA-canonical",
-  "written_at_utc": "2026-08-06T14:27:39.179411Z"
+  "written_at_utc": "2026-08-06T17:18:45.353550Z"
 }

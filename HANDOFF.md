@@ -464,13 +464,37 @@ for the necessity of taming.
   million steps. This is a property of heavy-tailed jumps against a finite box,
   not a grid-length problem;
 - PT on E1 (both), E2 (both) and E3 (canonical): 5 outcomes;
-- MALA on E2 and E3 (both variants): 4 outcomes. Acceptance rises monotonically
-  toward 1 as `dt` shrinks (0.933 at `dt = 1.28` to 0.9997 at `dt = 0.04`) while
-  temporal ESS collapses, so shrinking the timestep moves *away* from the
-  `[0.4, 0.75]` band. The binding constraint is the coarse end of the search:
-  `_search_acceptance_band` caps its upward search at a hardcoded
-  `max_iterations = 8`, reaching only `dt = 1.28`. Left as recorded negative
-  evidence; MALA appears in no manuscript figure.
+- MALA on E2 and E3 (both variants): 4 outcomes. The acceptance search budget
+  was fixed at 8 iterations, which could not reach the band from `initial_dt`;
+  it is now `calibration.dt.acceptance_search_iterations`, defaulting to 12 and
+  set to 14 for MALA. Fixing it removed the arbitrary limit and exposed the real
+  constraints, which are different on the two experiments and are both
+  substantive:
+
+  * **E2.** The search now reaches `dt = 5.12`, where acceptance is 0.6230 and
+    genuinely inside `[0.4, 0.75]`. It fails instead on `temporal_ess_fraction`,
+    which is `nan` there, because the pilot runs
+    `final_time * time_fraction / dt = 25 * 0.25 / 5.12`, i.e. a single step.
+    That is not merely a pilot-length problem: at `dt = 5.12` a production run
+    to `final_time = 25` is five steps against a 220-checkpoint schedule, so
+    even a passing calibration would yield an unusable trajectory. MALA on this
+    40-mode mixture wants a timestep comparable to the whole simulation horizon,
+    because the mixture spans a wide domain. Raising `final_time` back to 100
+    only reaches twenty steps, so this is not purely an artefact of the reduced
+    scale.
+  * **E3.** The acceptance band and the ESS gate have **disjoint** timestep
+    windows, so no `dt` satisfies both:
+
+    | dt | 0.04 | 0.08 | 0.16 |
+    |---|---|---|---|
+    | acceptance | 0.710 in band | 0.418 in band | 0.121 outside |
+    | ESS fraction | 0.0197 below | 0.0362 below | 0.0840 above |
+
+    The band closes before the ESS gate opens. This is a statement about MALA on
+    the 10D Müller--Brown at these pilot settings, not about the search.
+
+  Both are left as recorded negative evidence. MALA appears in no manuscript
+  figure, so nothing is silently dropped.
 
 Figures render these as explicit `"<method>: uncalibratable"` legend entries in
 the method's own colour, so a negative result is visible rather than silently

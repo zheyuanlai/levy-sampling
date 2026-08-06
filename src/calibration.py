@@ -37,6 +37,13 @@ from .factory import build_sampler, sampler_requirements
 from .results import json_safe, stable_hash
 from .samplers import geometric_ladder
 
+#: How many times the Metropolis acceptance search may double or halve the
+#: timestep before giving up. Reaching the band from below costs
+#: ``log2(dt_band / initial_dt) + 1`` iterations, so this bounds how far the
+#: search can travel from ``initial_dt``. Overridable per method or per
+#: experiment under ``calibration.dt.acceptance_search_iterations``.
+ACCEPTANCE_SEARCH_ITERATIONS = 12
+
 #: Pilot sizes. Small enough to calibrate quickly, large enough that the
 #: comparison is not dominated by Monte Carlo noise. Recorded in the
 #: calibration payload so a reader can see what the decision was based on.
@@ -398,6 +405,10 @@ def calibrate_dt(context, variant, *, pilot: dict,
     tolerance = float(method_rules.get("tolerance", rules.get("tolerance", 0.05)))
     max_halvings = int(method_rules.get("max_halvings",
                                         rules.get("max_halvings", 4)))
+    acceptance_iterations = int(method_rules.get(
+        "acceptance_search_iterations",
+        rules.get("acceptance_search_iterations",
+                  ACCEPTANCE_SEARCH_ITERATIONS)))
     acceptance_rules = _acceptance_rules(context, variant)
     requirements = sampler_requirements(context, variant)
     stability_gates = dict(
@@ -416,7 +427,8 @@ def calibrate_dt(context, variant, *, pilot: dict,
     acceptance_search = None
     if requirements["acceptance"]:
         dt, acceptance_search = _search_acceptance_band(
-            summary_at, dt, acceptance_rules["target_acceptance"])
+            summary_at, dt, acceptance_rules["target_acceptance"],
+            max_iterations=acceptance_iterations)
 
     for _ in range(max_halvings):
         coarse = summary_at(dt)
@@ -453,13 +465,22 @@ def calibrate_dt(context, variant, *, pilot: dict,
 
 
 def _search_acceptance_band(summary_at, dt: float, band, *,
-                            max_iterations: int = 8) -> tuple[float, dict]:
+                            max_iterations: int = ACCEPTANCE_SEARCH_ITERATIONS
+                            ) -> tuple[float, dict]:
     """Move the timestep until the Metropolis acceptance lands in the band.
 
     Acceptance falls as the timestep grows, so this search has to be able to go
     up as well as down. Running it before the agreement refinement means the
     refinement starts from an efficient timestep rather than from one that is
     accurate but needlessly small.
+
+    The iteration count bounds how far the timestep can travel from
+    ``initial_dt``: reaching the band from below needs
+    ``log2(dt_band / initial_dt) + 1`` iterations. It was fixed at 8, which on
+    E2 stopped the search at ``dt = 1.28`` with acceptance still 0.93 while the
+    band is only reached at ``dt = 5.12``. Iterations are cheap because the loop
+    breaks as soon as the band is attained or the timestep oscillates, so an
+    unnecessarily generous budget costs nothing when the band is close.
     """
     low, high = float(band[0]), float(band[1])
     history = []
