@@ -79,16 +79,17 @@ def main(argv=None) -> int:
     print(f"\ncatalog: {catalog['n_runs']} run(s) indexed", flush=True)
 
     failures = [report for method in reports for report in reports[method]
-                if report.get("status") == "failed"]
+                if report.get("status") in ("failed", "uncalibratable")]
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps(reports, indent=2, default=str),
                                encoding="utf-8")
     if failures:
-        print(f"\n{len(failures)} variant(s) failed:", flush=True)
+        print(f"\n{len(failures)} variant(s) did not complete:", flush=True)
         for failure in failures:
             print(f"  {failure['variant_label']}: "
-                  f"{failure.get('error_type')}: {failure.get('error_message')}")
+                  f"{failure.get('error_type', failure.get('calibration_kind'))}: "
+                  f"{failure.get('error_message', failure.get('diagnosis'))}")
         return 1
     return 0
 

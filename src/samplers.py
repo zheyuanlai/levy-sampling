@@ -182,6 +182,13 @@ class SamplerBase:
         self._interval_maxima = {}
         return out
 
+    def reset_diagnostics(self) -> None:
+        """Reset interval and cumulative accumulators at a declared pilot boundary."""
+        self._interval_sums, self._interval_counts = {}, {}
+        self._interval_maxima = {}
+        self._cumulative = {}
+        self._ratio_numerators, self._ratio_denominators = {}, {}
+
     # -- shared boundary rule ---------------------------------------------
     def _apply_reject(self, current: torch.Tensor,
                       candidate: torch.Tensor) -> torch.Tensor:
@@ -451,6 +458,12 @@ class ParallelTemperingSampler(SamplerBase):
         self.proposal_variance = (2.0 * self.dt / betas).view(-1, 1)
         self.Vx, self.bx = target.value_and_force(self.x)
         self._step_count = 0
+        n_walkers = int(self.x.shape[1])
+        self._walker_ids = torch.arange(
+            self.n_replicas, dtype=torch.long, device=self.x.device
+        )[:, None].expand(self.n_replicas, n_walkers).clone()
+        self._seen_hot = torch.zeros(
+            self.n_replicas, n_walkers, dtype=torch.bool, device=self.x.device)
         self._static["n_replicas"] = self.n_replicas
         self._static["n_swap"] = self.n_swap
 
@@ -484,6 +497,13 @@ class ParallelTemperingSampler(SamplerBase):
         proposed = torch.as_tensor(accept.numel(), dtype=torch.int64,
                                    device=accept.device)
         self._record_acceptance(accept.to(torch.int64).sum(), proposed)
+        for replica in range(self.n_replicas):
+            replica_proposed = torch.as_tensor(
+                accept[replica].numel(), dtype=torch.int64,
+                device=accept.device)
+            self._record_acceptance(
+                accept[replica].to(torch.int64).sum(), replica_proposed,
+                prefix=f"replica_{replica}_mh")
 
         self._step_count += 1
         if self._step_count % self.n_swap == 0:
@@ -507,6 +527,11 @@ class ParallelTemperingSampler(SamplerBase):
             new_bi = torch.where(swap_column, self.bx[i + 1], self.bx[i])
             new_bj = torch.where(swap_column, self.bx[i], self.bx[i + 1])
             self.bx[i], self.bx[i + 1] = new_bi, new_bj
+            new_wi = torch.where(
+                swap, self._walker_ids[i + 1], self._walker_ids[i])
+            new_wj = torch.where(
+                swap, self._walker_ids[i], self._walker_ids[i + 1])
+            self._walker_ids[i], self._walker_ids[i + 1] = new_wi, new_wj
             accepted_counts.append(swap.to(torch.int64).sum())
             proposal_counts.append(torch.as_tensor(
                 swap.numel(), dtype=torch.int64, device=swap.device))
@@ -514,6 +539,28 @@ class ParallelTemperingSampler(SamplerBase):
             self._record_acceptance(torch.stack(accepted_counts).sum(),
                                     torch.stack(proposal_counts).sum(),
                                     prefix="swap")
+        self._record_round_trips()
+
+    def _record_round_trips(self) -> None:
+        """Count labelled walkers that visit hot and subsequently return cold."""
+        columns = torch.arange(self._walker_ids.shape[1],
+                               device=self._walker_ids.device)
+        hot_ids = self._walker_ids[-1]
+        self._seen_hot[hot_ids, columns] = True
+        cold_ids = self._walker_ids[0]
+        returned = self._seen_hot[cold_ids, columns]
+        completed = returned.to(torch.int64).sum()
+        self._seen_hot[cold_ids, columns] = False
+        opportunities = torch.as_tensor(
+            columns.numel(), dtype=torch.int64, device=columns.device)
+        self._accumulate_cumulative(
+            "round_trip_count_cumulative", completed)
+        self._accumulate_ratio(
+            "round_trip_rate_cumulative", completed, opportunities)
+
+    def reset_diagnostics(self) -> None:
+        super().reset_diagnostics()
+        self._seen_hot.zero_()
 
     def positions(self) -> torch.Tensor:
         return self.x[0]

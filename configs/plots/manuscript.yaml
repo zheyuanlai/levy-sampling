@@ -128,7 +128,7 @@ E2:
       mark_component_centers: {marker: "+", color: black, size: 8}
       points_per_panel: 4000
       shared_limits: true
-      tame_view: canonical_only
+      tame_view: tamed_only
 
     E2.2_mode_metrics:
       kind: mode_metric_panel
@@ -203,7 +203,7 @@ E3:
       # No minima, saddle, basin-boundary, jump-arrow, or transition-path
       # annotations: the figure shows the CV distribution, not a kinetic story.
       annotate_critical_points: false
-      tame_view: canonical_only
+      tame_view: tamed_only
 
     E3.2_cv_metrics:
       kind: metric_grid

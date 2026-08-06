@@ -32,7 +32,8 @@ from .config import (ExperimentContext, Variant, default_variants,
                      expand_variants, load_experiment, snapshot_checkpoints)
 from .device import device_provenance, empty_cache
 from .factory import build_sampler, sampler_requirements
-from .results import RunPaths, RunWriter, git_provenance, slugify, utc_now
+from .results import (RunPaths, RunWriter, git_provenance, slugify,
+                      stable_hash, utc_now)
 
 __all__ = ["load_experiment", "run_variants_and_save", "run_variant"]
 
@@ -40,6 +41,11 @@ __all__ = ["load_experiment", "run_variants_and_save", "run_variant"]
 def _run_id(variant: Variant, dt: float) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     return f"{variant.slug}-dt{dt:g}-{stamp}"
+
+
+def _outcome_id(variant: Variant, status: str) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    return f"{variant.slug}-{slugify(status)}-{stamp}"
 
 
 def _seed_blocks(x: torch.Tensor, n_seeds: int, n_per_seed: int):
@@ -80,18 +86,9 @@ def run_variants_and_save(*, experiment: ExperimentContext, method: str,
         except CalibrationError as error:
             if on_error == "raise":
                 raise
-            # A variant with no admissible timestep is a result about the
-            # method, not a crash. It is recorded and reported, never hidden,
-            # and the remaining variants still run.
-            report = {
-                "variant_label": variant.label,
-                "method": method,
-                "status": "uncalibratable",
-                "diagnosis": error.diagnosis,
-                "calibration_kind": error.kind,
-                "calibration_table": error.table,
-                "next_candidate": error.next_candidate,
-            }
+            # A calibration failure is a result about the method. Persist it
+            # atomically before continuing to the remaining variants.
+            report = _save_uncalibratable(experiment, variant, error)
             print(f"[{variant.label}] NOT CALIBRATABLE: {error.diagnosis}",
                   flush=True)
         except Exception as error:                    # noqa: BLE001
@@ -113,6 +110,75 @@ def run_variants_and_save(*, experiment: ExperimentContext, method: str,
         reports.append(report)
         empty_cache()
     return reports
+
+
+def _save_uncalibratable(experiment: ExperimentContext, variant: Variant,
+                         error: CalibrationError) -> dict:
+    """Atomically persist a negative calibration outcome as first-class evidence."""
+    attempt = {
+        "status": "uncalibratable",
+        "kind": error.kind,
+        "diagnosis": error.diagnosis,
+        "table": error.table,
+        "next_candidate": error.next_candidate,
+    }
+    attempt["calibration_hash"] = stable_hash(attempt)
+    run_id = _outcome_id(variant, "uncalibratable")
+    streams = experiment.streams_for(variant)
+    resolved = experiment.resolved_config(variant=variant,
+                                          calibration=attempt)
+    reference = experiment._reference
+    reference_hash = (None if reference is None
+                      else stable_hash(reference.describe()))
+    fee = experiment._fee_calibration
+
+    with RunWriter(experiment.paths, method=variant.method,
+                   run_id=run_id) as writer:
+        writer.write_yaml("resolved_config.yaml", resolved)
+        writer.write_json("calibration.json", attempt)
+        writer.write_json("diagnostics.json", {
+            "outcome": attempt,
+            "requirements": sampler_requirements(experiment, variant),
+            "note": ("No production trajectory was started because no "
+                     "admissible calibration was certified."),
+        })
+        writer.set_manifest({
+            "experiment_id": experiment.experiment_id,
+            "experiment_key": experiment.key,
+            "method": variant.method,
+            **variant.describe(),
+            "tame_cap": experiment.tame_cap_for(variant),
+            "dt": None,
+            "particles": experiment.particles,
+            "seeds": list(experiment.seeds),
+            "target_hash": experiment.target_hash,
+            "reference_hash": reference_hash,
+            "calibration_hash": attempt["calibration_hash"],
+            "fee_calibration_hash": None if fee is None else fee.hash,
+            "fee_cost_unit": None if fee is None else fee.cost_unit,
+            "rng": streams.provenance(),
+            "device_provenance": device_provenance(experiment.device,
+                                                   experiment.dtype),
+            "git": git_provenance(),
+            "status": "uncalibratable",
+            "has_stationarity": False,
+            "created_at_utc": utc_now(),
+            "diagnosis": error.diagnosis,
+            "calibration_kind": error.kind,
+        })
+        final_dir = writer.final_dir
+    return {
+        "variant_label": variant.label,
+        "method": variant.method,
+        "status": "uncalibratable",
+        "diagnosis": error.diagnosis,
+        "calibration_kind": error.kind,
+        "calibration_table": error.table,
+        "next_candidate": error.next_candidate,
+        "calibration_hash": attempt["calibration_hash"],
+        "run_id": run_id,
+        "run_directory": str(final_dir),
+    }
 
 
 def run_variant(experiment: ExperimentContext, variant: Variant, *,
@@ -184,6 +250,7 @@ def run_variant(experiment: ExperimentContext, variant: Variant, *,
                     "method": variant.method,
                     "variant_label": variant.label,
                     "variant_hash": variant.hash,
+                    "metric_definition_hash": suite.definition_hash,
                     "tame": variant.tame,
                     "seed": seeds[seed_index],
                     "step": checkpoint,
@@ -248,6 +315,17 @@ def _snapshot(experiment, suite, positions, seeds, n_per_seed, checkpoint, dt,
         "t": np.float64(checkpoint * dt),
         "n_fee": np.float64(cost_row["n_fee"]),
         "n_fee_per_particle": np.float64(cost_row["n_fee_per_particle"]),
+        "n_force": np.int64(cost_row["n_force"]),
+        "n_force_per_particle": np.float64(
+            cost_row["n_force_per_particle"]),
+        "n_extra_potential": np.int64(cost_row["n_extra_potential"]),
+        "n_extra_potential_equivalent": np.float64(
+            cost_row["n_extra_potential_equivalent"]),
+        "n_extra_potential_equivalent_per_particle": np.float64(
+            cost_row["n_extra_potential_equivalent_per_particle"]),
+        "rho": np.float64(cost_row["rho"]),
+        "fee_calibration_hash": cost_row["fee_calibration_hash"],
+        "fee_cost_unit": cost_row["fee_cost_unit"],
         "downsample_rule": "evenly spaced indices, identical across methods",
     }
     for name, array in suite.snapshot_arrays(selected).items():
@@ -262,6 +340,9 @@ def _save_run(experiment, variant, *, dt, calibration, metric_rows, cost_rows,
     seeds = experiment.seeds
     resolved = experiment.resolved_config(variant=variant, dt=dt,
                                           calibration=calibration)
+    resolved["resolved"]["metric_definition_hash"] = suite.definition_hash
+    resolved["resolved"]["fee_calibration"] = fee_calibration.to_dict()
+    resolved["resolved"]["checkpoint_costs"] = cost_rows
     with RunWriter(experiment.paths, method=variant.method,
                    run_id=run_id) as writer:
         writer.write_yaml("resolved_config.yaml", resolved)
@@ -305,6 +386,7 @@ def _save_run(experiment, variant, *, dt, calibration, metric_rows, cost_rows,
             "target_hash": experiment.target_hash,
             "reference_hash": experiment.reference_hash,
             "calibration_hash": calibration["calibration_hash"],
+            "metric_definition_hash": suite.definition_hash,
             "fee_calibration_hash": fee_calibration.hash,
             "fee_cost_unit": fee_calibration.cost_unit,
             "fee_calibration": fee_calibration.to_dict(),

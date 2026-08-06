@@ -123,12 +123,15 @@ def build_or_load(experiment_id: str, config: dict, target, directory: Path, *,
             expected = _expected_provenance_hash(cls, config, target,
                                                  experiment_id)
             if expected is None or stored == expected:
-                return cls.load(directory, target, device)
+                reference = cls.load(directory, target, device)
+                reference.assert_valid_for_use(directory)
+                return reference
 
     directory.mkdir(parents=True, exist_ok=True)
     reference = _build(cls, config, target, directory, device=device,
                        verbose=verbose)
     reference.save(directory)
+    reference.assert_valid_for_use(directory)
     return reference
 
 

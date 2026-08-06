@@ -25,6 +25,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import tempfile
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -280,40 +281,238 @@ def check_device_policy(root: Path, report: Report) -> None:
 
 
 def check_output_writable(root: Path, report: Report) -> None:
-    from src.config import DEFAULT_RESULTS_ROOT
-
-    target = Path(DEFAULT_RESULTS_ROOT)
     try:
-        target.mkdir(parents=True, exist_ok=True)
-        probe = target / ".write-probe"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink()
+        # Probe the repository parent of the default output without creating a
+        # results/ directory in a clean source checkout.
+        with tempfile.TemporaryDirectory(prefix=".output-write-probe-",
+                                         dir=root):
+            pass
     except OSError as error:
         report.add("output directory writable", False, str(error))
     else:
-        report.add("output directory writable", True, str(target))
+        report.add("output directory writable", True, str(root / "results"))
 
 
 # ----------------------------------------------------------- release checks
 def check_release_artifacts(root: Path, report: Report) -> None:
-    for relative in REQUIRED_RELEASE_PATHS:
-        path = root / relative
-        report.add(f"release artifact: {relative}", path.exists(),
-                   "" if path.exists() else f"missing {path}")
-    figures = list((root / "figures").rglob("*.png")) if (root / "figures").is_dir() else []
-    report.add("release has figures", bool(figures),
-               f"{len(figures)} PNG file(s)")
+    """Require a complete, reproducible frozen-release evidence matrix."""
     from src.catalog import scan
+    from src.config import (default_variants, load_method_configs,
+                            load_registry, load_yaml)
+    from src.results import MANIFEST_NAME, sha256_file, stable_hash
 
-    results = root / "results"
-    if results.is_dir():
-        for experiment_dir in sorted(p for p in results.iterdir()
-                                     if p.is_dir() and (p / "runs").is_dir()):
-            rows, rejections = scan(experiment_dir)
-            report.add(f"release runs valid: {experiment_dir.name}",
-                       bool(rows) and not rejections,
-                       f"{len(rows)} valid, {len(rejections)} rejected: "
-                       f"{rejections}")
+    roots = {relative: root / relative
+             for relative in REQUIRED_RELEASE_PATHS}
+    for relative, path in roots.items():
+        is_directory = path.is_dir()
+        report.add(f"release artifact directory: {relative}", is_directory,
+                   "" if is_directory else f"missing directory {path}")
+        files = list(path.rglob("*")) if is_directory else []
+        nonempty = any(item.is_file() and item.stat().st_size > 0
+                       for item in files)
+        report.add(f"release artifact nonempty: {relative}", nonempty,
+                   "" if nonempty else f"no nonempty files under {path}")
+
+    try:
+        registry = load_registry(root / "configs")
+        method_configs = load_method_configs(root / "configs")
+        plot_config = load_yaml(
+            root / "configs" / "plots" / "manuscript.yaml")
+    except Exception as error:                                # noqa: BLE001
+        report.add("release configuration loads", False,
+                   f"{type(error).__name__}: {error}")
+        return
+    report.add("release configuration loads", True)
+
+    selected_rows = []
+    results_root = roots["results"]
+    for experiment_id, entry in registry["experiments"].items():
+        experiment_key = f"{experiment_id}_{entry['slug']}"
+        experiment_dir = results_root / experiment_key
+        runs_exist = (experiment_dir / "runs").is_dir()
+        report.add(f"{experiment_id}: production runs directory", runs_exist,
+                   str(experiment_dir / "runs"))
+        if not runs_exist:
+            continue
+
+        rows, rejections = scan(experiment_dir)
+        statuses_ok = all(
+            row.get("status") in ("complete", "uncalibratable")
+            for row in rows)
+        identities_ok = all(
+            row.get("experiment_id") == experiment_id
+            for row in rows)
+        report.add(
+            f"{experiment_id}: all run directories verify",
+            bool(rows) and not rejections and statuses_ok and identities_ok,
+            f"{len(rows)} admitted; {len(rejections)} rejected; "
+            f"statuses={sorted({row.get('status') for row in rows})}; "
+            f"rejections={rejections}")
+
+        reference_files = (
+            list((experiment_dir / "reference").rglob("*"))
+            if (experiment_dir / "reference").is_dir() else [])
+        report.add(
+            f"{experiment_id}: frozen reference evidence",
+            any(path.is_file() and path.stat().st_size > 0
+                for path in reference_files),
+            str(experiment_dir / "reference"))
+
+        expected_config = load_yaml(root / entry["config"])
+        expected = []
+        for method in entry["methods"]:
+            expected.extend(default_variants(
+                registry, method_configs, experiment_id, method))
+
+        missing = []
+        nonproduction = []
+        selected_for_experiment = []
+        for variant in expected:
+            candidates = [
+                row for row in rows
+                if row.get("variant_hash") == variant.hash
+                and row.get("status") in ("complete", "uncalibratable")
+            ]
+            production = []
+            for row in candidates:
+                resolved_path = (
+                    Path(row["run_directory"]) / "resolved_config.yaml")
+                try:
+                    resolved = load_yaml(resolved_path)
+                    saved_input = {
+                        key: value for key, value in resolved.items()
+                        if key != "resolved"}
+                    matches = (
+                        stable_hash(saved_input)
+                        == stable_hash(expected_config))
+                except Exception:                            # noqa: BLE001
+                    matches = False
+                if matches:
+                    production.append(row)
+            if not production:
+                missing.append(variant.label)
+                if candidates:
+                    nonproduction.append(variant.label)
+                continue
+            selected_for_experiment.append(max(
+                production,
+                key=lambda row: str(row.get("written_at_utc") or "")))
+
+        report.add(
+            f"{experiment_id}: complete default variant outcome matrix",
+            not missing,
+            f"expected={len(expected)}, selected={len(selected_for_experiment)}, "
+            f"missing={missing}, reduced-or-nondefault-only={nonproduction}")
+        report.add(
+            f"{experiment_id}: at least one completed trajectory",
+            any(row.get("status") == "complete"
+                for row in selected_for_experiment),
+            f"statuses={[row.get('status') for row in selected_for_experiment]}")
+        selected_rows.extend(selected_for_experiment)
+
+    def copied_hashes(directory: Path, suffixes: tuple[str, ...]) -> set[str]:
+        if not directory.is_dir():
+            return set()
+        return {
+            sha256_file(path)
+            for path in directory.rglob("*")
+            if path.is_file() and path.suffix.lower() in suffixes
+        }
+
+    manifest_hashes = copied_hashes(roots["manifests"], (".json",))
+    resolved_hashes = copied_hashes(
+        roots["resolved_configs"], (".yaml", ".yml"))
+    missing_manifests = []
+    missing_resolved = []
+    for row in selected_rows:
+        run_dir = Path(row["run_directory"])
+        label = f"{row.get('experiment_id')}:{row.get('variant_label')}"
+        manifest_path = run_dir / MANIFEST_NAME
+        resolved_path = run_dir / "resolved_config.yaml"
+        if (not manifest_path.is_file()
+                or sha256_file(manifest_path) not in manifest_hashes):
+            missing_manifests.append(label)
+        if (not resolved_path.is_file()
+                or sha256_file(resolved_path) not in resolved_hashes):
+            missing_resolved.append(label)
+    report.add(
+        "collected manifests cover selected default outcomes",
+        bool(selected_rows) and not missing_manifests,
+        f"selected={len(selected_rows)}, missing={missing_manifests}")
+    report.add(
+        "collected resolved configs cover selected default outcomes",
+        bool(selected_rows) and not missing_resolved,
+        f"selected={len(selected_rows)}, missing={missing_resolved}")
+
+    formats = tuple(plot_config["defaults"]["output_formats"])
+    views = tuple(plot_config["defaults"].get("tame_views", ()))
+    for experiment_id, entry in registry["experiments"].items():
+        specification = plot_config[experiment_id]
+        output_dir = (
+            roots["figures"] / specification["experiment_key"])
+        names = list(specification["figures"])
+        plot_notebook = root / entry["plot_notebook"]
+        try:
+            payload = json.loads(plot_notebook.read_text(encoding="utf-8"))
+            source = "\n".join(
+                "".join(cell.get("source", []))
+                for cell in payload.get("cells", []))
+            match = re.search(
+                r'MAIN_CURVE_FIGURE\s*=\s*["\\\']([^"\\\']+)["\\\']',
+                source)
+        except Exception as error:                            # noqa: BLE001
+            report.add(f"{experiment_id}: plot notebook contract", False,
+                       f"{type(error).__name__}: {error}")
+            match = None
+        else:
+            report.add(
+                f"{experiment_id}: plot notebook declares tame views",
+                match is not None,
+                "" if match else "MAIN_CURVE_FIGURE is not declared")
+        if match:
+            names.extend(
+                f"{match.group(1)}__{view}" for view in views)
+        for name in names:
+            missing_formats = [
+                suffix for suffix in formats
+                if not (output_dir / f"{name}.{suffix}").is_file()
+                or (output_dir / f"{name}.{suffix}").stat().st_size == 0
+            ]
+            report.add(
+                f"{experiment_id}: figure {name}",
+                not missing_formats,
+                f"missing/empty formats={missing_formats}")
+
+    expected_notebooks = {
+        Path(entry[key]).name
+        for entry in registry["experiments"].values()
+        for key in ("run_notebook", "plot_notebook")
+    }
+    executed_root = roots["executed_notebooks"]
+    report_path = executed_root / "execution_report.json"
+    try:
+        execution_records = json.loads(
+            report_path.read_text(encoding="utf-8"))
+        by_name = {
+            Path(record.get("executed", "")).name: record
+            for record in execution_records
+        }
+    except Exception as error:                                # noqa: BLE001
+        report.add("executed notebook report loads", False,
+                   f"{type(error).__name__}: {error}")
+        by_name = {}
+    else:
+        report.add("executed notebook report loads",
+                   isinstance(execution_records, list))
+    for name in sorted(expected_notebooks):
+        record = by_name.get(name, {})
+        path = executed_root / name
+        passed = (
+            path.is_file() and path.stat().st_size > 0
+            and record.get("status") == "success")
+        report.add(
+            f"executed notebook succeeds: {name}", passed,
+            f"status={record.get('status')!r}, path={path}")
 
 
 def main(argv=None) -> int:

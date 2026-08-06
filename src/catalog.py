@@ -33,6 +33,7 @@ CORE_COLUMNS = (
     "target_hash",
     "reference_hash",
     "calibration_hash",
+    "metric_definition_hash",
     "variant_hash",
     "rng_pair_group_hash",
     "fee_calibration_hash",
@@ -100,6 +101,7 @@ def _row_from_manifest(manifest: dict, run_dir: Path) -> dict:
     }
     parameters = manifest.get("parameters") or {}
     row["tame"] = parameters.get("tame", manifest.get("tame"))
+    row["metric_definition_hash"] = manifest.get("metric_definition_hash")
     row["tame_cap"] = manifest.get("tame_cap")
     row["dt"] = manifest.get("dt")
     row["particles"] = manifest.get("particles")
@@ -170,6 +172,7 @@ def load_catalog(experiment_dir: Path) -> list[dict]:
 
 def select_runs(experiment_dir: Path, *, method: str | None = None,
                 variant_label: str | None = None, tame: bool | None = None,
+                status: str | None = "complete",
                 latest_only: bool = True, from_manifests: bool = False,
                 **parameter_filters) -> list[dict]:
     """Pick runs by method, variant, tame flag, and hyperparameter values.
@@ -190,6 +193,8 @@ def select_runs(experiment_dir: Path, *, method: str | None = None,
 
     selected = []
     for row in rows:
+        if status is not None and row.get("status", "complete") != status:
+            continue
         if method is not None and row.get("method") != method:
             continue
         if variant_label is not None and row.get("variant_label") != variant_label:

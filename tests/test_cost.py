@@ -6,6 +6,7 @@ here may reconstruct a cost from ``steps x particles``.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 
 import pytest
@@ -264,6 +265,17 @@ def test_calibration_hash_separates_incomparable_workloads(gaussian_target):
     second = fee_module.calibrate(gaussian_target, particle_batch_size=4096,
                                   warmup=3, repetitions=10)
     assert first.hash != second.hash
+
+def test_calibration_hash_includes_device_index_and_uuid(gaussian_target):
+    calibration = fee_module.calibrate(
+        gaussian_target, particle_batch_size=128, warmup=1, repetitions=3)
+    other_index = replace(calibration, device_index=1)
+    other_uuid = replace(calibration, device_uuid="GPU-different")
+    assert calibration.hash != other_index.hash
+    assert calibration.hash != other_uuid.hash
+    assert other_index.identity_payload()["device_index"] == 1
+    assert other_uuid.identity_payload()["device_uuid"] == "GPU-different"
+
 
 
 def test_mismatched_calibrations_may_not_share_a_fee_axis(gaussian_target):

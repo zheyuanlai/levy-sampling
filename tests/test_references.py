@@ -25,6 +25,7 @@ import pytest
 import torch
 import yaml
 
+from src.measurements import build_measurement_suite
 from src import metrics as M
 from src import observables as O
 from src.config import load_experiment, load_yaml
@@ -176,6 +177,20 @@ def test_inverse_cdf_draws_follow_the_reference_cdf(e1_reference):
                          device=reference.device)
     ks = float(torch.maximum(index / n - cdf, cdf - (index - 1) / n).max())
     assert ks * math.sqrt(n) < 1.949, ks * math.sqrt(n)
+
+def test_e1_saves_reference_floors_for_every_primary_metric(e1_reference):
+    _, reference = e1_reference
+    floors = reference.validation["sampling_floors"]
+    assert floors["particles"] == E1_SMALL["protocol"]["particles"]
+    assert floors["replicates"] == 2
+    assert floors["mmd_bandwidth"] > 0.0
+    for metric in ("W2_exact_1d", "MMD2_biased", "KS"):
+        record = floors[metric]
+        assert len(record["values"]) >= floors["replicates"]
+        assert record["mean"] >= 0.0
+        assert record["sd"] >= 0.0
+
+
 
 
 def test_basin_masses_sum_to_one_and_the_double_well_is_symmetric(
@@ -695,6 +710,29 @@ def test_the_block_length_is_at_least_twice_the_slowest_autocorrelation():
     assert length == math.ceil(2.0 * slowest)
 
 
+def test_e4_snis_run_agreement_uses_frozen_family_wise_cutoffs():
+    """The four maxima preserve the old 2-SE significance per gate family."""
+    gates = load_yaml(E4_ACCEPTANCE)["snis_gates"]
+    target = gates["run_agreement_family_wise_two_sided_significance"]
+    assert target == pytest.approx(math.erfc(2.0 / math.sqrt(2.0)))
+    thresholds = gates["max_run_difference_in_combined_se"]
+    comparisons = {
+        "phase_probability": 24,
+        "susceptibility": 24,
+        "energy_per_site": 6,
+        "coherence_mean": 6,
+    }
+    assert set(thresholds) == set(comparisons)
+    for name, count in comparisons.items():
+        fields = e4_module._multiple_comparison_fields(
+            thresholds[name], count, target)
+        assert thresholds[name] == pytest.approx(
+            fields["bonferroni_equivalent_threshold_in_se"])
+        assert (count * fields["per_comparison_two_sided_significance"]
+                <= target + 1e-14)
+        assert fields["family_wise_significance_under_independence"] <= target
+
+
 def test_too_few_blocks_fails_the_gate_instead_of_shrinking_the_block_length():
     """The block length is set by the autocorrelation, so a run that yields too
     few blocks must be reported as too short, not re-blocked.
@@ -844,7 +882,9 @@ def _acceptance_copy(directory: Path, *, tighten: bool) -> Path:
         "min_total_ess": 0, "min_ess_fraction": 0.0,
         "max_normalized_weight": 1.0,
         "min_weighted_effective_count_per_phase": 0,
-        "max_run_difference_in_combined_se": infinity,
+        "max_run_difference_in_combined_se": {
+            name: infinity for name in payload["snis_gates"][
+                "max_run_difference_in_combined_se"]},
         "require_coverage": {"all_four_phases": False,
                              "nonzero_kink_configurations": False,
                              "coherence_upper_decile": False}})
@@ -900,6 +940,34 @@ def test_a_reduced_budget_reference_validates_under_the_relaxed_copy(
     assert record["reference_validated"] is True
     assert record["n_failed"] == 0
 
+def test_e4_runtime_metrics_include_required_distributions_and_raw_vectors(
+        e4_passing_reference):
+    experiment, reference = e4_passing_reference
+    suite = build_measurement_suite(experiment, reference)
+    x = reference.sample_bank[:experiment.particles]
+    metrics = suite.metrics(x)
+    required = {
+        "marginal_W1_mx", "marginal_W1_my", "marginal_W1_m_norm",
+        "energy_per_site_KS", "energy_per_site_W1",
+        "energy_per_site_MMD2_biased", "energy_per_site_MMD2_unbiased",
+        "coherence_KS", "coherence_W1", "kink_density_KS",
+        "kink_density_W1", "kink_zero_probability",
+        "kink_high_tail_probability", "connected_correlation_relative_L2",
+        "heat_capacity_per_site", "heat_capacity_per_site_reference",
+        "binder_cumulant", "binder_cumulant_reference",
+    }
+    assert required <= set(metrics)
+    phase_total = metrics["phase_outside_count"] + sum(
+        metrics[f"phase_count_{index}"] for index in range(suite.n_phases))
+    assert phase_total == experiment.particles
+    connected = [key for key in metrics
+                 if key.startswith("connected_correlation_r")
+                 and key != "connected_correlation_relative_L2"]
+    assert connected
+    assert suite.describe()["metric_definition_hash"]
+
+
+
 
 def test_a_failing_gate_never_produces_a_validated_reference(tmp_path):
     """One tightened threshold must make the build raise, mark the stored record
@@ -935,3 +1003,11 @@ def test_a_failing_gate_never_produces_a_validated_reference(tmp_path):
     assert gate["diagnostic_message"]
     assert all(item["passed"] for item in record["gates"]
                if item["metric"] != TIGHTENED_GATE)
+
+    # The failed build remains on disk as evidence. A second process must not
+    # mistake its matching provenance for a promotable cached reference.
+    reloaded = _experiment("E4", tmp_path, _e4_overrides(acceptance))
+    with pytest.raises(ReferenceValidationError) as cached:
+        reloaded.ensure_reference()
+    assert [gate["metric"] for gate in cached.value.failed_gates] == [
+        TIGHTENED_GATE]

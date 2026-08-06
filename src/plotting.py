@@ -508,6 +508,14 @@ def load_runs(experiment_dir, spec=None, *, methods=_UNSET, variants=_UNSET,
                                     latest_only=latest_only,
                                     from_manifests=True))
     rows = [row for row in rows if _variant_filter(row, variants)]
+    if methods is not None:
+        loaded_methods = {str(row.get("method")) for row in rows}
+        missing_methods = [name for name in methods
+                           if name not in loaded_methods]
+        if missing_methods:
+            raise ValueError(
+                f"plot specification requires missing methods {missing_methods}; "
+                f"loaded {sorted(loaded_methods)} after tame/variant filters")
     if not rows:
         raise ValueError(
             "no completed runs matched: experiment_dir="
@@ -626,17 +634,33 @@ def _reference_e1(directory: Path, record: dict, out: dict) -> None:
     if validation_file.is_file():
         validation = _load_json(validation_file)
         out["validation"] = validation
+        saved_floors = validation.get("sampling_floors") or {}
+        floor_entries = {}
+        for metric in ("W2_exact_1d", "MMD2_biased", "KS"):
+            record = saved_floors.get(metric) or {}
+            if "mean" not in record:
+                continue
+            mean = float(record["mean"])
+            sd = float(record.get("sd", 0.0))
+            floor_entries[metric] = {
+                "lo": mean - sd, "hi": mean + sd,
+                "mean": mean, "sd": sd,
+                "source": str(validation_file),
+            }
+        # Compatibility with pre-generalisation E1 references.
         self_w2 = validation.get("self_w2") or {}
-        if "mean" in self_w2:
+        if "W2_exact_1d" not in floor_entries and "mean" in self_w2:
             mean, sd = float(self_w2["mean"]), float(self_w2.get("sd", 0.0))
-            # The reference-versus-reference floor is a saved number; the band
-            # is mean +- one standard deviation over its replicates.
-            out["sampling_floor"] = {"W2_exact_1d": {
-                "lo": mean - sd, "hi": mean + sd, "mean": mean, "sd": sd,
-                "source": str(validation_file)}}
+            floor_entries["W2_exact_1d"] = {
+                "lo": mean - sd, "hi": mean + sd,
+                "mean": mean, "sd": sd,
+                "source": str(validation_file),
+            }
+        if floor_entries:
+            out["sampling_floor"] = floor_entries
         else:
             out["sampling_floor"] = _MissingArtifact(
-                f"{validation_file} records no self_w2 mean")
+                f"{validation_file} records no primary-metric sampling floors")
     else:
         out["validation"] = _missing(directory, "reference_validation.json")
         out["sampling_floor"] = _missing(directory,

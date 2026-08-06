@@ -42,10 +42,33 @@ INVALID_MARKER = "INVALID"
 #: Files a completed production run is expected to carry.
 REQUIRED_ARTIFACTS = (
     "resolved_config.yaml",
+    "calibration.json",
     "metrics_timeseries.csv",
     "cost_timeseries.csv",
     "terminal_samples.npz",
     "diagnostics.json",
+)
+
+
+NEGATIVE_OUTCOME_ARTIFACTS = (
+    "resolved_config.yaml",
+    "calibration.json",
+    "diagnostics.json",
+)
+
+
+COMPLETE_MANIFEST_FIELDS = (
+    "experiment_id", "experiment_key", "method", "variant_label",
+    "variant_hash", "rng_pair_group_hash", "parameters", "tame", "dt",
+    "target_hash", "reference_hash", "calibration_hash",
+    "metric_definition_hash", "fee_calibration_hash", "fee_cost_unit",
+    "particles", "seeds", "device_provenance", "git", "status",
+)
+
+NEGATIVE_MANIFEST_FIELDS = (
+    "experiment_id", "experiment_key", "method", "variant_label",
+    "variant_hash", "target_hash", "calibration_hash", "status",
+    "diagnosis", "calibration_kind", "device_provenance", "git",
 )
 
 
@@ -363,11 +386,38 @@ def verify_run(run_dir: Path, *, check_hashes: bool = True) -> tuple[bool, str]:
     if int(manifest.get("schema_version", -1)) != SCHEMA_VERSION:
         return False, (f"schema version {manifest.get('schema_version')} != "
                        f"{SCHEMA_VERSION}")
-    if manifest.get("status") not in (None, "complete"):
-        return False, f"status is {manifest.get('status')!r}"
+    status = manifest.get("status", "complete")
+    if status not in ("complete", "uncalibratable"):
+        return False, f"status is {status!r}"
+    required_fields = (COMPLETE_MANIFEST_FIELDS if status == "complete"
+                       else NEGATIVE_MANIFEST_FIELDS)
+    missing_fields = [field for field in required_fields
+                      if field not in manifest]
+    if missing_fields:
+        return False, f"manifest missing required fields {missing_fields}"
+    if status == "complete":
+        from .measurements import metric_definition_hash
+
+        current_metric_hash = metric_definition_hash(
+            str(manifest["experiment_id"]))
+        if manifest["metric_definition_hash"] != current_metric_hash:
+            return False, (
+                "stale metric definition: manifest has "
+                f"{manifest['metric_definition_hash']}, current code has "
+                f"{current_metric_hash}")
     files = manifest.get("files") or {}
     if not files:
         return False, "manifest records no files"
+    required = (REQUIRED_ARTIFACTS if status == "complete"
+                else NEGATIVE_OUTCOME_ARTIFACTS)
+    for relative in required:
+        if relative not in files or not (run_dir / relative).is_file():
+            return False, f"missing required artifact {relative}"
+    if status == "complete":
+        snapshot_dir = run_dir / "sample_snapshots"
+        if (not snapshot_dir.is_dir()
+                or not any(snapshot_dir.glob("*.npz"))):
+            return False, "missing sample_snapshots/*.npz"
     if check_hashes:
         for relative, expected in files.items():
             path = run_dir / relative

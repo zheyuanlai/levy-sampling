@@ -29,6 +29,7 @@ import json
 import math
 from pathlib import Path
 
+from . import metrics as sampling_metrics
 import numpy as np
 import torch
 
@@ -161,12 +162,20 @@ def _pilot_summary(context, variant, dt: float, pilot: dict,
     n_steps = max(1, int(round(context.final_time * float(pilot["time_fraction"])
                                / float(dt))))
     streams = _pilot_streams(context, variant, seeds)
+    requirements = sampler_requirements(context, variant)
+    ess_trace: list[torch.Tensor] = []
+    trace_start = n_steps // 2
     with context.target.no_count():
         sampler = build_sampler(context, variant, dt=dt, streams=streams,
                                 n_per_seed=n_per_seed,
                                 calibration=calibration)
-        for _ in range(n_steps):
+        for step in range(n_steps):
             sampler.step()
+            if requirements.get("ess") and step >= trace_start:
+                positions = sampler.positions()
+                coordinate_trace = _summary_coordinate(context, positions)
+                ess_trace.append(coordinate_trace.reshape(
+                    len(seeds), n_per_seed).mean(dim=1))
         diagnostics = sampler.pop_diagnostics()
         x = sampler.positions()
         finite = torch.isfinite(x).all(dim=-1)
@@ -176,6 +185,18 @@ def _pilot_summary(context, variant, dt: float, pilot: dict,
             "boundary_reject_fraction": float(
                 diagnostics.get("boundary_reject_fraction_cumulative", 0.0)),
         }
+        if requirements.get("ess"):
+            if len(ess_trace) >= 2:
+                trace = torch.stack(ess_trace, dim=1)
+                temporal_ess = sampling_metrics.effective_sample_size(
+                    trace.detach().cpu().numpy())
+                temporal_fraction = temporal_ess / float(trace.numel())
+            else:
+                temporal_ess = math.nan
+                temporal_fraction = math.nan
+            summary["temporal_ess"] = float(temporal_ess)
+            summary["temporal_ess_fraction"] = float(temporal_fraction)
+            summary["temporal_ess_draws_per_seed"] = len(ess_trace)
         if not bool(finite.any().item()):
             summary.update({key: math.nan for key in _AGREEMENT_KEYS})
             summary.update({f"{key}_se": math.nan for key in _AGREEMENT_KEYS})
@@ -250,11 +271,16 @@ def _scalar_summary(prefix: str, values: torch.Tensor) -> dict:
 
 def _acceptance_fields(diagnostics: dict) -> dict:
     out = {}
-    for key in ("mh_accept_fraction_cumulative",
-                "swap_accept_fraction_cumulative",
-                "score_clip_fraction_cumulative"):
-        if key in diagnostics:
-            out[key] = float(diagnostics[key])
+    for key, value in diagnostics.items():
+        keep = (key in ("mh_accept_fraction_cumulative",
+                        "swap_accept_fraction_cumulative",
+                        "score_clip_fraction_cumulative",
+                        "round_trip_count_cumulative",
+                        "round_trip_rate_cumulative")
+                or (key.startswith("replica_")
+                    and key.endswith("_mh_accept_fraction_cumulative")))
+        if keep:
+            out[key] = float(value)
     return out
 
 
@@ -339,6 +365,22 @@ def _stable(summary: dict, requirements: dict, rules: dict,
         acceptance = summary.get("mh_accept_fraction_cumulative")
         if acceptance is None or acceptance < low:
             problems.append(("mh_acceptance_collapsed", acceptance))
+        if requirements.get("replica_acceptance"):
+            replica_acceptance = [
+                float(value) for key, value in summary.items()
+                if (key.startswith("replica_")
+                    and key.endswith("_mh_accept_fraction_cumulative"))
+            ]
+            if (not replica_acceptance
+                    or min(replica_acceptance) < float(low)):
+                problems.append(("replica_mh_acceptance_collapsed",
+                                 replica_acceptance))
+    if requirements.get("ess"):
+        ess_fraction = summary.get("temporal_ess_fraction")
+        minimum_ess = float(rules.get("minimum_ess_fraction", 0.05))
+        if (ess_fraction is None or not math.isfinite(float(ess_fraction))
+                or float(ess_fraction) < minimum_ess):
+            problems.append(("temporal_ess_fraction", ess_fraction))
     return (not problems), problems
 
 
@@ -382,9 +424,18 @@ def calibrate_dt(context, variant, *, pilot: dict,
         stable, stability_problems = _stable(coarse, requirements,
                                              acceptance_rules, stability_gates)
         agrees, failures = _summaries_agree(coarse, fine, tolerance)
+        acceptance_ok = True
+        if requirements["acceptance"]:
+            acceptance = coarse.get("mh_accept_fraction_cumulative")
+            low, high = acceptance_rules["target_acceptance"]
+            acceptance_ok = bool(
+                acceptance is not None and low <= acceptance <= high)
+            if not acceptance_ok:
+                stability_problems.append(
+                    ("mh_acceptance_outside_target_band", acceptance))
         row = {
             "dt": dt,
-            "pass": bool(stable and agrees),
+            "pass": bool(stable and agrees and acceptance_ok),
             "stability_problems": stability_problems,
             "agreement_failures": failures,
             "summary": coarse,
@@ -441,9 +492,15 @@ def _acceptance_rules(context, variant) -> dict:
     family = context.registry["methods"][variant.method].get("family",
                                                              variant.method)
     if family == "MALA":
-        return {"target_acceptance": tuple(
-            calibration_config.get("mala", {}).get("target_acceptance",
-                                                   (0.4, 0.75)))}
+        ess_rules = dict((context.method_configs.get(variant.method, {})
+                          .get("calibration", {}) or {}).get("ess", {}) or {})
+        return {
+            "target_acceptance": tuple(
+                calibration_config.get("mala", {}).get(
+                    "target_acceptance", (0.4, 0.75))),
+            "minimum_ess_fraction": float(
+                ess_rules.get("minimum_pilot_fraction", 0.05)),
+        }
     if family == "PT":
         return {"target_acceptance": tuple(
             calibration_config.get("mala", {}).get("target_acceptance",
@@ -452,7 +509,8 @@ def _acceptance_rules(context, variant) -> dict:
 
 
 # ----------------------------------------------------------- PT ladder tuning
-def tune_pt_ladder(context, variant, dt: float, *, pilot: dict) -> dict:
+def tune_pt_ladder(context, variant, dt: float, *, pilot: dict,
+                   enforce_mixing: bool = True) -> dict:
     """Pick the replica count so mean swap acceptance lands in the target band.
 
     Acceptance is measured only on the post-burn-in half of the pilot. Every
@@ -464,20 +522,26 @@ def tune_pt_ladder(context, variant, dt: float, *, pilot: dict) -> dict:
     changes the within-replica mixing and therefore the ladder PT needs.
     """
     rules = context.config["calibration"]["pt"]
-    target_band = tuple(rules.get("target_swap_acceptance", (0.2, 0.4)))
+    method_ladder = dict(
+        context.method_configs.get(variant.method, {}).get("ladder") or {})
+    target_band = tuple(method_ladder.get(
+        "target_swap_acceptance",
+        rules.get("target_swap_acceptance", (0.2, 0.4))))
     beta_min = float(context.pt_beta_min)
     beta_max = float(context.beta)
     k_cap = int(rules.get("k_cap", 64))
     n_replicas = int(rules.get("k_initial", 8))
-    pilot_steps = int(pilot.get("ladder_pilot_steps",
-                                PILOT_DEFAULTS["ladder_pilot_steps"]))
-    burn = int(float(pilot.get("ladder_burn_fraction",
-                               PILOT_DEFAULTS["ladder_burn_fraction"]))
+    pilot_steps = int(rules.get(
+        "pilot_steps", pilot.get("ladder_pilot_steps", 4000)))
+    burn = int(float(method_ladder.get(
+        "burn_fraction", pilot.get(
+            "ladder_burn_fraction", PILOT_DEFAULTS["ladder_burn_fraction"])))
                * pilot_steps)
     seeds = tuple(range(int(pilot["seeds"])))
     n_per_seed = int(pilot["particles"])
 
     history: dict[int, float] = {}
+    mixing_history: dict[int, dict] = {}
     for _ in range(10):
         betas = geometric_ladder(beta_max, beta_min, n_replicas, context.device)
         streams = _pilot_streams(context, variant, seeds)
@@ -488,12 +552,26 @@ def tune_pt_ladder(context, variant, dt: float, *, pilot: dict) -> dict:
                 calibration={"pt_betas": betas.tolist()})
             for _ in range(burn):
                 sampler.step()
-            sampler.pop_diagnostics()                      # discard transient
+            sampler.reset_diagnostics()                    # discard transient
             for _ in range(pilot_steps - burn):
                 sampler.step()
             diagnostics = sampler.pop_diagnostics()
         acceptance = float(diagnostics.get("swap_accept_fraction_cumulative", 0.0))
         history[n_replicas] = acceptance
+        replica_acceptance = [
+            float(diagnostics.get(
+                f"replica_{replica}_mh_accept_fraction_cumulative",
+                float("nan")))
+            for replica in range(n_replicas)
+        ]
+        mixing_history[n_replicas] = {
+            "swap_acceptance": acceptance,
+            "replica_acceptance": replica_acceptance,
+            "round_trip_count": int(
+                diagnostics.get("round_trip_count_cumulative", 0)),
+            "round_trip_rate": float(
+                diagnostics.get("round_trip_rate_cumulative", 0.0)),
+        }
         if acceptance < target_band[0]:
             n_replicas = min(int(math.ceil(n_replicas * 1.5)), k_cap)
         elif acceptance > target_band[1]:
@@ -511,6 +589,35 @@ def tune_pt_ladder(context, variant, dt: float, *, pilot: dict) -> dict:
 
     best = min(history, key=lambda k: distance(history[k]))
     betas = geometric_ladder(beta_max, beta_min, best, context.device)
+    minimum_round_trips = int(method_ladder.get("min_round_trips", 1))
+    selected_mixing = mixing_history[best]
+    band_attained = bool(target_band[0] <= history[best] <= target_band[1])
+    mixing_attained = bool(
+        selected_mixing["round_trip_count"] >= minimum_round_trips)
+    gate_pass = bool(
+        band_attained and (mixing_attained or not enforce_mixing))
+    gate = {
+        "n_replicas": best,
+        "swap_acceptance": history[best],
+        "target_band": list(target_band),
+        "band_attained": band_attained,
+        **selected_mixing,
+        "minimum_round_trips": minimum_round_trips,
+        "mixing_attained": mixing_attained,
+        "mixing_gate_enforced": bool(enforce_mixing),
+        "pass": gate_pass,
+        "stability_problems": ([] if gate_pass else [
+            ("swap_acceptance_band", history[best]) if not band_attained
+            else ("round_trip_count",
+                  selected_mixing["round_trip_count"])
+        ]),
+    }
+    if not gate["pass"]:
+        raise CalibrationError(
+            "pt_ladder", [gate],
+            diagnosis=(
+                "no PT ladder candidate met the frozen swap acceptance "
+                "band and final-timestep round-trip requirement"))
     return {
         "pt_betas": betas.tolist(),
         "pt_tuning": {
@@ -520,8 +627,16 @@ def tune_pt_ladder(context, variant, dt: float, *, pilot: dict) -> dict:
             "ratio": (beta_min / beta_max) ** (1.0 / (best - 1)),
             "swap_acceptance": history[best],
             "target_band": list(target_band),
-            "band_attained": bool(target_band[0] <= history[best] <= target_band[1]),
+            "band_attained": band_attained,
             "history": {str(k): v for k, v in history.items()},
+            "candidate_mixing_history": {
+                str(k): value for k, value in mixing_history.items()},
+            "replica_acceptance": selected_mixing["replica_acceptance"],
+            "round_trip_count": selected_mixing["round_trip_count"],
+            "round_trip_rate": selected_mixing["round_trip_rate"],
+            "minimum_round_trips": minimum_round_trips,
+            "mixing_attained": mixing_attained,
+            "mixing_gate_enforced": bool(enforce_mixing),
             "tuned_for_tame_variant": bool(variant.tame),
             "pilot_steps": pilot_steps,
             "burn_in_steps": burn,
@@ -570,20 +685,110 @@ def calibrate_quadrature(context, variant, *, n_probe: int = 256,
             (coarse_v / coarse_v.norm(dim=1, keepdim=True).clamp(min=1e-300))
             - (fine_v / fine_v.norm(dim=1, keepdim=True).clamp(min=1e-300))
         ).norm(dim=1)
+    quadrature_rules = ((context.method_configs.get(variant.method, {})
+                         .get("calibration", {}) or {})
+                        .get("quadrature", {}) or {})
+    tolerance = float(quadrature_rules.get(
+        "tolerance",
+        context.config["calibration"]["dt"].get("tolerance", 0.05)))
+    p95_log = float(torch.quantile(log_difference, 0.95).item())
+    p95_multiplier = float(quadrature_rules.get(
+        "p95_tolerance_multiplier", 4.0))
+    p95_direction = float(torch.quantile(direction_difference, 0.95).item())
+    passed = bool(
+        float(log_difference.median().item()) <= tolerance
+        and float(direction_difference.median().item()) <= tolerance
+        and p95_log <= p95_multiplier * tolerance
+        and p95_direction <= p95_multiplier * tolerance)
+    gate = {
+        "setting": base,
+        "reference_setting": fine,
+        "median_abs_log_magnitude_difference": float(
+            log_difference.median().item()),
+        "p95_abs_log_magnitude_difference": p95_log,
+        "max_abs_log_magnitude_difference": float(
+            log_difference.max().item()),
+        "median_direction_difference": float(
+            direction_difference.median().item()),
+        "p95_direction_difference": p95_direction,
+        "max_direction_difference": float(direction_difference.max().item()),
+        "tolerance": tolerance,
+        "p95_tolerance": p95_multiplier * tolerance,
+        "n_probe": int(n_probe),
+        "shared_across_timesteps": True,
+        "passed": passed,
+    }
+    if not passed:
+        raise CalibrationError(
+            "quadrature", [gate], next_candidate=fine,
+            diagnosis=("score quadrature did not converge against the doubled "
+                       "rule at the frozen log-magnitude/direction tolerances"))
     return {
         "quadrature": base,
-        "quadrature_check": {
-            "reference_setting": fine,
-            "max_abs_log_magnitude_difference": float(log_difference.max().item()),
-            "median_abs_log_magnitude_difference": float(
-                log_difference.median().item()),
-            "max_direction_difference": float(direction_difference.max().item()),
-            "median_direction_difference": float(
-                direction_difference.median().item()),
-            "n_probe": int(n_probe),
-            "shared_across_timesteps": True,
-        },
+        "quadrature_check": gate,
     }
+
+
+def calibrate_score_certificate(context, variant,
+                                calibration: dict) -> dict:
+    """Certify the score estimator contract required by the method registry.
+
+    Full quadrature receives a numerical self-convergence certificate. The
+    random-atomic family receives a structural unbiasedness certificate: iid
+    draws from the full law, refreshed each step, with one empirical measure
+    shared by score and jump noise.
+    """
+    entry = context.registry["methods"][variant.method]
+    estimator = entry.get("estimator_type")
+    if estimator == "deterministic_quadrature":
+        check = dict(calibration.get("quadrature_check") or {})
+        certificate = {
+            "kind": "deterministic_score_quadrature_self_convergence",
+            "residual_definition": (
+                "max(median absolute log-magnitude difference, "
+                "median direction difference) against doubled quadrature"),
+            "residual": max(
+                float(check["median_abs_log_magnitude_difference"]),
+                float(check["median_direction_difference"])),
+            "tolerance": float(check["tolerance"]),
+            "passed": bool(check.get("passed")),
+            "quadrature": calibration.get("quadrature"),
+            "reference_setting": check.get("reference_setting"),
+        }
+    elif estimator == "iid_random_atomic":
+        method = context.method_configs[variant.method]
+        bank = dict(method.get("bank") or {})
+        checks = {
+            "iid_from_full_mixture":
+                bank.get("sampling") == "iid_from_full_mixture",
+            "refreshed_every_step":
+                bank.get("refresh_policy") == "every_step",
+            "shared_between_score_and_noise":
+                bank.get("shared_between_score_and_noise") is True,
+            "positive_bank_size": int(variant.parameters.get("A", 0)) > 0,
+        }
+        certificate = {
+            "kind": "iid_empirical_levy_measure_unbiasedness_contract",
+            "identity": (
+                "E[S_A(x)] equals the full-law score because every bank atom "
+                "is iid from rho=nu/Lambda"),
+            "bank_size": int(variant.parameters["A"]),
+            "checks": checks,
+            "passed": all(checks.values()),
+            "scope": (
+                "structural estimator certificate; Monte Carlo convergence "
+                "is covered by the independent score-estimator regression"),
+        }
+    else:
+        raise CalibrationError(
+            "score_certificate", [],
+            diagnosis=f"unsupported score estimator type {estimator!r}")
+
+    if not certificate["passed"]:
+        raise CalibrationError(
+            "score_certificate", [certificate],
+            diagnosis="the configured score estimator failed its certificate")
+    return {"score_certificate": certificate}
 
 
 # --------------------------------------------------------------- entry point
@@ -612,22 +817,27 @@ def calibrate(context, variant, *, refresh: bool = False,
 
     if requirements["quadrature"]:
         payload.update(calibrate_quadrature(context, variant))
+    if requirements["score_certificate"]:
+        payload.update(calibrate_score_certificate(context, variant,
+                                                   payload))
 
     if requirements["pt_ladder"]:
         # Tune the ladder at the starting timestep, then calibrate the local
         # kernel's timestep with that ladder in place.
         initial_dt = float(context.config["protocol"]["initial_dt"])
-        payload.update(tune_pt_ladder(context, variant, initial_dt, pilot=pilot))
+        payload.update(tune_pt_ladder(
+            context, variant, initial_dt, pilot=pilot, enforce_mixing=False))
 
     payload.update(calibrate_dt(context, variant, pilot=pilot,
                                 calibration=payload))
 
-    if requirements["pt_ladder"] and payload["dt"] != float(
-            context.config["protocol"]["initial_dt"]):
-        # The timestep moved, so re-tune the ladder at the timestep that will
-        # actually run rather than keeping a ladder tuned for a different one.
-        payload.update(tune_pt_ladder(context, variant, payload["dt"],
-                                      pilot=pilot))
+    if requirements["pt_ladder"]:
+        # Always retune at the selected local-kernel timestep and enforce the
+        # mixing certificate there. The initial pass deliberately gates only
+        # ladder placement, so it cannot reject PT before dt is calibrated.
+        payload.update(tune_pt_ladder(
+            context, variant, payload["dt"], pilot=pilot,
+            enforce_mixing=True))
 
     store(context, variant, key, payload)
     return payload

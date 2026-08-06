@@ -15,12 +15,31 @@ difference between samplers rather than between metric configurations.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import torch
 
 from . import metrics as M
 from . import observables as O
+from .results import sha256_file, stable_hash
+
+
+def metric_definition_hash(experiment_id: str) -> str:
+    """Hash the executable definitions behind every official metric row.
+
+    The experiment identifier keeps the four metric contracts distinct. The
+    source-file digests ensure a definition change invalidates old production
+    runs even when target, reference, and sampler identities are unchanged.
+    """
+    files = (Path(__file__), Path(M.__file__), Path(O.__file__))
+    return stable_hash({
+        "schema": 1,
+        "experiment_id": str(experiment_id),
+        "definition_files": {
+            path.name: sha256_file(path) for path in files
+        },
+    })
 
 
 def _frozen_subsample(bank: torch.Tensor, n: int) -> torch.Tensor:
@@ -58,6 +77,7 @@ class MeasurementSuite:
         self.target = experiment.target
         self.config = experiment.config
         self.device = experiment.device
+        self.definition_hash = metric_definition_hash(self.experiment_id)
         self._description: dict = {}
 
     def metrics(self, x: torch.Tensor) -> dict[str, float]:
@@ -77,7 +97,9 @@ class MeasurementSuite:
         raise NotImplementedError
 
     def describe(self) -> dict:
-        return {"experiment_id": self.experiment_id, **self._description}
+        return {"experiment_id": self.experiment_id,
+                "metric_definition_hash": self.definition_hash,
+                **self._description}
 
 
 # ======================================================================== E1
@@ -332,6 +354,24 @@ class CoupledQuarticChainMeasurements(MeasurementSuite):
             reference.order_parameter_bank, n)
         self.bandwidth = _bandwidth(reference, self.reference_order_parameter)
         self.projections = _projections(reference, 2, self.config, self.device)
+        self.reference_energy = _frozen_subsample(
+            reference.extras["pt_energy_per_site"], n)
+        self.reference_coherence = _frozen_subsample(
+            reference.extras["pt_coherence"], n)
+        self.reference_kink = _frozen_subsample(
+            reference.extras["pt_kink_density"], n)
+        self.energy_bandwidth = M.median_heuristic(
+            self.reference_energy[:, None])
+        full_kink = reference.extras["pt_kink_density"]
+        self.kink_tail_quantile = 0.9
+        self.kink_tail_threshold = float(torch.quantile(
+            full_kink, self.kink_tail_quantile).item())
+        self.reference_kink_zero_probability = float(
+            (full_kink == 0).to(torch.float64).mean().item())
+        self.reference_kink_tail_probability = float(
+            (full_kink >= self.kink_tail_threshold).to(torch.float64)
+            .mean().item())
+
         self.basin_map = reference.basin_map
         self.site_minima = self.target.extras["refined_site_minima"]
         self.n_sites = int(self.target.extras["n_sites"])
@@ -354,7 +394,13 @@ class CoupledQuarticChainMeasurements(MeasurementSuite):
             "susceptibility": "chi = beta N_s Cov(m)",
             "binder_convention": "O(2): U_4 = 1 - E||m||^4 / (2 (E||m||^2)^2)",
             "mmd_bandwidth": self.bandwidth,
+            "energy_mmd_bandwidth": self.energy_bandwidth,
             "n_projections": int(self.projections.shape[0]),
+            "kink_high_tail": {
+                "reference_quantile": self.kink_tail_quantile,
+                "threshold": self.kink_tail_threshold,
+                "inclusive": True,
+            },
             "primary_metrics": [
                 "phase_weight_JS", "order_parameter_SW2",
                 "order_parameter_MMD2_biased", "energy_per_site_MAE",
@@ -383,11 +429,23 @@ class CoupledQuarticChainMeasurements(MeasurementSuite):
         correlation = O.two_point_correlation(self.target, x).mean(dim=0)
         kink = O.kink_density(self.target, x, self.site_minima)
         chi = O.susceptibility(m, self.beta, self.n_sites)
+        heat_capacity = O.heat_capacity_per_site(
+            total_energy, self.beta, self.n_sites)
+        binder = O.binder_cumulant(m)
 
         p_star = self._reference_tensor("phase_probabilities")
         chi_star = self._reference_tensor("susceptibility")
         correlation_star = self._reference_tensor("two_point_correlation")
         m_star = self._reference_tensor("order_parameter_mean")
+        m_norm = O.order_parameter_norm(m)
+        reference_m_norm = O.order_parameter_norm(
+            self.reference_order_parameter)
+        connected = correlation - torch.dot(m.mean(dim=0), m.mean(dim=0))
+        connected_star = correlation_star - torch.dot(m_star, m_star)
+        kink_zero_probability = float(
+            (kink == 0).to(torch.float64).mean().item())
+        kink_tail_probability = float(
+            (kink >= self.kink_tail_threshold).to(torch.float64).mean().item())
 
         out = {
             # main text
@@ -423,11 +481,10 @@ class CoupledQuarticChainMeasurements(MeasurementSuite):
             # ``heat_capacity_per_site``. The reported metric keeps its shorter
             # historical column name.
             "heat_capacity_error": abs(
-                O.heat_capacity_per_site(total_energy, self.beta, self.n_sites)
-                - self._reference_scalar("heat_capacity_per_site")),
+                heat_capacity - self._reference_scalar(
+                    "heat_capacity_per_site")),
             "binder_cumulant_error": abs(
-                O.binder_cumulant(m)
-                - self._reference_scalar("binder_cumulant")),
+                binder - self._reference_scalar("binder_cumulant")),
             "order_parameter_mean_error": float(
                 (m.mean(dim=0) - m_star).norm().item()),
             "marginal_KS_mx": M.ks_distance_samples(
@@ -437,14 +494,65 @@ class CoupledQuarticChainMeasurements(MeasurementSuite):
             "marginal_KS_m_norm": M.ks_distance_samples(
                 O.order_parameter_norm(m),
                 O.order_parameter_norm(self.reference_order_parameter)),
+            "marginal_W1_mx": M.w1_samples(
+                m[:, 0], self.reference_order_parameter[:, 0]),
+            "marginal_W1_my": M.w1_samples(
+                m[:, 1], self.reference_order_parameter[:, 1]),
+            "marginal_W1_m_norm": M.w1_samples(
+                m_norm, reference_m_norm),
+            "energy_per_site_KS": M.ks_distance_samples(
+                energy_per_site, self.reference_energy),
+            "energy_per_site_W1": M.w1_samples(
+                energy_per_site, self.reference_energy),
+            "energy_per_site_MMD2_biased": M.mmd2_biased(
+                energy_per_site[:, None], self.reference_energy[:, None],
+                self.energy_bandwidth),
+            "energy_per_site_MMD2_unbiased": M.mmd2_unbiased(
+                energy_per_site[:, None], self.reference_energy[:, None],
+                self.energy_bandwidth),
+            "coherence_KS": M.ks_distance_samples(
+                coherence, self.reference_coherence),
+            "coherence_W1": M.w1_samples(
+                coherence, self.reference_coherence),
+            "kink_density_KS": M.ks_distance_samples(
+                kink, self.reference_kink),
+            "kink_density_W1": M.w1_samples(
+                kink, self.reference_kink),
+            "kink_zero_probability": kink_zero_probability,
+            "kink_zero_probability_reference":
+                self.reference_kink_zero_probability,
+            "kink_zero_probability_error": abs(
+                kink_zero_probability - self.reference_kink_zero_probability),
+            "kink_high_tail_threshold": self.kink_tail_threshold,
+            "kink_high_tail_probability": kink_tail_probability,
+            "kink_high_tail_probability_reference":
+                self.reference_kink_tail_probability,
+            "kink_high_tail_probability_error": abs(
+                kink_tail_probability - self.reference_kink_tail_probability),
+            "connected_correlation_relative_L2": O.correlation_relative_l2(
+                connected, connected_star),
+            "energy_per_site_mean": float(energy_per_site.mean().item()),
+            "energy_per_site_variance": float(
+                energy_per_site.var(unbiased=True).item()),
+            "coherence_mean": float(coherence.mean().item()),
+            "kink_density_mean": float(kink.mean().item()),
+            "heat_capacity_per_site": heat_capacity,
+            "heat_capacity_per_site_reference":
+                self._reference_scalar("heat_capacity_per_site"),
+            "binder_cumulant": binder,
+            "binder_cumulant_reference":
+                self._reference_scalar("binder_cumulant"),
         }
         for index in range(self.n_phases):
             out[f"phase_occupancy_{index}"] = float(p_hat[index].item())
+            out[f"phase_count_{index}"] = int((labels == index).sum().item())
+        out["phase_outside_count"] = int((labels == O.OUTSIDE_LABEL).sum().item())
         for row in range(2):
             for column in range(2):
                 out[f"susceptibility_{row}{column}"] = float(chi[row, column].item())
         for lag in range(correlation.shape[0]):
             out[f"correlation_r{lag}"] = float(correlation[lag].item())
+            out[f"connected_correlation_r{lag}"] = float(connected[lag].item())
         return out
 
     def snapshot_arrays(self, x: torch.Tensor) -> dict[str, np.ndarray]:

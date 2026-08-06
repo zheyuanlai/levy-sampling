@@ -10,9 +10,12 @@ import json
 from pathlib import Path
 import shutil
 
+import numpy as np
 import pytest
+import yaml
 
-from src import catalog as catalog_module
+from src import catalog as catalog_module, pipeline as pipeline_module
+from src.calibration import CalibrationError
 from src.catalog import scan, select_runs, write_catalog
 from src.config import (checkpoint_steps, default_variants, expand_variants,
                         load_experiment, load_method_configs, load_registry,
@@ -79,6 +82,7 @@ def test_manifest_records_the_provenance_a_reader_needs(completed_experiment):
     for key in ("run_id", "schema_version", "method", "variant_label",
                 "parameters", "tame", "tame_cap", "dt", "target_hash",
                 "reference_hash", "calibration_hash", "variant_hash",
+                "metric_definition_hash",
                 "rng_pair_group", "particles", "seeds", "device_provenance",
                 "fee_calibration_hash", "fee_cost_unit", "files", "status"):
         assert key in manifest, f"manifest is missing {key}"
@@ -126,6 +130,42 @@ def test_metrics_are_recorded_per_seed_at_every_checkpoint(
     for column in ("W2_exact_1d", "MMD2_biased", "KS", "n_fee_per_particle"):
         assert column in rows[0], f"{column} is not in the metrics table"
 
+def test_snapshots_and_resolved_config_carry_complete_cost_identity(
+        completed_experiment):
+    _, reports = completed_experiment
+    run_dir = Path(reports[0]["run_directory"])
+    snapshot_path = next((run_dir / "sample_snapshots").glob("*.npz"))
+    with np.load(snapshot_path, allow_pickle=False) as snapshot:
+        for key in ("n_fee", "n_fee_per_particle", "n_force",
+                    "n_force_per_particle", "n_extra_potential",
+                    "n_extra_potential_equivalent",
+                    "n_extra_potential_equivalent_per_particle", "rho",
+                    "fee_calibration_hash", "fee_cost_unit"):
+            assert key in snapshot.files
+    resolved = yaml.safe_load(
+        (run_dir / "resolved_config.yaml").read_text(encoding="utf-8"))
+    runtime = resolved["resolved"]
+    assert runtime["checkpoint_costs"]
+    assert runtime["fee_calibration"]["fee_calibration_hash"]
+    assert runtime["metric_definition_hash"]
+
+
+def test_stale_metric_definition_hash_is_rejected(completed_experiment):
+    _, reports = completed_experiment
+    source = Path(reports[0]["run_directory"])
+    copy = source.parent / "probe-stale-metric"
+    shutil.copytree(source, copy)
+    manifest_path = copy / MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["metric_definition_hash"] = "stale-definition"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    admissible, reason = verify_run(copy)
+    assert not admissible
+    assert "stale metric definition" in reason
+    shutil.rmtree(copy)
+
+
+
 
 # ------------------------------------------------------------ atomicity
 def test_an_incomplete_run_is_not_admitted(tmp_path):
@@ -152,6 +192,43 @@ def test_a_failed_run_leaves_nothing_behind(tmp_path):
             raise RuntimeError("boom")
     assert not (paths.method_dir("ULA") / "doomed").exists()
     assert not list(paths.method_dir("ULA").glob(".tmp-*"))
+
+def test_uncalibratable_variant_is_persisted_and_not_selected_for_plots(
+        tmp_path, monkeypatch):
+    experiment = load_experiment("E1", device="cpu", results_root=tmp_path,
+                                 overrides=SMALL)
+
+    def fail_calibration(*args, **kwargs):
+        raise CalibrationError(
+            "timestep",
+            [{"candidate": 0.001, "passed": False}],
+            next_candidate=0.0005,
+            diagnosis="no timestep passed the frozen stability gates")
+
+    monkeypatch.setattr(pipeline_module, "run_variant", fail_calibration)
+    reports = run_variants_and_save(
+        experiment=experiment, method="ULA",
+        variants=[{"tame": False}])
+    assert len(reports) == 1
+    report = reports[0]
+    assert report["status"] == "uncalibratable"
+
+    run_dir = Path(report["run_directory"])
+    for name in ("resolved_config.yaml", "calibration.json",
+                 "diagnostics.json", MANIFEST_NAME, COMPLETE_MARKER):
+        assert (run_dir / name).is_file()
+    admissible, reason = verify_run(run_dir)
+    assert admissible, reason
+
+    rows, rejections = scan(experiment.paths.experiment_dir)
+    assert rejections == []
+    assert len(rows) == 1 and rows[0]["status"] == "uncalibratable"
+    assert select_runs(experiment.paths.experiment_dir,
+                       from_manifests=True) == []
+    outcomes = select_runs(experiment.paths.experiment_dir, status=None,
+                           from_manifests=True)
+    assert len(outcomes) == 1 and outcomes[0]["status"] == "uncalibratable"
+
 
 
 def test_a_run_without_its_manifest_or_marker_is_rejected(completed_experiment):
@@ -238,6 +315,17 @@ def test_tame_and_parameter_filters_select_the_right_variant(
                         tame=True, from_manifests=True)
     assert len(canonical) == 1 and len(tamed) == 1
     assert canonical[0]["run_id"] != tamed[0]["run_id"]
+
+def test_plot_loader_rejects_a_missing_requested_method(completed_experiment):
+    from src.plotting import load_runs
+
+    experiment, _ = completed_experiment
+    with pytest.raises(ValueError, match="requires missing methods"):
+        load_runs(
+            experiment.paths.experiment_dir,
+            {"methods": ["ULA", "ULD"], "tame_view": "canonical_only"})
+
+
 
 
 # ----------------------------------------------------- hashes and caching

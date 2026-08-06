@@ -248,6 +248,23 @@ def test_pt_cold_replica_matches_the_target(gaussian_target, unbounded_box):
     assert abs(float(cold.std()) - expected) < 0.04
 
 
+def test_pt_reports_replica_acceptance_and_round_trip_diagnostics(
+        gaussian_target, unbounded_box):
+    sampler = _pt_sampler(
+        gaussian_target, unbounded_box, 1.0, n_per_seed=128, dt=0.02)
+    sampler.n_swap = 1
+    for _ in range(80):
+        sampler.step()
+    diagnostics = sampler.pop_diagnostics()
+    for replica in range(sampler.n_replicas):
+        key = f"replica_{replica}_mh_accept_fraction_cumulative"
+        assert key in diagnostics
+        assert 0.0 <= diagnostics[key] <= 1.0
+    assert diagnostics["round_trip_count_cumulative"] > 0
+    assert 0.0 < diagnostics["round_trip_rate_cumulative"] <= 1.0
+
+
+
 # ------------------------------------------------------------- stable noise
 def test_symmetric_alpha_stable_noise_is_heavy_tailed_and_symmetric():
     streams = make_streams(seeds=(0,))

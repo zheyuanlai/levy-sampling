@@ -49,7 +49,18 @@ snis_gates:
     all_four_phases: true
     nonzero_kink_configurations: true
     coherence_upper_decile: true
-  max_run_difference_in_combined_se: 2.0
+  # Each run-agreement gate is a maximum over all six independent run pairs
+  # and every component of that observable. Preserve the two-sided 2-SE
+  # significance (alpha = erfc(2/sqrt(2))) at the FAMILY level with frozen
+  # Bonferroni cutoffs, rather than applying 2 SE to every comparison.
+  run_agreement_family_wise_two_sided_significance: 0.04550026389635844
+  max_run_difference_in_combined_se:
+    # 6 run pairs x 4 components = 24 comparisons.
+    phase_probability: 3.1060815350389697
+    susceptibility: 3.1060815350389697
+    # 6 run pairs x 1 scalar = 6 comparisons.
+    energy_per_site: 2.6700773593737384
+    coherence_mean: 2.6700773593737384
 
 cross_check_gates:
   phase_probability:

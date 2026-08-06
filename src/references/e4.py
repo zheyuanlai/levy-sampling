@@ -213,52 +213,51 @@ def _gate(metric: str, threshold, observed, *, direction: str,
 
 
 def _multiple_comparison_fields(threshold_in_se: float, n_comparisons: int,
-                                ) -> dict:
-    """How much a max-over-comparisons gate inflates its own significance.
+                                family_wise_target: float) -> dict:
+    """Describe a frozen family-wise max-over-comparisons gate.
 
     A bound ``|difference| <= k SE`` is a two-sided test at per-comparison level
     ``alpha_1 = erfc(k / sqrt 2)``. Taking the maximum over ``M`` comparisons
-    and testing that against the same ``k`` raises the false-failure rate to
-    ``1 - (1 - alpha_1)^M`` when the comparisons are independent; the bound that
-    would hold the *family* at ``alpha_1`` is
-    ``k* = -Phi^-1(alpha_1 / (2 M))``. The threshold is frozen and is not
-    adjusted by any of this: these fields exist so a reader sees the inflation
-    instead of having to infer it.
+    gives false-failure rate ``1 - (1 - alpha_1)^M`` under independence. The
+    frozen family target ``alpha_F`` has Bonferroni cutoff
+    ``k* = -Phi^-1(alpha_F / (2 M))``. These fields make both the configured
+    cutoff and its family-wise interpretation explicit in validation evidence.
     """
     m = max(int(n_comparisons), 1)
     k = _finite(threshold_in_se)
+    target = _finite(family_wise_target)
     # A NaN threshold gives NaN fields; an infinite one (a deliberately
-    # disabled gate) gives a zero significance and an infinite equivalent bound.
+    # disabled gate) gives zero realized significance while retaining the
+    # finite cutoff implied by the configured family target.
     single = math.erfc(k / math.sqrt(2.0)) if k >= 0.0 else float("nan")
-    if math.isnan(single):
+    if math.isnan(single) or math.isnan(target) or not 0.0 < target < 1.0:
         family, bonferroni = float("nan"), float("nan")
-    elif single <= 0.0:
-        family, bonferroni = 0.0, float("inf")
     else:
         family = 1.0 - (1.0 - single) ** m
         bonferroni = -statistics.NormalDist().inv_cdf(
-            min(single / (2.0 * m), 0.5))
+            min(target / (2.0 * m), 0.5))
     return {
         "n_comparisons": m,
         "per_comparison_two_sided_significance": single,
         "family_wise_significance_under_independence": family,
         "bonferroni_equivalent_threshold_in_se": bonferroni,
+        "family_wise_target_significance": target,
     }
 
 
 def _multiple_comparison_note(fields: Mapping) -> str:
-    """One sentence stating the inflation recorded by the fields above."""
+    """One sentence stating the correction recorded by the fields above."""
     return (
         f". The reported value is a maximum over "
-        f"{fields['n_comparisons']} comparisons, so its significance is "
-        f"inflated: the frozen bound is a per-comparison two-sided test at "
-        f"{fields['per_comparison_two_sided_significance']:.4g}, which over "
-        f"{fields['n_comparisons']} independent comparisons is a family-wise "
-        f"false-failure probability of "
-        f"{fields['family_wise_significance_under_independence']:.4g}, and the "
-        f"bound that would hold the family at the per-comparison level is "
-        f"{fields['bonferroni_equivalent_threshold_in_se']:.4g} SE. The "
-        f"threshold is frozen and is NOT adjusted for this")
+        f"{fields['n_comparisons']} comparisons. The frozen Bonferroni cutoff "
+        f"is {fields['bonferroni_equivalent_threshold_in_se']:.4g} SE for a "
+        f"family-wise two-sided target of "
+        f"{fields['family_wise_target_significance']:.4g}; the configured "
+        f"cutoff has per-comparison significance "
+        f"{fields['per_comparison_two_sided_significance']:.4g} and an "
+        f"independence-model family-wise false-failure probability of "
+        f"{fields['family_wise_significance_under_independence']:.4g}. The "
+        f"cutoff was frozen before the production reference was observed")
 
 
 def _tolerance_gate(metric: str, difference, *, floor: float, multiplier: float,
@@ -1619,7 +1618,9 @@ def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
             metrics.normalize_log_weights(snis["log_weights"][mask]),
             layout, beta=beta, n_sites=n_sites))
 
-    multiplier = float(gates["max_run_difference_in_combined_se"])
+    multipliers = dict(gates["max_run_difference_in_combined_se"])
+    family_target = float(
+        gates["run_agreement_family_wise_two_sided_significance"])
 
     def agreement(name: str, extract, error, message: str) -> None:
         """One gate holding the worst of ``run pairs x quantities`` comparisons.
@@ -1628,6 +1629,7 @@ def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
         over many two-sided tests, so the record also carries the size of that
         family and the significance it implies.
         """
+        multiplier = float(multipliers[name])
         worst, comparisons = 0.0, 0
         for first in range(len(per_run)):
             for second in range(first + 1, len(per_run)):
@@ -1645,7 +1647,8 @@ def _snis_gates(acceptance: Mapping, *, snis, layout: _Layout,
                                      np.abs(a - b) / combined, np.inf)
                 comparisons += int(ratio.size)
                 worst = max(worst, float(np.nanmax(ratio)))
-        fields = _multiple_comparison_fields(multiplier, comparisons)
+        fields = _multiple_comparison_fields(
+            multiplier, comparisons, family_target)
         records.append(_gate(
             f"snis_run_agreement_{name}", multiplier, worst, direction="max",
             message=message + _multiple_comparison_note(fields), **fields))
@@ -2017,6 +2020,13 @@ class CoupledQuarticChainReference(Reference):
     def failed_gates(self) -> list[dict]:
         return [record for record in self.validation_records
                 if not record["passed"]]
+
+    def assert_valid_for_use(self, directory: Path | None = None) -> None:
+        """Never let a failed frozen-reference build enter a production run."""
+        if not self.reference_validated:
+            raise ReferenceValidationError(
+                self.failed_gates,
+                directory=directory)
 
     def describe(self) -> dict:
         if self._describe_cache is not None:

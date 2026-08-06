@@ -231,7 +231,7 @@ class DoubleWellReference(Reference):
                 provenance["sample_bank_size"], generator)
             if verbose:
                 print("[E1] validating")
-            validation = _validate(target, provenance, quadrature)
+            validation = _validate(target, provenance, quadrature, sample_bank)
         measured = {
             "moments": moments,
             "basin_masses": basin_masses,
@@ -310,7 +310,8 @@ class DoubleWellReference(Reference):
 
 
 # ================================================================ validation
-def _validate(target, provenance: dict, production: _Quadrature) -> dict:
+def _validate(target, provenance: dict, production: _Quadrature,
+              sample_bank: torch.Tensor) -> dict:
     """One-off refinement, box-width, and sampling-noise validation."""
     settings = provenance["validation"]
     tolerances = settings["tolerances"]
@@ -415,14 +416,37 @@ def _validate(target, provenance: dict, production: _Quadrature) -> dict:
                          statistic="max_b |p_wide(b) - p_box(b)|"),
         ]
 
-    # -- reference-vs-reference W2 (the sampling noise floor) --------------
+    # -- reference-vs-reference floors for every primary metric ------------
     replicates = int(settings["self_w2_replicates"])
     particles = int(settings["self_w2_particles"])
     self_w2: dict = {"replicates": replicates, "particles": particles,
                      "seed": settings["self_w2_seed"]}
+    sampling_floors: dict = {
+        "replicates": replicates,
+        "particles": particles,
+        "seed": settings["self_w2_seed"],
+    }
+
+    def summarize(values):
+        mean = sum(values) / len(values)
+        variance = (sum((value - mean) ** 2 for value in values)
+                    / max(len(values) - 1, 1))
+        return {"mean": mean, "sd": math.sqrt(variance),
+                "min": min(values), "max": max(values),
+                "values": values}
+
     if replicates > 0:
-        (w2_exact_1d,) = import_metrics("w2_exact_1d")
-        values = []
+        (w2_exact_1d, mmd2_biased, ks_distance_cdf,
+         median_heuristic) = import_metrics(
+            "w2_exact_1d", "mmd2_biased", "ks_distance_cdf",
+            "median_heuristic")
+        take = min(particles, int(sample_bank.shape[0]))
+        bank_index = torch.linspace(
+            0, sample_bank.shape[0] - 1, take,
+            device=sample_bank.device).round().long()
+        metric_bank = sample_bank[bank_index]
+        mmd_bandwidth = median_heuristic(metric_bank)
+        w2_values, mmd_values, ks_values = [], [], []
         for index in range(replicates):
             first = frozen_generator(target.device,
                                      settings["self_w2_seed"] + 2 * index)
@@ -432,30 +456,34 @@ def _validate(target, provenance: dict, production: _Quadrature) -> dict:
                                    first)
             b = inverse_cdf_sample(production.grid, production.cdf, particles,
                                    second)
-            values.append(w2_exact_1d(a, b))
-        mean = sum(values) / len(values)
-        variance = (sum((value - mean) ** 2 for value in values)
-                    / max(len(values) - 1, 1))
-        self_w2.update({
-            "mean": mean,
-            "sd": math.sqrt(variance),
-            "min": min(values),
-            "max": max(values),
-            "values": values,
-            "note": ("reference-vs-reference W2 at the production particle "
-                     "count: the noise floor below which a method's W2 carries "
-                     "no information. At beta = 8 it is dominated by the "
-                     "binomial fluctuation of the left/right split, not by "
-                     "within-well resolution"),
+            w2_values.append(w2_exact_1d(a, b))
+            mmd_values.append(mmd2_biased(a, b, mmd_bandwidth))
+            ks_values.extend([
+                ks_distance_cdf(a[:, 0], production.grid, production.cdf),
+                ks_distance_cdf(b[:, 0], production.grid, production.cdf),
+            ])
+        self_w2.update(summarize(w2_values))
+        self_w2["note"] = (
+            "reference-vs-reference W2 at the production particle count")
+        sampling_floors.update({
+            "mmd_bandwidth": mmd_bandwidth,
+            "mmd_bandwidth_rule": (
+                "median heuristic on the same frozen reference subsample "
+                "used by runtime E1 metrics"),
+            "W2_exact_1d": summarize(w2_values),
+            "MMD2_biased": summarize(mmd_values),
+            "KS": summarize(ks_values),
         })
-        checks.append(passed_check("self_w2_noise_floor", mean,
-                                   tolerances["self_w2_mean"],
-                                   statistic="mean W2(bank_a, bank_b)"))
+        checks.append(passed_check(
+            "self_w2_noise_floor", self_w2["mean"],
+            tolerances["self_w2_mean"],
+            statistic="mean W2(bank_a, bank_b)"))
 
     return {
         "grid_refinement": refinement,
         "wide_box": wide,
         "self_w2": self_w2,
+        "sampling_floors": sampling_floors,
         "checks": checks,
         "validated": all(check["passed"] for check in checks),
     }

@@ -69,9 +69,13 @@ def device_provenance(device: str | torch.device,
                       dtype: torch.dtype = DTYPE) -> dict:
     """Device/software provenance for manifests and FEE calibration records."""
     resolved = torch.device(device)
+    device_index = None
+    if resolved.type == "cuda":
+        device_index = (torch.cuda.current_device() if resolved.index is None
+                        else int(resolved.index))
     record = {
         "device_type": resolved.type,
-        "device_index": resolved.index,
+        "device_index": device_index,
         "dtype": str(dtype).replace("torch.", ""),
         "torch_version": torch.__version__,
         "cuda_runtime_version": torch.version.cuda,
@@ -80,7 +84,7 @@ def device_provenance(device: str | torch.device,
         "cpu_model": _cpu_model(),
     }
     if resolved.type == "cuda":
-        index = 0 if resolved.index is None else int(resolved.index)
+        index = int(device_index)
         try:
             properties = torch.cuda.get_device_properties(index)
             record["gpu_name"] = properties.name

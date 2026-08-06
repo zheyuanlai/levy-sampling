@@ -24,6 +24,7 @@ ladder:
   per_tame_variant: true
   target_swap_acceptance: [0.2, 0.4]
   burn_fraction: 0.5
+  min_round_trips: 1
 calibration:
   dt:
     criteria: [replica_acceptance, swap_acceptance, round_trip, stability]

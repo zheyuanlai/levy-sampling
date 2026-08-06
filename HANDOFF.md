@@ -1,277 +1,375 @@
-# Refactor handoff — open questions and findings
+# Refactor handoff after independent audit
 
-Branch `refactor`. The restructuring specified in the review is implemented:
-run/plot split, configuration as real run input, atomic per-variant results,
-correct tamed MALA/PT proposal densities, iid `LSC-CP-RA(A)` with a shared bank,
-FEE from measured oracle counters, per-seed RNG streams, the four references,
-and the figure specifications. 136 tests and 246 release-validation checks pass.
+Date: 2026-08-06
+Branch: `refactor`
+Baseline commit: `96b5c1d` (`refactor` and `origin/refactor` currently match)
+Audit fixes: present in the local working tree; not committed or pushed yet
 
-No production run has been executed. Everything below was measured on reduced
-but genuine runs.
+## Executive conclusion
 
-This document covers only the things that need **your decision** or that
-**differ from the specification**, plus the timing you will need to plan the
-production campaign.
+The collaborator's requested source architecture and scientific method definitions
+are implemented. An independent audit found several places where the first
+refactor was structurally present but did not yet enforce or persist the full
+scientific contract. Those code-level gaps have now been fixed.
+
+Current verification:
+
+- `145 passed` in the full test suite.
+- `246/246` source-package validation checks pass.
+- The frozen-release validator correctly fails at `254/307` because production
+  E1--E4 outcomes, final figures, copied manifests/configs, and executed
+  notebooks do not exist yet.
+- No production trajectory or production E4 reference was launched during this
+  audit.
+
+The correct status is therefore:
+
+> **Source implementation ready for collaborator review; production evidence and
+> frozen release not ready.**
+
+This distinction is deliberate. A reduced test run is not being presented as a
+scientific result, and empty or unrelated local directories can no longer make
+release validation pass.
 
 ---
 
-## 1. Decisions needed
+## 1. Independent-audit issues and dispositions
 
-### 1.1 An E4 acceptance gate will likely fail in production
+| Issue | Disposition after this audit | Main evidence |
+|---|---|---|
+| Failed calibration existed only in console output | Fixed. Every `uncalibratable` variant is saved atomically as a first-class negative outcome with resolved config, calibration table, diagnosis, manifest hashes, and `COMPLETE`. Other variants continue. | `src/pipeline.py`, `src/results.py`, `src/catalog.py`, `scripts/run_experiment.py` |
+| A failed E4 reference could be reloaded from cache | Fixed. A cached or newly built E4 reference must pass `assert_valid_for_use`; a persisted failed reference remains evidence but cannot enter production. | `src/references/base.py`, `src/references/__init__.py`, `src/references/e4.py` |
+| MALA calibration named ESS but did not measure it | Fixed. The second half of each pilot records a per-seed temporal trace, computes ESS, and requires an ESS fraction of at least `0.05`. | `src/calibration.py`, `configs/methods/MALA.yaml` |
+| Metropolis calibration did not enforce the full target band | Fixed. The chosen coarse timestep must actually lie inside the frozen acceptance band; high acceptance is no longer silently accepted as a completed calibration. | `src/calibration.py` |
+| PT used only aggregate local acceptance and swap acceptance | Fixed. PT saves every replica's MALA acceptance, tracks labelled-walker hot-to-cold round trips, and enforces swap-band plus round-trip gates at the final calibrated local timestep. | `src/samplers.py`, `src/calibration.py`, `configs/methods/PT.yaml` |
+| PT could fail a mixing gate before local-`dt` calibration | Fixed. The first ladder pass gates placement only. After local-`dt` calibration, the ladder is always retuned and the mixing gate is enforced. | `src/calibration.py` |
+| PT method YAML fields could be ignored | Fixed. The ladder target band, burn fraction, and minimum round trips now come from `configs/methods/PT.yaml`; experiment values are only fallbacks where appropriate. | `src/calibration.py` |
+| LSC score certificate was declared but not materialized | Fixed. Full LSC saves a numerical quadrature self-convergence certificate; RA(A) saves the structural iid/full-law/every-step/shared-bank certificate. | `src/calibration.py` |
+| Full-LSC quadrature comparison was diagnostic only | Fixed. Base versus doubled quadrature now has hard median and 95th-percentile log-magnitude/direction gates. Failure is saved as `uncalibratable`, with the doubled setting recorded as the next unverified candidate. | `src/calibration.py`, `configs/methods/LSC_CP.yaml` |
+| E1 drew a floor only for W2 | Fixed. The reference now freezes production-size sampling floors for `W2_exact_1d`, `MMD2_biased`, and `KS`, using the same MMD bandwidth convention as runtime metrics. | `src/references/e1.py`, `src/plotting.py` |
+| E4 runtime metrics omitted required distribution/raw data | Fixed. Added marginal W1, energy KS/W1/biased+unbiased MMD, coherence KS/W1, kink KS/W1/zero/high-tail probabilities, connected correlation vectors/error, phase counts, raw energy/coherence/kink values, and raw/reference heat-capacity and Binder values. | `src/measurements.py`, `src/metrics.py`, `configs/experiments/E4.yaml` |
+| E4 SNIS run-agreement maxima used uncorrected 2-SE component thresholds | Fixed and collaborator-approved. The four gate families now use frozen Bonferroni cutoffs preserving the original 2-SE two-sided significance at the family level: approximately 3.11 SE for the two 24-comparison families and 2.67 SE for the two 6-comparison families. | `configs/experiments/E4_reference_acceptance.yaml`, `src/references/e4.py`, `tests/test_references.py` |
+| Metric code could change without invalidating old runs | Fixed. Every metric row, resolved config, and complete manifest carries a hash of the executable metric/observable definitions. Manifest scanning rejects stale definitions. | `src/measurements.py`, `src/pipeline.py`, `src/results.py` |
+| Snapshots did not carry complete cost identity | Fixed. Snapshots now save raw/equivalent force and extra-potential counts, per-particle values, `rho`, FEE hash, and FEE unit. Resolved config saves the complete FEE calibration and checkpoint costs. | `src/pipeline.py` |
+| FEE cache identity could alias different GPUs | Fixed. Actual CUDA index and GPU UUID enter the calibration cache key and calibration hash. Plain `cuda` resolves the actual current device index. | `src/device.py`, `src/fee.py` |
+| Requested plot methods could disappear silently | Fixed. Plot loading raises if any method requested after tame/variant filtering is absent. E2.1 and E3.1 use the tamed view so the LSC family is not silently lost. | `src/plotting.py`, `configs/plots/manuscript.yaml` |
+| Source validation created `results/` | Fixed. It now probes root writability through a temporary directory and leaves a clean source checkout clean. | `scripts/validate_release.py` |
+| Release validation checked only “some directory/some PNG” | Fixed. It now checks the full default outcome matrix, exact default configs rather than reduced runs, run integrity, reference evidence, copied manifest/config hashes, all configured figure formats and tame views, and all eight executed notebooks. | `scripts/validate_release.py` |
 
-`snis_run_agreement_susceptibility` and `snis_run_agreement_phase_probability`
-are evaluated as the **maximum over 24 correlated standardized comparisons**
-(4 SNIS runs × 4 phases / quantities) against a fixed 2-SE bound.
+### Negative-outcome semantics
 
-- Per-comparison two-sided significance: 0.0455
-- Family-wise false-failure probability under independence: **0.67**
-- Bonferroni-equivalent bound: 3.11 SE
+A valid outcome now has one of two statuses:
 
-At reduced budget, `snis_run_agreement_phase_probability` fails on the
-**unmodified** proposal as well, and the statistic's distribution does not
-improve with budget, so it will probably fail in production too. This is the
-bound, not the sampler.
+- `complete`: a production trajectory with the full artifact set and current
+  metric-definition hash;
+- `uncalibratable`: durable negative calibration evidence, with no production
+  trajectory falsely implied.
 
-The acceptance file is frozen, so the code implements the literal reading and
-does not adjust the threshold. Each of these gate records now carries
-`n_comparisons`, `per_comparison_two_sided_significance`,
-`family_wise_significance_under_independence`, and
-`bonferroni_equivalent_threshold_in_se` so the inflation is visible rather than
-inferred.
+Catalog scanning admits both kinds as evidence. Plot selection defaults to
+`status="complete"`, so a negative outcome cannot be mistaken for a curve.
 
-**Decision:** is the intended reading per-quantity (each comparison against
-2 SE) or family-wise (the maximum against a multiplicity-corrected bound)? If
-the latter, `E4_reference_acceptance.yaml` needs the corrected bound.
+The command-line runner continues through all variants but returns nonzero if
+any variant failed or was uncalibratable. This makes batch evidence durable
+without making an incomplete campaign appear successful.
 
-### 1.2 E2's coverage reference line was changed
+---
 
-The specification says to draw `EMC*` as the reference line on the coverage
-panel, and not to default to 1. Measured on the exact mixture:
+## 2. Scientific implementation status
 
-| quantity | value |
+### 2.1 Canonical and tamed variants
+
+All registered methods that support taming expand to both variants, including
+MALA and PT.
+
+Tamed MALA uses the actual Gaussian proposal
+
+`q_c(y | x) = Normal(y; x + dt b_c(x), (2 dt / beta) I)`,
+
+and recomputes the reverse tamed drift at `y`. Tamed PT applies the same rule
+at each replica's own inverse temperature. Swap acceptance is unchanged by the
+tame flag.
+
+The tests cover proposal log densities, detailed balance, target moments,
+canonical/tamed stream pairing, replica moments, cold-replica correctness, and
+swap-formula invariance.
+
+### 2.2 LSC-CP-RA(A)
+
+`LSC-CP-RA` remains one iid estimator family. For every particle and step:
+
+1. `A` atoms are drawn iid from the full normalized jump law;
+2. the same empirical Lévy measure drives the score and Poisson increment;
+3. the bank is refreshed at the next step.
+
+`A = 1, 4, 8` are parameter variants, not separate methods. The deleted
+component-stratified construction is not revived or relabelled.
+
+### 2.3 Calibration thresholds introduced by this audit
+
+These values are now explicit and hashed into calibration identity:
+
+| Gate | Current value |
+|---|---:|
+| MALA minimum pilot ESS fraction | 0.05 |
+| PT minimum post-burn-in round trips | 1 |
+| Full-LSC median quadrature tolerance | 0.05 |
+| Full-LSC 95th-percentile tolerance | 4 × 0.05 = 0.20 |
+| PT ladder pilot length | experiment `calibration.pt.pilot_steps` (20,000 in the defaults) |
+| PT ladder burn fraction | 0.5 |
+
+These executable defaults were approved on 2026-08-06. In particular, one
+round trip is a minimum nonzero mixing certificate, not a strong claim of PT
+efficiency.
+
+The full-LSC quadrature gate compares the configured rule with a doubled rule.
+A failing rule is **not** silently replaced by the doubled one; the latter is
+recorded as an unverified next candidate. Extending the quadrature grid is
+therefore an explicit scientific action.
+
+---
+
+## 3. Scientific decisions: resolved and remaining
+
+### 3.1 E4 multiplicity in four SNIS agreement gates — resolved
+
+The E4 implementation has four maximum-over-run agreement gates. With four
+independent SNIS runs there are six run pairs:
+
+- phase probability: 6 pairs × 4 components = 24 comparisons;
+- susceptibility: 6 pairs × 4 matrix entries = 24 comparisons;
+- energy per site: 6 pairs × 1 scalar = 6 comparisons;
+- coherence mean: 6 pairs × 1 scalar = 6 comparisons.
+
+**Approved decision (2026-08-06):** preserve the original two-sided 2-SE
+significance, approximately `0.0455003`, at each gate-family level using frozen
+Bonferroni cutoffs selected before the production reference is observed:
+
+- `3.1060815350389697` SE (approximately 3.11) for each 24-comparison family;
+- `2.6700773593737384` SE (approximately 2.67) for each 6-comparison family.
+
+Each gate record saves its comparison count, family-wise target, configured
+cutoff, implied per-comparison significance, and independence-model family-wise
+false-failure probability. The PT-versus-SNIS scientific tolerances are
+unchanged because they include pre-specified physical absolute/relative floors
+and are not merely pairwise run-consistency tests.
+
+### 3.2 E2 EMC reference presentation
+
+The asymptotic exact-bank value is approximately
+`EMC* = 0.9999865`, but finite-sample plug-in entropy bias at the production
+sample size is much larger than `1 - EMC*`.
+
+Current figure behavior:
+
+- primary comparison: exact samples at the same `N`, shown as a frozen band;
+- secondary context: asymptotic `EMC*`, shown faintly.
+
+This is a like-for-like finite-sample comparison and avoids making a perfect
+sampler look deficient due only to estimator bias.
+
+**Decision:** confirm this presentation, or make the asymptotic line primary.
+
+### 3.3 Canonical LSC instability and strict plot completeness
+
+Reduced genuine runs previously found canonical LSC variants uncalibratable on
+E1--E3: boundary rejection remained high as `dt` shrank because the untamed
+score saturated its magnitude cap.
+
+The new code now preserves such outcomes durably. It also refuses to render a
+plot specification that requests a missing completed method.
+
+Consequently, if production confirms canonical LSC is uncalibratable:
+
+- tamed snapshot figures remain well defined;
+- paired/base curves can show available completed variants;
+- a canonical-only curve specification requesting LSC will fail visibly rather
+  than silently omit it.
+
+**Decision:** should the canonical-only figure contain an explicit
+“uncalibratable” annotation, or should canonical LSC be removed from that
+figure's requested method set while its negative result is reported in a table?
+The current strict failure forces this decision before release.
+
+### 3.4 Physical interpretation of the E4 “kink” region — resolved
+
+For `N_s = 12`, the estimated wall width is about 13.4 sites, wider than the
+chain. Gradient-relaxed kink/antikink candidates collapse to zero kink density.
+The PT sample classified as nonzero kink is instead a collective-flip
+transition-state configuration.
+
+The SNIS proposal now covers this region with homogeneous phase-boundary
+saddles and improved its weight diagnostics. The observable name remains for
+schema continuity, but manuscript text should not call this a stable domain
+wall for this system size.
+
+**Approved decision (2026-08-06):** retain the metric/schema name
+`kink_density` for compatibility, but describe it in the manuscript as a
+transition-state/high-gradient fraction. Do not call it a stable domain wall.
+
+### 3.5 E4 production reference gate
+
+No production E4 reference exists. Reduced-budget evidence previously showed
+that most failures were chain-length/block-count artifacts. The SNIS
+multiplicity rule is now frozen as described above.
+
+The code now guarantees that any failed reference remains unusable. The
+production reference must pass every frozen primary gate before any E4
+production method uses it.
+
+---
+
+## 4. Verification performed after the fixes
+
+Commands:
+
+```bash
+python -m compileall -q src tests scripts
+git diff --check
+conda run -n jcp-refactor python -m pytest tests/ -q
+conda run -n jcp-refactor python scripts/validate_release.py
+conda run -n jcp-refactor python scripts/validate_release.py --release
+```
+
+Results:
+
+| Check | Result |
 |---|---|
-| asymptotic `EMC*` (4×10⁶ bank) | 0.9999865 |
-| χ² of `p*` against uniform | 39.70 on 39 dof |
-| plug-in entropy bias at that bank size | 1.32×10⁻⁶ |
-| `1 − EMC*` | 1.35×10⁻⁶ |
+| Python compilation | pass |
+| Git whitespace check | pass |
+| Full tests | **145 passed** |
+| Source validation | **246/246 passed** |
+| Frozen-release validation | **254/307 passed; expected failure because production/release artifacts are absent** |
 
-The descriptor masses are **not resolvably different from 1/40** at this bank
-size, and the entire deficit of `EMC*` below 1 is plug-in estimator bias rather
-than a property of the target.
+The focused regressions added in this audit cover:
 
-That matters because normalized entropy is biased low by roughly
-`(K−1)/(2N log K)`, and at the production particle count the bias is far larger
-than the reference deficit:
-
-| N | coverage of an **exact** sample | predicted bias |
-|---|---|---|
-| 2500 | 0.99795 ± 0.00050 | 0.00211 |
-| 6000 | 0.99913 ± 0.00020 | 0.00088 |
-
-So a sampler drawing perfectly from the target would sit four standard
-deviations below the asymptotic `EMC*` line purely from estimator bias.
-
-**What the code does now:** the figure draws a band measured from exact samples
-of the same size (`MoG40Reference.emc_at_sample_size`), with the asymptotic
-`EMC*` kept as a faint context line. This is the E2 analogue of the
-reference-versus-reference sampling floor E1 reports for `W₂`.
-
-**Decision:** confirm this substitution, or say if you want the asymptotic line
-as the primary reference despite the bias.
-
-### 1.3 Untamed LSC has no admissible timestep
-
-On **E1, E2, and E3**, canonical (untamed) `LSC-CP`, `LSC-CP-RA`, and
-`LSC-CP-RA (A=4)` are unstable at every timestep on the dyadic refinement grid.
-
-Mechanism: the Lévy score saturates its magnitude cap (`M_MAX = 600`) for
-2–3% of particles, the untamed drift throws them out of the numerical box, and
-the boundary-rejection fraction sits near 11% and **does not fall as `dt`
-shrinks**.
-
-These variants are recorded with status `uncalibratable` and the diagnosis
-"unstable at every timestep tried (boundary_reject_fraction) and it does not
-improve as the timestep shrinks". The run continues; the other variants are
-unaffected. Nothing is hidden and nothing is silently substituted.
-
-**Consequence for the figures:** a canonical-only panel silently loses the LSC
-family. Figure E1.1 was therefore switched to the tamed row. This costs the
-comparison nothing, because at cap 1.0 taming is inactive for the local methods
-on E1 — canonical and tamed ULA agree to four significant figures on every
-metric.
-
-**Decision:** confirm that the canonical-vs-tamed ablation is expected to report
-"canonical LSC does not run" as its result, rather than this indicating a
-configuration problem on our side.
+- persisted `uncalibratable` outcomes and plot exclusion;
+- stale metric-definition rejection;
+- complete snapshot/resolved FEE identity;
+- FEE hash separation by device index and GPU UUID;
+- E1 floors for all three primary metrics;
+- E4 required distribution, vector, count, and raw-observable columns;
+- cached failed E4 reference rejection;
+- requested-method plot completeness;
+- per-replica PT acceptance and observed completed round trips.
 
 ---
 
-## 2. A finding that changes the E4 reference
+## 5. Why the frozen-release validator currently fails
 
-### The E4 chain cannot host a domain wall
+The validator now expects the exact default campaign, not reduced runs with the
+same method labels.
 
-`snis_coverage_nonzero_kink` was failing with a count of exactly zero, and the
-prescribed escalation is "improve the SNIS proposal". Implementing the
-kink/antikink construction is what showed why the region is not what its name
-suggests.
+Each experiment has 24 default variant outcomes, so the complete matrix is
+`4 experiments × 24 = 96 outcomes`.
 
-The chain's own wall profile is
+An outcome may be `complete` or `uncalibratable`, but its
+`resolved_config.yaml` must match the committed default experiment YAML
+exactly. A reduced/debug run cannot satisfy the production matrix.
 
-```
-width = sqrt(kappa/2) / delta = sqrt(2.5/2) * 12 = 13.4 sites
-```
+Current blockers:
 
-against `N_s = 12`. A wall is **wider than the whole chain**, so there is
-nothing for it to sit on. Verified directly: all twelve tanh kink/antikink
-candidates (4 adjacent phase pairs × wall separations {3, 6, 9}) relax under
-gradient descent to kink density **exactly zero**. Unrelaxed, their means sit at
-`beta·ΔV = 320–890`, i.e. numerically zero importance weight, so covering them
-would make the counter nonzero while leaving the arm just as blind.
+- E1, E2, and E3 new-format production run directories are absent.
+- E4's new-format directory contains no admitted production outcomes or
+  production reference evidence.
+- `figures/`, `resolved_configs/`, `manifests/`, and
+  `executed_notebooks/` are absent.
+- None of the 27 configured figure names (including tame-view renditions) exists
+  in all four formats: PNG, PDF, SVG, and TIFF.
+- The eight executed notebook copies and successful
+  `execution_report.json` are absent.
 
-The PT reference agrees. Its nonzero-kink sample has `V = 2.14`, all
-`q_x ≈ −0.85`, all `q_y ≈ 0`, and coherence **below** the bank mean. The sites
-straddle zero, so the nearest-minimum labels split. It is a **collective-flip
-transition state, not a domain wall**.
-
-**What the code does now:** the proposal covers that region with the four
-homogeneous phase-boundary saddles `1_{N_s} ⊗ v_saddle`, at
-`beta(V − V_min) = 8.2–8.4`, matching the region's measured occupancy. Each has
-exactly one negative Hessian eigenvalue (the collective flip), handled by
-spectral reflection with the reflected eigenvalues recorded, never silently
-clamped. The kink/antikink branch stays live in the code: a surviving pair would
-be admitted with its exact Hessian.
-
-Result, at matched reduced budget:
-
-| | before | after |
-|---|---|---|
-| `snis_coverage_nonzero_kink` | 0 | 4321 |
-| weighted effective count in region | — | 3545 |
-| weighted mean kink density | — | 6.6×10⁻⁵ (PT arm: 4.6×10⁻⁵) |
-| IS-ESS fraction | 0.534 | 0.699 |
-| max normalized weight | 9.1×10⁻⁴ | 3.4×10⁻⁴ |
-
-No trade-off: the weight diagnostics improved, because the saddle components are
-broader than the four tight coherent ones and fill inter-basin tails the
-coherent block under-covered. Consistent over six seed bases. All ten
-cross-check gates still pass.
-
-**Implication for the write-up:** if the paper describes this gate as covering
-"domain-wall configurations", that description is wrong for `N_s = 12`. The gate
-is still meaningful — it detects the transition-state region — but its physical
-interpretation differs from its name.
+This is correct behavior. The old validator could pass shallow existence checks;
+the new validator cannot.
 
 ---
 
-## 3. Verified numerics
+## 6. Production and release checklist
 
-Two independent checks that the cost accounting is real rather than assumed.
+Do not start the full campaign until the remaining scientific decisions in
+section 3 and the clean-revision requirement below are resolved.
 
-**Oracle counters land exactly on theory.** Cost is recorded when a sampler
-calls the target, never inferred from `steps × particles`:
+1. Commit the audited implementation and approved E4 multiplicity thresholds,
+   so production artifacts record an immutable Git revision. Freeze the
+   remaining EMC presentation and canonical-LSC reporting decisions before
+   release; they do not alter trajectories.
+2. Run the required preflight:
+   ```bash
+   conda run -n jcp-refactor python -m pytest tests/ -q
+   conda run -n jcp-refactor python scripts/validate_release.py
+   ```
+3. Build the E4 production reference and require a clean validation:
+   ```bash
+   conda run -n jcp-refactor python scripts/build_reference.py E4
+   ```
+4. Run the four default experiments, preserving every complete or
+   uncalibratable outcome:
+   ```bash
+   conda run -n jcp-refactor python scripts/run_experiment.py E1
+   conda run -n jcp-refactor python scripts/run_experiment.py E2
+   conda run -n jcp-refactor python scripts/run_experiment.py E3
+   conda run -n jcp-refactor python scripts/run_experiment.py E4
+   ```
+5. Rebuild catalogs by scanning manifests:
+   ```bash
+   conda run -n jcp-refactor python scripts/build_catalog.py --all results/
+   ```
+6. Execute the source notebooks into `executed_notebooks/` as the frozen
+   execution record and export all configured figure formats.
+7. Populate the top-level `resolved_configs/` and `manifests/` collections
+   with exact copies of the selected 96 outcome files. The release validator
+   checks file hashes, not just filenames.
+8. Require:
+   ```bash
+   conda run -n jcp-refactor python scripts/validate_release.py --release
+   ```
+   to pass before building or sharing the frozen archive.
+9. Build the archive:
+   ```bash
+   conda run -n jcp-refactor python scripts/build_release.py --frozen dist/release.zip
+   ```
 
-| experiment | method | extra potential per particle-step | theory |
-|---|---|---|---|
-| E3 | LSC-CP | 512 | `J·Q_θ = 32 × 16` |
-| E3 | LSC-CP-RA (A=4) | 64 | `A·Q_θ = 4 × 16` |
-| E4 | LSC-CP | 1024 | `J·Q_θ = 64 × 16` |
-| E4 | LSC-CP-RA (A=4) | 64 | `A·Q_θ = 4 × 16` |
+A full run should not delete or overwrite a prior run directory. Superseded
+evidence is retained and may be marked invalid, never erased.
 
-On E4 these land in the **structured** chord counter, never the generic
-potential counter, because the chain uses an exact moment kernel; FEE converts
-them through the measured kernel cost.
+---
 
-**E1 metrics are physically coherent** (1500 particles × 4 seeds, T = 20):
+## 7. Prior reduced-run findings retained for discussion
 
-| variant | W₂ (mean ± sd over seeds) | KS |
-|---|---|---|
-| FLA α=1.7, tamed | 0.084 ± 0.047 | 0.039 |
+These numbers were measured before this independent audit on reduced but genuine
+runs. They were not rerun here and are not production claims.
+
+### Measured oracle-counter sanity
+
+| Experiment | Method | Extra potential per particle-step | Theory |
+|---|---|---:|---:|
+| E3 | LSC-CP | 512 | 32 × 16 |
+| E3 | LSC-CP-RA (A=4) | 64 | 4 × 16 |
+| E4 | LSC-CP | 1024 | 64 × 16 |
+| E4 | LSC-CP-RA (A=4) | 64 | 4 × 16 |
+
+For E4 these are structured-kernel counters converted by measured calibration,
+not fabricated generic `V()` calls.
+
+### Reduced E1 physical sanity at `T = 20`
+
+| Variant | W2 mean ± SD over seeds | KS |
+|---|---:|---:|
+| FLA (alpha = 1.7), tamed | 0.084 ± 0.047 | 0.039 |
 | LSC-CP, tamed | 0.107 ± 0.010 | 0.034 |
 | LSC-CP-RA, tamed | 0.147 ± 0.039 | 0.036 |
 | Raw-CP, canonical | 0.202 ± 0.036 | 0.050 |
 | ULA / ULD | 1.287 / 1.296 | 0.493 / 0.498 |
 
-ULA and ULD never cross the barrier in `T = 20` (initialised in the left well),
-so `KS ≈ 0.5`: half the mass is missing. Raw-CP crosses but stays biased. FLA
-reaching a lower `W₂` than LSC-CP while not preserving the target is the same
-behaviour the previous manuscript reported on E1.
+These results remain useful as mechanism sanity checks only.
 
 ---
 
-## 4. Production timing (measured, one H200)
+## 8. Working-tree and repository safety
 
-Per-step wall time for the heaviest method (`LSC-CP`) at production ensemble
-size, and the implied cost of **one variant**:
-
-| experiment | steps | particles | GPU ms/step | GPU | CPU ms/step | CPU |
-|---|---|---|---|---|---|---|
-| E1 | 20 000 | 48 000 | 2.4 | 0.01 h | 160 | 0.9 h |
-| E3 | 40 000 | 16 000 | 11.5 | 0.13 h | 802 | 8.9 h |
-| E4 | 50 000 | 8 000 | 6.0 | 0.08 h | 278 | 3.9 h |
-| E2 | 10 000 | 20 000 | 351 | 0.97 h | 21 346 | 59.3 h |
-
-**CPU is not viable** — roughly 60× slower. E2 dominates because its annulus
-score quadrature is `q_θ × q_ρ × m_φ = 16 × 4 × 64 = 4096` chords per particle
-per step.
-
-Full matrix on one GPU: roughly 7–9 hours, dominated by E2, plus the E4
-reference (~25 min of PT-MALA at production length, plus SNIS and two
-2000-replicate bootstraps).
-
-To run:
-
-```bash
-conda env create -f environment.yml && conda activate jcp-levy-release
-python scripts/run_experiment.py E1          # then E3, E4, E2
-python scripts/build_catalog.py --all results/
-```
-
-`--device auto` picks CUDA when available and CPU otherwise; `--device cuda:1`
-pins a specific device. There is no GPU allow-list and no environment variable
-that can forbid a run.
-
----
-
-## 5. Smaller deviations from the specification, and why
-
-- **Checkpoint schedule is defined in simulation time, not steps.** Canonical
-  and tamed variants calibrate to different timesteps, so a step-based schedule
-  put paired variants on different time grids and the paired ablation compared
-  curves sampled at different places. Over a factor-of-four timestep change both
-  variants now land on the same 221 checkpoint times to within half a step.
-
-- **MALA/PT timestep selection searches upward as well as downward.**
-  Acceptance falls as `dt` grows, so a refinement loop that only halves can
-  never satisfy an acceptance *band* — it can only push acceptance higher. The
-  acceptance search runs first, then the agreement refinement starts from an
-  efficient timestep. During refinement only a *collapsed* acceptance counts as
-  an instability.
-
-- **Timestep agreement is compared within Monte Carlo error.** Two pilots at
-  different timesteps are independent samples, so their difference is
-  discretisation bias plus noise. The tolerance is widened by the combined
-  bootstrap standard error, and the statistics are robust (median, IQR) rather
-  than standard deviations — the uncorrected methods put real mass in the
-  quartic tails, where a sample standard deviation of the energy wanders tens of
-  percent between pilots and cannot detect a trend.
-
-- **`jitter_sigma` is deleted from the schema, not defaulted to zero**, and any
-  unrecognised key in the E4 jump-law block is now an error, so a stale config
-  cannot reintroduce it silently.
-
-- **Wall-clock is not recorded as a scientific metric**, so the untimed warm-up
-  steps were removed as dead weight.
-
----
-
-## 6. What is not done
-
-- **No production run.** All runs so far were deliberately reduced.
-- **The E4 reference has not been built at production budget.** At ~10% budget
-  15 of 73 gates fail; 13 of those are the PT R-hat / half-run / block-length
-  gates, which are budget artifacts (observed block length 90 saved checkpoints
-  against a maximum `tau_int` of 44.6, so production gives ~100 blocks per chain
-  and passes). The remaining two are §1.1.
-- **Old results are removed from the branch** (306 files, 225 MB, twelve of them
-  naming the deleted component-stratified estimator). Recoverable from history
-  with `git checkout 619f141 -- results figures`.
+- The audit did not edit or delete the protected old ICLR output directories.
+- Pre-existing untracked user files/directories were left untouched.
+- Only temporary `.orig`/`.rej` files created by the fallback patch utility
+  during this session were removed.
+- No commit, push, or pull request was created.
+- To put this handoff and the fixes on GitHub, review the diff, commit it on
+  `refactor`, and push explicitly.

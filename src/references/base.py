@@ -185,6 +185,15 @@ class Reference:
     def load(cls, directory: Path, target, device) -> "Reference":
         raise NotImplementedError
 
+    def assert_valid_for_use(self, directory: Path | None = None) -> None:
+        """Reject a stored reference that is evidence of a failed build.
+
+        Most reference types are valid by construction. References with
+        explicit acceptance gates override this hook so the generic cache
+        loader cannot accidentally promote a persisted negative result.
+        """
+        return None
+
     def sample(self, n: int, generator: torch.Generator) -> torch.Tensor:
         """``(n, d)`` draws in sampling coordinates."""
         raise NotImplementedError

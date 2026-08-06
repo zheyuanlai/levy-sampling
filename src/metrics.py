@@ -25,6 +25,7 @@ import torch
 __all__ = [
     # distances between samples
     "w2_exact_1d",
+    "w1_samples",
     "make_projections",
     "sliced_w2",
     "mmd2_biased",
@@ -245,6 +246,24 @@ def w2_exact_1d(x: torch.Tensor, y: torch.Tensor) -> float:
     xs = torch.sort(_flat_1d(x, "x")).values[:, None]
     ys = torch.sort(_flat_1d(y, "y").to(xs.device)).values[:, None]
     return float(_w2_from_sorted(xs, ys)[0].item())
+
+
+def w1_samples(x: torch.Tensor, y: torch.Tensor) -> float:
+    """Exact empirical one-dimensional Wasserstein-1 distance.
+
+    Equal-size samples are coupled by sorted order statistics. Different-size
+    samples use the same evenly spaced quantile interpolation convention as
+    :func:`w2_exact_1d`.
+    """
+    xs = torch.sort(_flat_1d(x, "x")).values
+    ys = torch.sort(_flat_1d(y, "y").to(xs.device)).values
+    if xs.numel() == ys.numel():
+        return float((xs - ys).abs().mean().item())
+    levels = min(xs.numel(), ys.numel())
+    probs = ((torch.arange(levels, dtype=torch.float64, device=xs.device)
+              + 0.5) / levels)
+    return float((_sorted_quantiles(xs, probs)
+                  - _sorted_quantiles(ys, probs)).abs().mean().item())
 
 
 def make_projections(d: int, n_projections: int, seed: int,

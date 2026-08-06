@@ -123,4 +123,7 @@ def sampler_requirements(context, variant) -> dict:
         "acceptance": family in ("MALA", "PT"),
         "score_certificate": bool(entry.get("uses_score", False)),
         "quadrature": entry.get("estimator_type") == "deterministic_quadrature",
+        "ess": family == "MALA",
+        "replica_acceptance": family == "PT",
+        "round_trip": family == "PT",
     }

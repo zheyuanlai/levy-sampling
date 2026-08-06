@@ -73,6 +73,8 @@ class FEECalibration:
     C_V: float
     C_F: float
     rho: float
+    device_index: int | None = None
+    device_uuid: str | None = None
     #: Structured chord kernel, affine in the chord count. Both are seconds.
     structured_fixed_seconds_per_particle: float | None = None
     structured_seconds_per_particle_chord: float | None = None
@@ -87,6 +89,8 @@ class FEECalibration:
         return {
             "device": self.device,
             "device_name": self.device_name,
+            "device_index": self.device_index,
+            "device_uuid": self.device_uuid,
             "dtype": self.dtype,
             "software_version": self.software_version,
             "target_implementation": self.target_implementation,
@@ -241,6 +245,8 @@ def calibrate(target, *, particle_batch_size: int = 4096,
     return FEECalibration(
         device=device.type,
         device_name=provenance.get("gpu_name") or provenance.get("cpu_model"),
+        device_index=provenance.get("device_index"),
+        device_uuid=provenance.get("gpu_uuid"),
         dtype=str(dtype).replace("torch.", ""),
         software_version=software_version_key(device, dtype),
         target_implementation=f"{type(potential).__module__}."
@@ -311,8 +317,11 @@ def load_or_calibrate(target, cache_dir: str | Path, *, refresh: bool = False,
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
     potential = target.potential
+    device_record = device_provenance(target.device, target.dtype)
     key_payload = {
         "device": target.device.type,
+        "device_index": device_record.get("device_index"),
+        "device_uuid": device_record.get("gpu_uuid"),
         "device_name": device_provenance(target.device, target.dtype).get(
             "gpu_name") or device_provenance(target.device,
                                              target.dtype).get("cpu_model"),

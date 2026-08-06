@@ -23,6 +23,8 @@ calibration:
     criteria: [acceptance, ess, stability]
     tolerance: 0.05
     max_halvings: 6
+  ess:
+    minimum_pilot_fraction: 0.05
   # Canonical and tamed calibrate acceptance separately.
   per_tame_variant: true
 diagnostics:

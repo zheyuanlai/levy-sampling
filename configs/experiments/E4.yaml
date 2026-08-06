@@ -125,10 +125,35 @@ metrics:
     - kink_density_error
     - heat_capacity_error
     - binder_cumulant_error
+    - heat_capacity_per_site
+    - heat_capacity_per_site_reference
+    - binder_cumulant
+    - binder_cumulant_reference
     - marginal_KS_mx
     - marginal_KS_my
     - marginal_KS_m_norm
+    - marginal_W1_mx
+    - marginal_W1_my
+    - marginal_W1_m_norm
+    - energy_per_site_KS
+    - energy_per_site_W1
+    - energy_per_site_MMD2_biased
+    - energy_per_site_MMD2_unbiased
+    - coherence_KS
+    - coherence_W1
+    - kink_density_KS
+    - kink_density_W1
+    - kink_zero_probability
+    - kink_zero_probability_reference
+    - kink_zero_probability_error
+    - kink_high_tail_threshold
+    - kink_high_tail_probability
+    - kink_high_tail_probability_reference
+    - kink_high_tail_probability_error
+    - connected_correlation_relative_L2
     - phase_occupancy_profile
+    - phase_count_profile
+    - connected_correlation_profile
   mmd:
     kernel: rbf
     bandwidth_rule: median_heuristic_on_reference_bank

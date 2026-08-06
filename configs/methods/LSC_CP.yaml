@@ -52,6 +52,8 @@ calibration:
   # a fixed target and jump law, but dt never is.
   quadrature:
     shared_across_dt: true
+    tolerance: 0.05
+    p95_tolerance_multiplier: 4.0
     criteria: [score_accuracy, certificate_residual]
   dt:
     criteria: [score, splitting, taming, observable, stability]
