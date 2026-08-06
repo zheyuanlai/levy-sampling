@@ -2,7 +2,7 @@
   {
     "notebook": "notebooks/E1_double_well_plot.ipynb",
     "status": "success",
-    "elapsed_seconds": 33.36040799604962,
+    "elapsed_seconds": 34.33562259702012,
     "executed": "executed_notebooks/E1_double_well_plot.ipynb",
     "experiment_id": "E1",
     "kind": "plot"
@@ -10,7 +10,7 @@
   {
     "notebook": "notebooks/E2_mog40_plot.ipynb",
     "status": "success",
-    "elapsed_seconds": 170.56567650596844,
+    "elapsed_seconds": 176.18803117895732,
     "executed": "executed_notebooks/E2_mog40_plot.ipynb",
     "experiment_id": "E2",
     "kind": "plot"
@@ -18,7 +18,7 @@
   {
     "notebook": "notebooks/E3_muller_brown_plot.ipynb",
     "status": "success",
-    "elapsed_seconds": 56.37408656004118,
+    "elapsed_seconds": 55.580482633027714,
     "executed": "executed_notebooks/E3_muller_brown_plot.ipynb",
     "experiment_id": "E3",
     "kind": "plot"
