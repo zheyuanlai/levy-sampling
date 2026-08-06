@@ -1,0 +1,85 @@
+{
+  "acceptance_search": null,
+  "calibration_hash": "85916bba7bef25577215683e55b8c346",
+  "criteria": [
+    "observable_bias",
+    "stability"
+  ],
+  "dt": 0.002,
+  "dt_table": [
+    {
+      "agreement_failures": [],
+      "dt": 0.002,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.0,
+        "energy_abs_mean": 1.502001620763331,
+        "energy_abs_mean_se": 0.01445375205467615,
+        "energy_iqr": 0.6150233257260023,
+        "energy_iqr_se": 0.01874163226659745,
+        "energy_mean": 1.502001620763331,
+        "energy_mean_se": 0.01445375205467615,
+        "energy_median": 1.456766187452079,
+        "energy_median_se": 0.022770482321691946,
+        "n_effective": 1024,
+        "n_steps": 3125,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.9693091091911572,
+        "summary_abs_mean_se": 0.004661354296191645,
+        "summary_iqr": 0.18589671547949016,
+        "summary_iqr_se": 0.0070766569990806175,
+        "summary_mean": -0.9693091091911572,
+        "summary_mean_se": 0.004661354296191645,
+        "summary_median": -0.9745861267677416,
+        "summary_median_se": 0.005445418753674513
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.0,
+        "energy_abs_mean": 1.4838231518386236,
+        "energy_abs_mean_se": 0.014888930329463831,
+        "energy_iqr": 0.6011311603231471,
+        "energy_iqr_se": 0.021868321744401897,
+        "energy_mean": 1.4838231518386236,
+        "energy_mean_se": 0.014888930329463831,
+        "energy_median": 1.4297461811158303,
+        "energy_median_se": 0.01781881128455248,
+        "n_effective": 1024,
+        "n_steps": 6250,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.9695290600587445,
+        "summary_abs_mean_se": 0.004121946695291814,
+        "summary_iqr": 0.1806223633390449,
+        "summary_iqr_se": 0.005193372832296906,
+        "summary_mean": -0.9695290600587445,
+        "summary_mean_se": 0.004121946695291814,
+        "summary_median": -0.982633645771079,
+        "summary_median_se": 0.004023314909975427
+      }
+    }
+  ],
+  "experiment_id": "E4",
+  "method": "ULD",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "tame": false,
+  "tame_cap": null,
+  "tolerance": 0.05,
+  "variant_hash": "b914b1c481c4dcc20022dd4a196ddcc1",
+  "variant_label": "ULD gamma=1, canonical"
+}

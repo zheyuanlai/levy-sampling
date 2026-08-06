@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "b57766a05e28cd3127415b3df215c507",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T20:12:11.382351Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "unstable at every timestep tried (boundary_reject_fraction) and it does not improve as the timestep shrinks",
+  "dt": null,
+  "experiment_id": "E2",
+  "experiment_key": "E2_mog40",
+  "family": "LSC-CP-RA",
+  "fee_calibration_hash": "076536868d101ed21862549ee5a0e135",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "b96b972524f51cf44ef2b11542b4ebbe0d3b4848cfd04694553ae71bbc92104d",
+    "diagnostics.json": "c39bc84972abeb52aa5ca620175b0d3570cc921569e8e796bc44b751005d1a10",
+    "resolved_config.yaml": "4e25b6789996bd06058ee866b815fe45f337c9fb0b47a79e1c96c8d82c1e32d6"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "c4cf293c5b3436b9cdaedd1da7e47e98825b38df",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "LSC-CP-RA",
+  "parameters": {
+    "A": 1,
+    "tame": false
+  },
+  "particles": 1000,
+  "reference_hash": "1ed7f635d25fe5cc00b6acb78b3f3fe4",
+  "result_directory": "results/E2_mog40/runs/LSC-CP-RA/LSC-CP-RA-A1-canonical-uncalibratable-20260806T201211252526Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "A": 1,
+      "experiment_id": "E2",
+      "method_family": "LSC-CP-RA"
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 8009681339715131579,
+        "init_gen": 2786005580709598210,
+        "jump_bank_gen": 1195577792045798908,
+        "mh_uniform_gen": 3943764437485235033,
+        "poisson_gen": 2337231318173874419,
+        "stable_noise_gen": 2605862583225222234
+      },
+      "1": {
+        "diffusion_gen": 472828547028982511,
+        "init_gen": 2422632078249826156,
+        "jump_bank_gen": 7294283875119044305,
+        "mh_uniform_gen": 1098856110838548056,
+        "poisson_gen": 2603853945486299963,
+        "stable_noise_gen": 8764484502174688773
+      },
+      "2": {
+        "diffusion_gen": 873862206495345881,
+        "init_gen": 3693862800873543757,
+        "jump_bank_gen": 810287732239951793,
+        "mh_uniform_gen": 5697392531073869998,
+        "poisson_gen": 3553723792836454063,
+        "stable_noise_gen": 561412120943229423
+      },
+      "3": {
+        "diffusion_gen": 6833251374978790626,
+        "init_gen": 7836627375272423994,
+        "jump_bank_gen": 4564446621670684899,
+        "mh_uniform_gen": 2247275294666423188,
+        "poisson_gen": 5058932667953797790,
+        "stable_noise_gen": 7841501870796138349
+      }
+    }
+  },
+  "rng_pair_group": {
+    "A": 1,
+    "method_family": "LSC-CP-RA"
+  },
+  "rng_pair_group_hash": "2bb13ee62f36cb610540be048f55178d",
+  "run_id": "LSC-CP-RA-A1-canonical-uncalibratable-20260806T201211252526Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": false,
+  "tame_cap": null,
+  "target_hash": "a7f73d9b33f4c67e2ed3a91986fd9b5c",
+  "variant_hash": "29c9cee5c19c5ff49f912741514934f1",
+  "variant_label": "LSC-CP-RA, canonical",
+  "variant_slug": "LSC-CP-RA-A1-canonical",
+  "written_at_utc": "2026-08-06T20:12:11.382376Z"
+}

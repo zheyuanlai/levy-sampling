@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "e4edb98800ec605d5727e8ec095c57f7",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T21:56:10.157357Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "unstable at every timestep tried (boundary_reject_fraction) though it improves as the timestep shrinks",
+  "dt": null,
+  "experiment_id": "E3",
+  "experiment_key": "E3_muller_brown",
+  "family": "FLA",
+  "fee_calibration_hash": "088ecf363630e7e9c4899a3eb827d2f6",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "de45256571dde8b5d84f243594856488c2958aafcdb8fdb61b9a2fffc5a8a2e1",
+    "diagnostics.json": "735f4213df8ef8af5e8fb40bac693bd6550708e817c7f7f3a65c436dcd1a393e",
+    "resolved_config.yaml": "c5586d76ea556525a11c59b905535f4cb21496d76e1e5996b07b5c5e1e30a04c"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "c4cf293c5b3436b9cdaedd1da7e47e98825b38df",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "FLA",
+  "parameters": {
+    "alpha": 1.8,
+    "tame": false
+  },
+  "particles": 800,
+  "reference_hash": "53af2ac3a1c61f75142147aab9cae27b",
+  "result_directory": "results/E3_muller_brown/runs/FLA/FLA-alpha1.8-canonical-uncalibratable-20260806T215610052820Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "alpha": 1.8,
+      "experiment_id": "E3",
+      "method_family": "FLA"
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 6051469758684866289,
+        "init_gen": 6530352866940145882,
+        "jump_bank_gen": 4331965325735457605,
+        "mh_uniform_gen": 2064508131134595330,
+        "poisson_gen": 5492272868936622583,
+        "stable_noise_gen": 958572353577984509
+      },
+      "1": {
+        "diffusion_gen": 7217225167286332362,
+        "init_gen": 4010515270032716956,
+        "jump_bank_gen": 8784692765080724578,
+        "mh_uniform_gen": 1482302513986412340,
+        "poisson_gen": 6958815509687159141,
+        "stable_noise_gen": 9220946647150979536
+      },
+      "2": {
+        "diffusion_gen": 107331069529480486,
+        "init_gen": 2321321626763272619,
+        "jump_bank_gen": 9170622983090396,
+        "mh_uniform_gen": 616571080856991028,
+        "poisson_gen": 2029131907440547827,
+        "stable_noise_gen": 6331676929773005414
+      },
+      "3": {
+        "diffusion_gen": 3192060709807431499,
+        "init_gen": 339220859189725188,
+        "jump_bank_gen": 8592503430517660850,
+        "mh_uniform_gen": 8138635235284957801,
+        "poisson_gen": 517140857659828699,
+        "stable_noise_gen": 2126315170218036120
+      }
+    }
+  },
+  "rng_pair_group": {
+    "alpha": 1.8,
+    "method_family": "FLA"
+  },
+  "rng_pair_group_hash": "80146c550e5afdc1dad45edbb4ca9b07",
+  "run_id": "FLA-alpha1.8-canonical-uncalibratable-20260806T215610052820Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": false,
+  "tame_cap": null,
+  "target_hash": "ed94c0eda92286239de64b68502a0389",
+  "variant_hash": "81eb2a78a7c6aa6642fc9c734e0c2144",
+  "variant_label": "FLA alpha=1.8, canonical",
+  "variant_slug": "FLA-alpha1.8-canonical",
+  "written_at_utc": "2026-08-06T21:56:10.157401Z"
+}

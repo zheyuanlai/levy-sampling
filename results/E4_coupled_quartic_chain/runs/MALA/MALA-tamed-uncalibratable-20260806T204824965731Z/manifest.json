@@ -1,0 +1,117 @@
+{
+  "calibration_hash": "da7332ed65a8f62e755bf1946628a1be",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T20:48:25.104774Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "unstable at every timestep tried (mh_acceptance_outside_target_band, temporal_ess_fraction) though it improves as the timestep shrinks",
+  "dt": null,
+  "experiment_id": "E4",
+  "experiment_key": "E4_coupled_quartic_chain",
+  "family": "MALA",
+  "fee_calibration_hash": "617414aeae69572deaa374dae2d362a1",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "ba2badd6377faf473019cc9ff0d34938c0c16d665dcef1c755eb68f3e913c5c6",
+    "diagnostics.json": "20f466352505d72d8f47a78832b1a8c35d30e9a1ee3912f63cf220e2fcf997c1",
+    "resolved_config.yaml": "16078523ea666f04dbe7e1ae2ce358653ba812da195e824a53bca2e3de9b5805"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "c4cf293c5b3436b9cdaedd1da7e47e98825b38df",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "MALA",
+  "parameters": {
+    "tame": true
+  },
+  "particles": 400,
+  "reference_hash": "a7c5eaa23f080ec8d57b760aa0223d05",
+  "result_directory": "results/E4_coupled_quartic_chain/runs/MALA/MALA-tamed-uncalibratable-20260806T204824965731Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "experiment_id": "E4",
+      "method_family": "MALA"
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 8253661785420662395,
+        "init_gen": 5650301593283193127,
+        "jump_bank_gen": 4359496206937626353,
+        "mh_uniform_gen": 8323923598543036189,
+        "poisson_gen": 7491828741763509472,
+        "stable_noise_gen": 5839582622355271512
+      },
+      "1": {
+        "diffusion_gen": 8979806727776560410,
+        "init_gen": 4256998483108565655,
+        "jump_bank_gen": 2791684225680020901,
+        "mh_uniform_gen": 6269315078222413292,
+        "poisson_gen": 7548312899485055489,
+        "stable_noise_gen": 2192866816512245191
+      },
+      "2": {
+        "diffusion_gen": 1681583954911874035,
+        "init_gen": 9195875402501580672,
+        "jump_bank_gen": 5362689550850122870,
+        "mh_uniform_gen": 1346833422292090038,
+        "poisson_gen": 5288244475887191851,
+        "stable_noise_gen": 3595871776166525799
+      },
+      "3": {
+        "diffusion_gen": 2610688738768934279,
+        "init_gen": 7039008388189834491,
+        "jump_bank_gen": 824438780599729387,
+        "mh_uniform_gen": 972248080744624004,
+        "poisson_gen": 8336914186952448600,
+        "stable_noise_gen": 8556977365486552444
+      }
+    }
+  },
+  "rng_pair_group": {
+    "method_family": "MALA"
+  },
+  "rng_pair_group_hash": "5fc6ca77e938b78fdfaae5e6c4cd8c1f",
+  "run_id": "MALA-tamed-uncalibratable-20260806T204824965731Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": true,
+  "tame_cap": 1.0,
+  "target_hash": "837c0c211f2f7922f5617aaf978c479f",
+  "variant_hash": "08c004da545dcf2d029aaf023d64b5af",
+  "variant_label": "MALA, tamed",
+  "variant_slug": "MALA-tamed",
+  "written_at_utc": "2026-08-06T20:48:25.104823Z"
+}

@@ -1,0 +1,85 @@
+{
+  "acceptance_search": null,
+  "calibration_hash": "14117dc81d2df61b8d90b1ba264c24b4",
+  "criteria": [
+    "numerical_stability",
+    "self_convergence"
+  ],
+  "dt": 0.01,
+  "dt_table": [
+    {
+      "agreement_failures": [],
+      "dt": 0.01,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 3.125e-06,
+        "energy_abs_mean": 0.19628808510142737,
+        "energy_abs_mean_se": 0.01587844980276754,
+        "energy_iqr": 0.16628320282063216,
+        "energy_iqr_se": 0.008614475889574072,
+        "energy_mean": 0.1959272174433846,
+        "energy_mean_se": 0.015876729886888832,
+        "energy_median": 0.09044022500270373,
+        "energy_median_se": 0.004027524356036412,
+        "n_effective": 1024,
+        "n_steps": 625,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 11.246178561521939,
+        "summary_abs_mean_se": 0.14199779665604317,
+        "summary_iqr": 2.0655589669738887,
+        "summary_iqr_se": 0.11549749171475905,
+        "summary_mean": 10.848920634704317,
+        "summary_mean_se": 0.17413396709626805,
+        "summary_median": 10.89496259324876,
+        "summary_median_se": 0.054966419543622365
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 3.90625e-06,
+        "energy_abs_mean": 0.19885727118014015,
+        "energy_abs_mean_se": 0.015253385890280403,
+        "energy_iqr": 0.16818865922097145,
+        "energy_iqr_se": 0.009663836120545421,
+        "energy_mean": 0.19843466992933403,
+        "energy_mean_se": 0.015247558277882746,
+        "energy_median": 0.08860272361823229,
+        "energy_median_se": 0.004301111658066875,
+        "n_effective": 1024,
+        "n_steps": 1250,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 11.047573023360297,
+        "summary_abs_mean_se": 0.13302198289948464,
+        "summary_iqr": 2.191841571584872,
+        "summary_iqr_se": 0.12405443538963136,
+        "summary_mean": 10.581158987157298,
+        "summary_mean_se": 0.17248962688731923,
+        "summary_median": 10.795359646011377,
+        "summary_median_se": 0.042969449658647435
+      }
+    }
+  ],
+  "experiment_id": "E2",
+  "method": "FLA",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "tame": true,
+  "tame_cap": 1.0,
+  "tolerance": 0.05,
+  "variant_hash": "fba3a9cc4307e4af0b8519c8281dc4f8",
+  "variant_label": "FLA alpha=1.6, tamed"
+}

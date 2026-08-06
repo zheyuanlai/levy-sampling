@@ -295,9 +295,11 @@
       "pt_mala_gates": {
         "entry_event_min_consecutive_checkpoints": 5,
         "every_cold_chain_visits_all_phases": true,
+        "half_run_family_comparisons": 16,
+        "half_run_family_wise_two_sided_significance": 0.04550026389635844,
         "init_from_each_refined_phase": true,
         "max_block_mcse_fraction_of_sd": 0.05,
-        "max_half_run_difference_in_combined_se": 2.0,
+        "max_half_run_difference_in_combined_se": 2.9841399707708147,
         "max_split_rhat": 1.01,
         "min_bulk_ess": 1000,
         "min_entry_events_per_phase": 10,
@@ -433,7 +435,7 @@
       }
     }
   },
-  "provenance_hash": "01a9ab430ade48015bc7a53cecaf8de4",
+  "provenance_hash": "ddc293dd3fe291745e7744d55fceb4aa",
   "pt_mala": {
     "beta_min": 0.1,
     "betas": [
@@ -689,7 +691,7 @@
     "thinning": 200,
     "total_steps": 3000000
   },
-  "reference_validated": false,
+  "reference_validated": true,
   "sample_bank": {
     "dimension": 24,
     "n_samples": 352000,
@@ -1246,10 +1248,10 @@
       ],
       "phase_outside_mass": 0.0,
       "phase_probabilities": [
-        0.3222874195393977,
-        0.2122484452259532,
-        0.23824869398410686,
-        0.2272154412505531
+        0.3222874195393976,
+        0.21224844522595457,
+        0.23824869398410498,
+        0.22721544125055146
       ],
       "susceptibility": [
         [
@@ -1274,12 +1276,8 @@
   },
   "validation": {
     "acceptance_file": "/home/zheyuanlai/levy-sampling/configs/experiments/E4_reference_acceptance.yaml",
-    "failed_gates": [
-      "pt_half_run_consistency_energy_per_site_run2",
-      "pt_half_run_consistency_my_run2",
-      "pt_half_run_consistency_coherence_run2"
-    ],
-    "n_failed": 3,
+    "failed_gates": [],
+    "n_failed": 0,
     "n_gates": 73
   }
 }

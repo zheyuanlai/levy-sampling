@@ -1,0 +1,97 @@
+{
+  "cumulative": {
+    "boundary_reject_count_cumulative": 37,
+    "boundary_reject_fraction_cumulative": 9.25e-07,
+    "jump_cap_excess_count_cumulative": 0,
+    "jump_cap_hit_count_cumulative": 0,
+    "jump_cap_hit_fraction_cumulative": 0.0,
+    "jump_count_applied_cumulative": 200131,
+    "jump_count_cumulative": 200131,
+    "jump_rate_per_particle_time_cumulative": 1.000655,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0
+  },
+  "final_interval_diagnostics": {
+    "boundary_reject_count_cumulative": 37,
+    "boundary_reject_fraction_cumulative": 9.25e-07,
+    "boundary_rule": "reject",
+    "jump_cap_excess_count_cumulative": 0,
+    "jump_cap_hit_count_cumulative": 0,
+    "jump_cap_hit_fraction_cumulative": 0.0,
+    "jump_cap_k": 8,
+    "jump_count_applied_cumulative": 200131,
+    "jump_count_cumulative": 200131,
+    "jump_count_mean": 0.0050750000000000005,
+    "jump_mode": "full_law",
+    "jump_rate_per_particle_time_cumulative": 1.000655,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "score_evaluation": "pre_step",
+    "splitting": "drift_diffusion_then_jump",
+    "tame_cap": 1.0,
+    "tamed": true
+  },
+  "measurement_suite": {
+    "experiment_id": "E1",
+    "metric_definition_hash": "8da7d73e85753d4e79f54062070fbc7b",
+    "mmd_bandwidth": 0.9284306556521876,
+    "mmd_bandwidth_rule": "median heuristic, frozen on the reference bank",
+    "mmd_kernel": "rbf",
+    "primary_metrics": [
+      "W2_exact_1d",
+      "MMD2_biased",
+      "KS"
+    ],
+    "reference_kind": "grid_inverse_cdf_1d",
+    "reference_subsample_size": 2000
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "sampler": {
+    "boundary": {
+      "hi": [
+        5.2
+      ],
+      "kind": "rect",
+      "lo": [
+        -5.2
+      ]
+    },
+    "boundary_rule": "reject",
+    "dt": 0.005,
+    "family": "CP",
+    "intensity": 1.0,
+    "jump_law": {
+      "atom_norms": [
+        2.0,
+        2.0
+      ],
+      "dimension": 1,
+      "h": [
+        0.2,
+        0.2
+      ],
+      "kind": "shell",
+      "max_reach": 2.2,
+      "n_atoms": 2,
+      "weights": [
+        0.5,
+        0.5
+      ]
+    },
+    "jump_mode": "full_law",
+    "method": "Raw-CP",
+    "score_evaluation": "pre_step",
+    "splitting": "drift_diffusion_then_jump",
+    "tame_cap": 1.0,
+    "tamed": true
+  }
+}

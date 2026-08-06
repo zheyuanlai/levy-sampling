@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "8c620316921551de6b363c469d5300c9",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T19:37:28.114155Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "unstable at every timestep tried (boundary_reject_fraction) and it does not improve as the timestep shrinks",
+  "dt": null,
+  "experiment_id": "E4",
+  "experiment_key": "E4_coupled_quartic_chain",
+  "family": "LSC-CP-RA",
+  "fee_calibration_hash": "617414aeae69572deaa374dae2d362a1",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "65ce6d266a51d3d53f0cfdc82f1379162fa498a846480b35229acda22a6e709b",
+    "diagnostics.json": "5fd2980b458a084c20596239ab8748015acdb82c7f4fd5dcf69511bbc293c9c0",
+    "resolved_config.yaml": "6cbc52677c8fcef5848a77920a7612650bee7b7cff772dabfc6625f8158e6458"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "c4cf293c5b3436b9cdaedd1da7e47e98825b38df",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "LSC-CP-RA",
+  "parameters": {
+    "A": 8,
+    "tame": false
+  },
+  "particles": 400,
+  "reference_hash": "a7c5eaa23f080ec8d57b760aa0223d05",
+  "result_directory": "results/E4_coupled_quartic_chain/runs/LSC-CP-RA/LSC-CP-RA-A8-canonical-uncalibratable-20260806T193728064583Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "A": 8,
+      "experiment_id": "E4",
+      "method_family": "LSC-CP-RA"
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 6753144174972992562,
+        "init_gen": 4949309867034302831,
+        "jump_bank_gen": 7581393512294126828,
+        "mh_uniform_gen": 8793726154647220764,
+        "poisson_gen": 7634621152422273470,
+        "stable_noise_gen": 5815840543461904505
+      },
+      "1": {
+        "diffusion_gen": 3242857906092187205,
+        "init_gen": 307972114807639119,
+        "jump_bank_gen": 6405879550447895060,
+        "mh_uniform_gen": 2991121024845514438,
+        "poisson_gen": 1364457987223802459,
+        "stable_noise_gen": 2879333395207574015
+      },
+      "2": {
+        "diffusion_gen": 4098216817996772617,
+        "init_gen": 6393251046445581858,
+        "jump_bank_gen": 4973011490104047859,
+        "mh_uniform_gen": 1266699048080500768,
+        "poisson_gen": 5207659013304827523,
+        "stable_noise_gen": 9135150596936237491
+      },
+      "3": {
+        "diffusion_gen": 8694339457168385013,
+        "init_gen": 1730511222566442792,
+        "jump_bank_gen": 8528095458210593844,
+        "mh_uniform_gen": 4285713084907659111,
+        "poisson_gen": 1486531807909193351,
+        "stable_noise_gen": 4084907666087858675
+      }
+    }
+  },
+  "rng_pair_group": {
+    "A": 8,
+    "method_family": "LSC-CP-RA"
+  },
+  "rng_pair_group_hash": "11cc78b7fe7af28fb7f0b680655a10ff",
+  "run_id": "LSC-CP-RA-A8-canonical-uncalibratable-20260806T193728064583Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": false,
+  "tame_cap": null,
+  "target_hash": "837c0c211f2f7922f5617aaf978c479f",
+  "variant_hash": "d3927a3bfc4321eda287f59ad3dce42c",
+  "variant_label": "LSC-CP-RA (A=8), canonical",
+  "variant_slug": "LSC-CP-RA-A8-canonical",
+  "written_at_utc": "2026-08-06T19:37:28.114205Z"
+}

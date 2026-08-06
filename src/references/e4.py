@@ -1469,6 +1469,9 @@ def _pt_gates(acceptance: Mapping, *, pt, series: Mapping, label_series,
 
     chains_per_run = int(pt["chains_per_run"])
     half = n_checkpoints // 2
+    comparisons = int(gates.get("half_run_family_comparisons",
+                                int(pt["n_runs"]) * len(continuous)))
+    family_target = gates.get("half_run_family_wise_two_sided_significance")
     for run in range(int(pt["n_runs"])):
         rows = slice(run * chains_per_run, (run + 1) * chains_per_run)
         for name in continuous:
@@ -1482,14 +1485,23 @@ def _pt_gates(acceptance: Mapping, *, pt, series: Mapping, label_series,
                 else float("nan")
             ratio = (float("nan") if not math.isfinite(combined) or combined <= 0.0
                      else abs(mean_first - mean_second) / combined)
+            # This gate is one of n_runs x len(continuous) comparisons, so it
+            # carries the same family-wise bookkeeping as the SNIS
+            # run-agreement gates: a reader can check the arithmetic from the
+            # validation file without rerunning anything.
+            threshold = gates["max_half_run_difference_in_combined_se"]
+            fields = _multiple_comparison_fields(
+                threshold, comparisons, family_target)
             records.append(_gate(
                 f"pt_half_run_consistency_{name}_run{run}",
-                gates["max_half_run_difference_in_combined_se"], ratio,
+                threshold, ratio,
                 direction="max", standard_error=combined,
                 block_length=block_length,
                 message=(f"run {run}: first half {mean_first:.6g} vs second "
                          f"half {mean_second:.6g}, difference in combined "
-                         f"batch-means standard errors")))
+                         f"batch-means standard errors")
+                        + _multiple_comparison_note(fields),
+                **fields))
     return records
 
 

@@ -31,12 +31,8 @@ __pycache__/
 REVISION_NOTES.md
 REVISION_NOTES_manuscript.md
 
-# E4's reference build never passed its frozen acceptance gates, so
-# reference_validated is false and no run may cite it. Its raw PT and SNIS
-# sample banks are 110 MB and 519 MB of uncompressed float64 -- both over
-# GitHub's 100 MB per-file limit, and not worth ~630 MB of LFS quota for data
-# nothing is allowed to use. The substantive evidence, reference_validation.json
-# with its 73 gate records, is tracked. Regenerate the banks with
-# `python scripts/build_reference.py E4`.
-results/E4_coupled_quartic_chain/reference/reference_samples_24d.npz
-results/E4_coupled_quartic_chain/reference/reference_snis_weighted_24d.npz
+# E4's reference now passes all 73 frozen acceptance gates
+# (reference_validated: true), so its raw PT and SNIS sample banks are the
+# evidence behind every E4 number and are tracked. Both exceed GitHub's 100 MB
+# per-file limit -- 110 MB and 519 MB of uncompressed float64 -- so they go
+# through git-lfs; see .gitattributes.

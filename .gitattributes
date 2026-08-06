@@ -1,8 +1,8 @@
-# No .npz currently needs LFS: the only files over GitHub's 100 MB limit were
-# the E4 reference sample banks, and that build failed its acceptance gates, so
-# they are excluded in .gitignore rather than spent against the LFS quota. If a
-# validated E4 reference is produced later, restore the two patterns below and
-# run `git lfs track` before committing it.
-#
-# results/**/reference_snis_weighted_24d.npz filter=lfs diff=lfs merge=lfs -text
-# results/**/reference_samples_24d.npz filter=lfs diff=lfs merge=lfs -text
+# The E4 reference sample banks are written as uncompressed float64 .npz and
+# exceed GitHub's 100 MB per-file hard limit: the PT-MALA bank is ~110 MB and
+# the SNIS weighted cross-check ~519 MB. They are the evidence behind every E4
+# metric, so they are tracked rather than regenerated on demand, and they go
+# through git-lfs. Everything else, including the ~44 MB E3 grids, stays as
+# ordinary blobs -- LFS quota is the scarcer resource.
+results/**/reference_snis_weighted_24d.npz filter=lfs diff=lfs merge=lfs -text
+results/**/reference_samples_24d.npz filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "50966db12dc25823d93da55b2cb9146d",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T20:13:22.930612Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "unstable at every timestep tried (boundary_reject_fraction) and it does not improve as the timestep shrinks",
+  "dt": null,
+  "experiment_id": "E2",
+  "experiment_key": "E2_mog40",
+  "family": "LSC-CP-RA",
+  "fee_calibration_hash": "076536868d101ed21862549ee5a0e135",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "b60ad2faf731f4237af50e9931fa0a1fdbcbbfa39a19f4cdbc4bcc8cce5df0d8",
+    "diagnostics.json": "108e24a0bf80e13c3b2d15b2dfab81af02d06cb6f65b1b744c7c9592298464c1",
+    "resolved_config.yaml": "0abd5db583710ae1527aa8e1cdfa8100c0378e2ca63068c5f40e73867f8bc7a4"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "c4cf293c5b3436b9cdaedd1da7e47e98825b38df",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "LSC-CP-RA",
+  "parameters": {
+    "A": 8,
+    "tame": false
+  },
+  "particles": 1000,
+  "reference_hash": "1ed7f635d25fe5cc00b6acb78b3f3fe4",
+  "result_directory": "results/E2_mog40/runs/LSC-CP-RA/LSC-CP-RA-A8-canonical-uncalibratable-20260806T201322802959Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "A": 8,
+      "experiment_id": "E2",
+      "method_family": "LSC-CP-RA"
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 4670833305653947363,
+        "init_gen": 2820681366408838161,
+        "jump_bank_gen": 4620457275618836891,
+        "mh_uniform_gen": 4312753797532844054,
+        "poisson_gen": 2359958103052516705,
+        "stable_noise_gen": 7490754569970192549
+      },
+      "1": {
+        "diffusion_gen": 1777130013109482318,
+        "init_gen": 8640732964994220634,
+        "jump_bank_gen": 6784096192542946750,
+        "mh_uniform_gen": 4486194614525123107,
+        "poisson_gen": 7074145559396983013,
+        "stable_noise_gen": 4428997871903328295
+      },
+      "2": {
+        "diffusion_gen": 6490466777613258162,
+        "init_gen": 7458702277637592159,
+        "jump_bank_gen": 671581185153185020,
+        "mh_uniform_gen": 8624065328917932323,
+        "poisson_gen": 9028230563829875127,
+        "stable_noise_gen": 5648138821653412964
+      },
+      "3": {
+        "diffusion_gen": 8337108042252188287,
+        "init_gen": 5933831177155564273,
+        "jump_bank_gen": 7761308304342267651,
+        "mh_uniform_gen": 7031066085870317293,
+        "poisson_gen": 678556135663048172,
+        "stable_noise_gen": 2136752879948676606
+      }
+    }
+  },
+  "rng_pair_group": {
+    "A": 8,
+    "method_family": "LSC-CP-RA"
+  },
+  "rng_pair_group_hash": "11cc78b7fe7af28fb7f0b680655a10ff",
+  "run_id": "LSC-CP-RA-A8-canonical-uncalibratable-20260806T201322802959Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": false,
+  "tame_cap": null,
+  "target_hash": "a7f73d9b33f4c67e2ed3a91986fd9b5c",
+  "variant_hash": "d3927a3bfc4321eda287f59ad3dce42c",
+  "variant_label": "LSC-CP-RA (A=8), canonical",
+  "variant_slug": "LSC-CP-RA-A8-canonical",
+  "written_at_utc": "2026-08-06T20:13:22.930642Z"
+}

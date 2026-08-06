@@ -1,0 +1,241 @@
+{
+  "acceptance_search": null,
+  "calibration_hash": "09bb5d7310e8106d43baf1dbaf342605",
+  "criteria": [
+    "numerical_stability",
+    "self_convergence"
+  ],
+  "dt": 0.0005,
+  "dt_table": [
+    {
+      "agreement_failures": [
+        {
+          "allowance": 0.08784305,
+          "coarse": -0.32202928,
+          "difference": 0.62096591,
+          "fine": -0.94299519,
+          "key": "summary_mean"
+        },
+        {
+          "allowance": 0.08628014,
+          "coarse": 0.32591945,
+          "difference": 0.62482737,
+          "fine": 0.95074683,
+          "key": "summary_abs_mean"
+        },
+        {
+          "allowance": 0.08997681,
+          "coarse": -0.08927146,
+          "difference": 0.88175998,
+          "fine": -0.97103144,
+          "key": "summary_median"
+        },
+        {
+          "allowance": 0.12807443,
+          "coarse": 0.61167477,
+          "difference": 0.42054248,
+          "fine": 0.19113229,
+          "key": "summary_iqr"
+        },
+        {
+          "allowance": 248.86040317,
+          "coarse": 16651.73066956,
+          "difference": 16650.62241762,
+          "fine": 1.10825193,
+          "key": "energy_median"
+        },
+        {
+          "allowance": 333.88800323,
+          "coarse": 2731.3348314,
+          "difference": 2730.42329002,
+          "fine": 0.91154138,
+          "key": "energy_iqr"
+        }
+      ],
+      "dt": 0.002,
+      "pass": false,
+      "stability_problems": [
+        [
+          "boundary_reject_fraction",
+          0.9532259375
+        ]
+      ],
+      "summary": {
+        "boundary_reject_fraction": 0.9532259375,
+        "energy_abs_mean": 17428.533503503328,
+        "energy_abs_mean_se": 95.09877029575044,
+        "energy_iqr": 2731.334831402124,
+        "energy_iqr_se": 111.28080006179671,
+        "energy_mean": 17428.533503503328,
+        "energy_mean_se": 95.09877029575044,
+        "energy_median": 16651.730669559864,
+        "energy_median_se": 82.93499279380573,
+        "n_effective": 1024,
+        "n_steps": 3125,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.32591945163795544,
+        "summary_abs_mean_se": 0.011912259624899108,
+        "summary_iqr": 0.6116747674223947,
+        "summary_iqr_se": 0.026548144657555225,
+        "summary_mean": -0.32202927588594876,
+        "summary_mean_se": 0.011939837501374607,
+        "summary_median": -0.08927146003220272,
+        "summary_median_se": 0.013238466661384726
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.000451875,
+        "energy_abs_mean": 2.0042070881570195,
+        "energy_abs_mean_se": 0.14814274451079812,
+        "energy_iqr": 0.9115413849614908,
+        "energy_iqr_se": 0.0438983721743087,
+        "energy_mean": 2.0042070881570195,
+        "energy_mean_se": 0.14814274451079812,
+        "energy_median": 1.1082519349024333,
+        "energy_median_se": 0.02596781640438257,
+        "n_effective": 1024,
+        "n_steps": 6250,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.9507468265753752,
+        "summary_abs_mean_se": 0.004987616052388205,
+        "summary_iqr": 0.19113228885633204,
+        "summary_iqr_se": 0.007169214667777664,
+        "summary_mean": -0.9429951859918098,
+        "summary_mean_se": 0.006436927221646673,
+        "summary_median": -0.9710314440277539,
+        "summary_median_se": 0.003926227807032851
+      }
+    },
+    {
+      "agreement_failures": [
+        {
+          "allowance": 0.1493232,
+          "coarse": 1.10825193,
+          "difference": 0.16298893,
+          "fine": 0.94526301,
+          "key": "energy_median"
+        }
+      ],
+      "dt": 0.001,
+      "pass": false,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.000451875,
+        "energy_abs_mean": 2.0042070881570195,
+        "energy_abs_mean_se": 0.14814274451079812,
+        "energy_iqr": 0.9115413849614908,
+        "energy_iqr_se": 0.0438983721743087,
+        "energy_mean": 2.0042070881570195,
+        "energy_mean_se": 0.14814274451079812,
+        "energy_median": 1.1082519349024333,
+        "energy_median_se": 0.02596781640438257,
+        "n_effective": 1024,
+        "n_steps": 6250,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.9507468265753752,
+        "summary_abs_mean_se": 0.004987616052388205,
+        "summary_iqr": 0.19113228885633204,
+        "summary_iqr_se": 0.007169214667777664,
+        "summary_mean": -0.9429951859918098,
+        "summary_mean_se": 0.006436927221646673,
+        "summary_median": -0.9710314440277539,
+        "summary_median_se": 0.003926227807032851
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.0002221875,
+        "energy_abs_mean": 1.5952121885846604,
+        "energy_abs_mean_se": 0.10318990644259138,
+        "energy_iqr": 0.800230703034206,
+        "energy_iqr_se": 0.03590395763138188,
+        "energy_mean": 1.5952121885846604,
+        "energy_mean_se": 0.10318990644259138,
+        "energy_median": 0.945263007597539,
+        "energy_median_se": 0.021978037896673516,
+        "n_effective": 1024,
+        "n_steps": 12500,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.9540987596573984,
+        "summary_abs_mean_se": 0.004980509214508113,
+        "summary_iqr": 0.1989269561727245,
+        "summary_iqr_se": 0.007570518632420043,
+        "summary_mean": -0.9278303924410549,
+        "summary_mean_se": 0.008607135549067776,
+        "summary_median": -0.9685656422934474,
+        "summary_median_se": 0.005923587970832101
+      }
+    },
+    {
+      "agreement_failures": [],
+      "dt": 0.0005,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.0002221875,
+        "energy_abs_mean": 1.5952121885846604,
+        "energy_abs_mean_se": 0.10318990644259138,
+        "energy_iqr": 0.800230703034206,
+        "energy_iqr_se": 0.03590395763138188,
+        "energy_mean": 1.5952121885846604,
+        "energy_mean_se": 0.10318990644259138,
+        "energy_median": 0.945263007597539,
+        "energy_median_se": 0.021978037896673516,
+        "n_effective": 1024,
+        "n_steps": 12500,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.9540987596573984,
+        "summary_abs_mean_se": 0.004980509214508113,
+        "summary_iqr": 0.1989269561727245,
+        "summary_iqr_se": 0.007570518632420043,
+        "summary_mean": -0.9278303924410549,
+        "summary_mean_se": 0.008607135549067776,
+        "summary_median": -0.9685656422934474,
+        "summary_median_se": 0.005923587970832101
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.000111484375,
+        "energy_abs_mean": 2.1552710098864836,
+        "energy_abs_mean_se": 0.6445438294199685,
+        "energy_iqr": 0.7332011864975141,
+        "energy_iqr_se": 0.03568907914087802,
+        "energy_mean": 2.1552710098864836,
+        "energy_mean_se": 0.6445438294199685,
+        "energy_median": 0.9511951685132828,
+        "energy_median_se": 0.015319336730945808,
+        "n_effective": 1024,
+        "n_steps": 25000,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.9548856805836522,
+        "summary_abs_mean_se": 0.0051239428906325315,
+        "summary_iqr": 0.1888159051315621,
+        "summary_iqr_se": 0.006313192050664874,
+        "summary_mean": -0.9433513179413058,
+        "summary_mean_se": 0.00712365490023016,
+        "summary_median": -0.9717576388296304,
+        "summary_median_se": 0.005217881294250193
+      }
+    }
+  ],
+  "experiment_id": "E4",
+  "method": "FLA",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "tame": false,
+  "tame_cap": null,
+  "tolerance": 0.05,
+  "variant_hash": "f3178da7b0a518ce87a471d07e026fce",
+  "variant_label": "FLA alpha=1.7, canonical"
+}

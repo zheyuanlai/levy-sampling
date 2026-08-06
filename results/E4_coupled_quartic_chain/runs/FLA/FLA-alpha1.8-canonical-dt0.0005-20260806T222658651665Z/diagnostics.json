@@ -1,0 +1,115 @@
+{
+  "cumulative": {
+    "boundary_reject_count_cumulative": 10658,
+    "boundary_reject_fraction_cumulative": 0.000133225,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0
+  },
+  "final_interval_diagnostics": {
+    "alpha": 1.8,
+    "boundary_reject_count_cumulative": 10658,
+    "boundary_reject_fraction_cumulative": 0.000133225,
+    "boundary_rule": "reject",
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "tame_cap": "nan",
+    "tamed": false
+  },
+  "measurement_suite": {
+    "binder_convention": "O(2): U_4 = 1 - E||m||^4 / (2 (E||m||^2)^2)",
+    "energy_mmd_bandwidth": 0.03567996822233414,
+    "excludes_path_event_metrics": true,
+    "experiment_id": "E4",
+    "kink_high_tail": {
+      "inclusive": true,
+      "reference_quantile": 0.9,
+      "threshold": 0.0
+    },
+    "metric_definition_hash": "6301bacd8069f5c726e241e2afe2fb0c",
+    "mmd_bandwidth": 1.952563896381761,
+    "n_projections": 512,
+    "order_parameter": "m = (1/N_s) sum_i q_i",
+    "primary_metrics": [
+      "phase_weight_JS",
+      "order_parameter_SW2",
+      "order_parameter_MMD2_biased",
+      "energy_per_site_MAE",
+      "susceptibility_relative_frobenius"
+    ],
+    "reference_kind": "multistart_pt_mala_with_snis_crosscheck",
+    "susceptibility": "chi = beta N_s Cov(m)"
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "sampler": {
+    "boundary": {
+      "hi": [
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0,
+        5.0
+      ],
+      "kind": "rect",
+      "lo": [
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0,
+        -5.0
+      ]
+    },
+    "boundary_rule": "reject",
+    "dt": 0.0005,
+    "family": "FLA",
+    "method": "FLA",
+    "tame_cap": null,
+    "tamed": false
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "dba030cf854b34b5ad6ae2a45d4cda89",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T20:17:47.541538Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "unstable at every timestep tried (boundary_reject_fraction) though it improves as the timestep shrinks",
+  "dt": null,
+  "experiment_id": "E3",
+  "experiment_key": "E3_muller_brown",
+  "family": "FLA",
+  "fee_calibration_hash": "088ecf363630e7e9c4899a3eb827d2f6",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "4b7a9711909192659a4997607fc6b87f473c5cd28ae4e914b371e752cdef442f",
+    "diagnostics.json": "1ac4180bbe9cf59d4de36328d9684c957cec346e28b37bbbd7aa05458f8b62db",
+    "resolved_config.yaml": "774c6795d7723ba00c019b15124cd0d22f5ff5339656a0701a028a3d69eea243"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "c4cf293c5b3436b9cdaedd1da7e47e98825b38df",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "FLA",
+  "parameters": {
+    "alpha": 1.6,
+    "tame": false
+  },
+  "particles": 800,
+  "reference_hash": "53af2ac3a1c61f75142147aab9cae27b",
+  "result_directory": "results/E3_muller_brown/runs/FLA/FLA-alpha1.6-canonical-uncalibratable-20260806T201747409314Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "alpha": 1.6,
+      "experiment_id": "E3",
+      "method_family": "FLA"
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 2214707450935365458,
+        "init_gen": 6314694089428033854,
+        "jump_bank_gen": 4808226917484939286,
+        "mh_uniform_gen": 4255012687776043902,
+        "poisson_gen": 437376803532807453,
+        "stable_noise_gen": 6017679328667636497
+      },
+      "1": {
+        "diffusion_gen": 5121944609977010637,
+        "init_gen": 8729167145484040951,
+        "jump_bank_gen": 8814042115299451025,
+        "mh_uniform_gen": 5284811386977599413,
+        "poisson_gen": 7852535968423409998,
+        "stable_noise_gen": 5816144768770792740
+      },
+      "2": {
+        "diffusion_gen": 4800508373728325547,
+        "init_gen": 1521325526768790938,
+        "jump_bank_gen": 130267982166017825,
+        "mh_uniform_gen": 7571921571788695731,
+        "poisson_gen": 557224893862868680,
+        "stable_noise_gen": 8280997487161306320
+      },
+      "3": {
+        "diffusion_gen": 6799212098095620868,
+        "init_gen": 1100920342289909001,
+        "jump_bank_gen": 1365489765111009763,
+        "mh_uniform_gen": 8332475236801019500,
+        "poisson_gen": 5983867899071251438,
+        "stable_noise_gen": 6776538754165716203
+      }
+    }
+  },
+  "rng_pair_group": {
+    "alpha": 1.6,
+    "method_family": "FLA"
+  },
+  "rng_pair_group_hash": "886f78956fbec8ada7e87bddd0150ddb",
+  "run_id": "FLA-alpha1.6-canonical-uncalibratable-20260806T201747409314Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": false,
+  "tame_cap": null,
+  "target_hash": "ed94c0eda92286239de64b68502a0389",
+  "variant_hash": "9100993240b20b93814fae72f96f5a4d",
+  "variant_label": "FLA alpha=1.6, canonical",
+  "variant_slug": "FLA-alpha1.6-canonical",
+  "written_at_utc": "2026-08-06T20:17:47.541565Z"
+}

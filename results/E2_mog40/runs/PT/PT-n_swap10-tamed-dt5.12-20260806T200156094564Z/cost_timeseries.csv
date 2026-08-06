@@ -1,0 +1,7 @@
+step,t,n_potential_only,n_potential_baseline,n_force_only,n_value_and_force,n_structured_extra_chord_units,n_structured_extra_particle_calls,n_force,n_extra_potential,n_extra_potential_equivalent,rho,n_fee,fee_calibration_hash,fee_cost_unit,n_force_per_particle,n_extra_potential_equivalent_per_particle,n_fee_per_particle
+0,0.0,0,0,0,0,0,0,0,0,0.0,0.8523901073971654,0.0,076536868d101ed21862549ee5a0e135,amortized_time_per_configuration,0.0,0.0,0.0
+1,5.12,0,0,0,16000,0,0,16000,0,0.0,0.8523901073971654,16000.0,076536868d101ed21862549ee5a0e135,amortized_time_per_configuration,4.0,0.0,4.0
+2,10.24,0,0,0,32000,0,0,32000,0,0.0,0.8523901073971654,32000.0,076536868d101ed21862549ee5a0e135,amortized_time_per_configuration,8.0,0.0,8.0
+3,15.36,0,0,0,48000,0,0,48000,0,0.0,0.8523901073971654,48000.0,076536868d101ed21862549ee5a0e135,amortized_time_per_configuration,12.0,0.0,12.0
+4,20.48,0,0,0,64000,0,0,64000,0,0.0,0.8523901073971654,64000.0,076536868d101ed21862549ee5a0e135,amortized_time_per_configuration,16.0,0.0,16.0
+5,25.6,0,0,0,80000,0,0,80000,0,0.0,0.8523901073971654,80000.0,076536868d101ed21862549ee5a0e135,amortized_time_per_configuration,20.0,0.0,20.0

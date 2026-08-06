@@ -1,0 +1,250 @@
+{
+  "note": "No production trajectory was started because no admissible calibration was certified.",
+  "outcome": {
+    "calibration_hash": "8c620316921551de6b363c469d5300c9",
+    "diagnosis": "unstable at every timestep tried (boundary_reject_fraction) and it does not improve as the timestep shrinks",
+    "kind": "timestep",
+    "next_candidate": 0.000125,
+    "status": "uncalibratable",
+    "table": [
+      {
+        "agreement_failures": [],
+        "dt": 0.002,
+        "pass": false,
+        "stability_problems": [
+          [
+            "boundary_reject_fraction",
+            0.6220371875
+          ]
+        ],
+        "summary": {
+          "boundary_reject_fraction": 0.6220371875,
+          "energy_abs_mean": 21.651453280365068,
+          "energy_abs_mean_se": 1.434166554962827,
+          "energy_iqr": 10.640561081413507,
+          "energy_iqr_se": 1.5745101355371007,
+          "energy_mean": 21.651453280365068,
+          "energy_mean_se": 1.434166554962827,
+          "energy_median": 5.448511919755827,
+          "energy_median_se": 0.17984276368707955,
+          "n_effective": 1024,
+          "n_steps": 3125,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.0091871875,
+          "summary_abs_mean": 1.5230184055163818,
+          "summary_abs_mean_se": 0.019999504470139578,
+          "summary_iqr": 2.515197729300567,
+          "summary_iqr_se": 0.060539072257558835,
+          "summary_mean": -0.6584193852918236,
+          "summary_mean_se": 0.04385574424694332,
+          "summary_median": -1.0030200083339817,
+          "summary_median_se": 0.012810793311349506
+        },
+        "summary_half": {
+          "boundary_reject_fraction": 0.61757921875,
+          "energy_abs_mean": 24.055279815653485,
+          "energy_abs_mean_se": 1.6304951962101766,
+          "energy_iqr": 14.962009358945675,
+          "energy_iqr_se": 2.886922707534528,
+          "energy_mean": 24.055279815653485,
+          "energy_mean_se": 1.6304951962101766,
+          "energy_median": 5.589935046852474,
+          "energy_median_se": 0.1864639948752108,
+          "n_effective": 1024,
+          "n_steps": 6250,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.01027265625,
+          "summary_abs_mean": 1.5616001342968642,
+          "summary_abs_mean_se": 0.02056208853616793,
+          "summary_iqr": 2.576504380126303,
+          "summary_iqr_se": 0.03592731298953851,
+          "summary_mean": -0.618241857736101,
+          "summary_mean_se": 0.045841845233433515,
+          "summary_median": -0.9963481182607331,
+          "summary_median_se": 0.016333377601995363
+        }
+      },
+      {
+        "agreement_failures": [],
+        "dt": 0.001,
+        "pass": false,
+        "stability_problems": [
+          [
+            "boundary_reject_fraction",
+            0.61757921875
+          ]
+        ],
+        "summary": {
+          "boundary_reject_fraction": 0.61757921875,
+          "energy_abs_mean": 24.055279815653485,
+          "energy_abs_mean_se": 1.6304951962101766,
+          "energy_iqr": 14.962009358945675,
+          "energy_iqr_se": 2.886922707534528,
+          "energy_mean": 24.055279815653485,
+          "energy_mean_se": 1.6304951962101766,
+          "energy_median": 5.589935046852474,
+          "energy_median_se": 0.1864639948752108,
+          "n_effective": 1024,
+          "n_steps": 6250,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.01027265625,
+          "summary_abs_mean": 1.5616001342968642,
+          "summary_abs_mean_se": 0.02056208853616793,
+          "summary_iqr": 2.576504380126303,
+          "summary_iqr_se": 0.03592731298953851,
+          "summary_mean": -0.618241857736101,
+          "summary_mean_se": 0.045841845233433515,
+          "summary_median": -0.9963481182607331,
+          "summary_median_se": 0.016333377601995363
+        },
+        "summary_half": {
+          "boundary_reject_fraction": 0.619590859375,
+          "energy_abs_mean": 23.654810084293473,
+          "energy_abs_mean_se": 1.5762325204383862,
+          "energy_iqr": 10.793469140763587,
+          "energy_iqr_se": 1.7633264869947443,
+          "energy_mean": 23.654810084293473,
+          "energy_mean_se": 1.5762325204383862,
+          "energy_median": 5.643315687114424,
+          "energy_median_se": 0.1754775569112419,
+          "n_effective": 1024,
+          "n_steps": 12500,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.010878671875,
+          "summary_abs_mean": 1.534539653638593,
+          "summary_abs_mean_se": 0.020327676213547183,
+          "summary_iqr": 2.5194714132922424,
+          "summary_iqr_se": 0.05619152686399954,
+          "summary_mean": -0.6072145333199641,
+          "summary_mean_se": 0.048807681909076514,
+          "summary_median": -0.969660022484395,
+          "summary_median_se": 0.015972661876506682
+        }
+      },
+      {
+        "agreement_failures": [],
+        "dt": 0.0005,
+        "pass": false,
+        "stability_problems": [
+          [
+            "boundary_reject_fraction",
+            0.619590859375
+          ]
+        ],
+        "summary": {
+          "boundary_reject_fraction": 0.619590859375,
+          "energy_abs_mean": 23.654810084293473,
+          "energy_abs_mean_se": 1.5762325204383862,
+          "energy_iqr": 10.793469140763587,
+          "energy_iqr_se": 1.7633264869947443,
+          "energy_mean": 23.654810084293473,
+          "energy_mean_se": 1.5762325204383862,
+          "energy_median": 5.643315687114424,
+          "energy_median_se": 0.1754775569112419,
+          "n_effective": 1024,
+          "n_steps": 12500,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.010878671875,
+          "summary_abs_mean": 1.534539653638593,
+          "summary_abs_mean_se": 0.020327676213547183,
+          "summary_iqr": 2.5194714132922424,
+          "summary_iqr_se": 0.05619152686399954,
+          "summary_mean": -0.6072145333199641,
+          "summary_mean_se": 0.048807681909076514,
+          "summary_median": -0.969660022484395,
+          "summary_median_se": 0.015972661876506682
+        },
+        "summary_half": {
+          "boundary_reject_fraction": 0.6039039453125,
+          "energy_abs_mean": 26.8206885947667,
+          "energy_abs_mean_se": 1.88115027659998,
+          "energy_iqr": 13.650659467355705,
+          "energy_iqr_se": 2.831358677929512,
+          "energy_mean": 26.8206885947667,
+          "energy_mean_se": 1.88115027659998,
+          "energy_median": 5.6213746582598745,
+          "energy_median_se": 0.18105860840580587,
+          "n_effective": 1024,
+          "n_steps": 25000,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.00892171875,
+          "summary_abs_mean": 1.5210888287648654,
+          "summary_abs_mean_se": 0.02238857840916913,
+          "summary_iqr": 2.566788515019233,
+          "summary_iqr_se": 0.026347280247110656,
+          "summary_mean": -0.46614144514951383,
+          "summary_mean_se": 0.047991470098153216,
+          "summary_median": -0.9357475989640648,
+          "summary_median_se": 0.010042735282553283
+        }
+      },
+      {
+        "agreement_failures": [],
+        "dt": 0.00025,
+        "pass": false,
+        "stability_problems": [
+          [
+            "boundary_reject_fraction",
+            0.6039039453125
+          ]
+        ],
+        "summary": {
+          "boundary_reject_fraction": 0.6039039453125,
+          "energy_abs_mean": 26.8206885947667,
+          "energy_abs_mean_se": 1.88115027659998,
+          "energy_iqr": 13.650659467355705,
+          "energy_iqr_se": 2.831358677929512,
+          "energy_mean": 26.8206885947667,
+          "energy_mean_se": 1.88115027659998,
+          "energy_median": 5.6213746582598745,
+          "energy_median_se": 0.18105860840580587,
+          "n_effective": 1024,
+          "n_steps": 25000,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.00892171875,
+          "summary_abs_mean": 1.5210888287648654,
+          "summary_abs_mean_se": 0.02238857840916913,
+          "summary_iqr": 2.566788515019233,
+          "summary_iqr_se": 0.026347280247110656,
+          "summary_mean": -0.46614144514951383,
+          "summary_mean_se": 0.047991470098153216,
+          "summary_median": -0.9357475989640648,
+          "summary_median_se": 0.010042735282553283
+        },
+        "summary_half": {
+          "boundary_reject_fraction": 0.6036558203125,
+          "energy_abs_mean": 32.60415149918111,
+          "energy_abs_mean_se": 2.0259435433046917,
+          "energy_iqr": 22.617761951905372,
+          "energy_iqr_se": 5.249069521698574,
+          "energy_mean": 32.60415149918111,
+          "energy_mean_se": 2.0259435433046917,
+          "energy_median": 6.057543236020408,
+          "energy_median_se": 0.2802111553837865,
+          "n_effective": 1024,
+          "n_steps": 50000,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.0114555078125,
+          "summary_abs_mean": 1.5588390028347971,
+          "summary_abs_mean_se": 0.023313161311605112,
+          "summary_iqr": 2.56207144835511,
+          "summary_iqr_se": 0.04140096874838776,
+          "summary_mean": -0.5094810927410651,
+          "summary_mean_se": 0.05491830537736809,
+          "summary_median": -0.9571682922386936,
+          "summary_median_se": 0.02030714533846083
+        }
+      }
+    ]
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": true
+  }
+}

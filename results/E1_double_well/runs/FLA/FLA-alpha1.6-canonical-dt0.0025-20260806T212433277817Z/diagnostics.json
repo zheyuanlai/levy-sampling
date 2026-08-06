@@ -1,0 +1,59 @@
+{
+  "cumulative": {
+    "boundary_reject_count_cumulative": 1512289,
+    "boundary_reject_fraction_cumulative": 0.0189036125,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0
+  },
+  "final_interval_diagnostics": {
+    "alpha": 1.6,
+    "boundary_reject_count_cumulative": 1512289,
+    "boundary_reject_fraction_cumulative": 0.0189036125,
+    "boundary_rule": "reject",
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "tame_cap": "nan",
+    "tamed": false
+  },
+  "measurement_suite": {
+    "experiment_id": "E1",
+    "metric_definition_hash": "8da7d73e85753d4e79f54062070fbc7b",
+    "mmd_bandwidth": 0.9284306556521876,
+    "mmd_bandwidth_rule": "median heuristic, frozen on the reference bank",
+    "mmd_kernel": "rbf",
+    "primary_metrics": [
+      "W2_exact_1d",
+      "MMD2_biased",
+      "KS"
+    ],
+    "reference_kind": "grid_inverse_cdf_1d",
+    "reference_subsample_size": 2000
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "sampler": {
+    "boundary": {
+      "hi": [
+        5.2
+      ],
+      "kind": "rect",
+      "lo": [
+        -5.2
+      ]
+    },
+    "boundary_rule": "reject",
+    "dt": 0.0025,
+    "family": "FLA",
+    "method": "FLA",
+    "tame_cap": null,
+    "tamed": false
+  }
+}

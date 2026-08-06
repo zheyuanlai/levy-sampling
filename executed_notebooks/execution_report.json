@@ -2,25 +2,65 @@
   {
     "notebook": "notebooks/E1_double_well_plot.ipynb",
     "status": "success",
-    "elapsed_seconds": 34.33562259702012,
+    "elapsed_seconds": 36.032658486044966,
     "executed": "executed_notebooks/E1_double_well_plot.ipynb",
     "experiment_id": "E1",
     "kind": "plot"
   },
   {
+    "notebook": "notebooks/E1_double_well_run.ipynb",
+    "status": "success",
+    "elapsed_seconds": 594.5158252730034,
+    "executed": "executed_notebooks/E1_double_well_run.ipynb",
+    "experiment_id": "E1",
+    "kind": "run"
+  },
+  {
     "notebook": "notebooks/E2_mog40_plot.ipynb",
     "status": "success",
-    "elapsed_seconds": 176.18803117895732,
+    "elapsed_seconds": 178.4955255910172,
     "executed": "executed_notebooks/E2_mog40_plot.ipynb",
     "experiment_id": "E2",
     "kind": "plot"
   },
   {
+    "notebook": "notebooks/E2_mog40_run.ipynb",
+    "status": "success",
+    "elapsed_seconds": 866.1827175460057,
+    "executed": "executed_notebooks/E2_mog40_run.ipynb",
+    "experiment_id": "E2",
+    "kind": "run"
+  },
+  {
     "notebook": "notebooks/E3_muller_brown_plot.ipynb",
     "status": "success",
-    "elapsed_seconds": 55.580482633027714,
+    "elapsed_seconds": 60.43240648903884,
     "executed": "executed_notebooks/E3_muller_brown_plot.ipynb",
     "experiment_id": "E3",
     "kind": "plot"
+  },
+  {
+    "notebook": "notebooks/E3_muller_brown_run.ipynb",
+    "status": "success",
+    "elapsed_seconds": 1650.4717327919789,
+    "executed": "executed_notebooks/E3_muller_brown_run.ipynb",
+    "experiment_id": "E3",
+    "kind": "run"
+  },
+  {
+    "notebook": "notebooks/E4_coupled_quartic_chain_plot.ipynb",
+    "status": "success",
+    "elapsed_seconds": 78.99990969605278,
+    "executed": "executed_notebooks/E4_coupled_quartic_chain_plot.ipynb",
+    "experiment_id": "E4",
+    "kind": "plot"
+  },
+  {
+    "notebook": "notebooks/E4_coupled_quartic_chain_run.ipynb",
+    "status": "success",
+    "elapsed_seconds": 2068.9935919789714,
+    "executed": "executed_notebooks/E4_coupled_quartic_chain_run.ipynb",
+    "experiment_id": "E4",
+    "kind": "run"
   }
 ]

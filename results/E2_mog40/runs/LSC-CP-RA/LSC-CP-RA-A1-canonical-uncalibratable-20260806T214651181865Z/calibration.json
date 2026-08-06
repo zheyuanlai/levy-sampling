@@ -1,0 +1,245 @@
+{
+  "calibration_hash": "b57766a05e28cd3127415b3df215c507",
+  "diagnosis": "unstable at every timestep tried (boundary_reject_fraction) and it does not improve as the timestep shrinks",
+  "kind": "timestep",
+  "next_candidate": 0.000625,
+  "status": "uncalibratable",
+  "table": [
+    {
+      "agreement_failures": [],
+      "dt": 0.01,
+      "pass": false,
+      "stability_problems": [
+        [
+          "boundary_reject_fraction",
+          0.386715625
+        ]
+      ],
+      "summary": {
+        "boundary_reject_fraction": 0.386715625,
+        "energy_abs_mean": 18.463771399072222,
+        "energy_abs_mean_se": 0.4782564591528637,
+        "energy_iqr": 20.520449235897978,
+        "energy_iqr_se": 1.0048317422597293,
+        "energy_mean": 18.463627825457444,
+        "energy_mean_se": 0.4782742508104306,
+        "energy_median": 14.528648713385513,
+        "energy_median_se": 0.5101137672859383,
+        "n_effective": 1024,
+        "n_steps": 625,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 32.40890358832242,
+        "summary_abs_mean_se": 0.5383935580483938,
+        "summary_iqr": 67.30996217709941,
+        "summary_iqr_se": 2.3770484205004108,
+        "summary_mean": 3.081174182657035,
+        "summary_mean_se": 1.153908122602663,
+        "summary_median": 3.932409312903668,
+        "summary_median_se": 1.7392569337154593
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.35309296875,
+        "energy_abs_mean": 22.546695485493334,
+        "energy_abs_mean_se": 0.6164675690675637,
+        "energy_iqr": 27.07689570639333,
+        "energy_iqr_se": 0.8817294315243662,
+        "energy_mean": 22.54629529924336,
+        "energy_mean_se": 0.616495069269208,
+        "energy_median": 18.588999154874486,
+        "energy_median_se": 0.9771234123671512,
+        "n_effective": 1024,
+        "n_steps": 1250,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 34.68903022857327,
+        "summary_abs_mean_se": 0.6120188103363553,
+        "summary_iqr": 73.80339284906944,
+        "summary_iqr_se": 2.4122794688552576,
+        "summary_mean": 3.4385788839775797,
+        "summary_mean_se": 1.253379401620624,
+        "summary_median": 1.400465383540183,
+        "summary_median_se": 2.2551263947911724
+      }
+    },
+    {
+      "agreement_failures": [
+        {
+          "allowance": 8.17925749,
+          "coarse": 18.58899915,
+          "difference": 8.84944937,
+          "fine": 27.43844853,
+          "key": "energy_median"
+        }
+      ],
+      "dt": 0.005,
+      "pass": false,
+      "stability_problems": [
+        [
+          "boundary_reject_fraction",
+          0.35309296875
+        ]
+      ],
+      "summary": {
+        "boundary_reject_fraction": 0.35309296875,
+        "energy_abs_mean": 22.546695485493334,
+        "energy_abs_mean_se": 0.6164675690675637,
+        "energy_iqr": 27.07689570639333,
+        "energy_iqr_se": 0.8817294315243662,
+        "energy_mean": 22.54629529924336,
+        "energy_mean_se": 0.616495069269208,
+        "energy_median": 18.588999154874486,
+        "energy_median_se": 0.9771234123671512,
+        "n_effective": 1024,
+        "n_steps": 1250,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 34.68903022857327,
+        "summary_abs_mean_se": 0.6120188103363553,
+        "summary_iqr": 73.80339284906944,
+        "summary_iqr_se": 2.4122794688552576,
+        "summary_mean": 3.4385788839775797,
+        "summary_mean_se": 1.253379401620624,
+        "summary_median": 1.400465383540183,
+        "summary_median_se": 2.2551263947911724
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.336326171875,
+        "energy_abs_mean": 28.63430888871519,
+        "energy_abs_mean_se": 0.6941522940952038,
+        "energy_iqr": 33.9450503686985,
+        "energy_iqr_se": 0.9322233451442545,
+        "energy_mean": 28.63417876868275,
+        "energy_mean_se": 0.6941626483313565,
+        "energy_median": 27.43844852531975,
+        "energy_median_se": 1.0248057775455388,
+        "n_effective": 1024,
+        "n_steps": 2500,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 36.36912309703223,
+        "summary_abs_mean_se": 0.5738127585145018,
+        "summary_iqr": 78.62639885718738,
+        "summary_iqr_se": 2.2043344259615147,
+        "summary_mean": 1.2395903810536981,
+        "summary_mean_se": 1.1992511683502274,
+        "summary_median": -0.07360675790114433,
+        "summary_median_se": 1.709179181830946
+      }
+    },
+    {
+      "agreement_failures": [],
+      "dt": 0.0025,
+      "pass": false,
+      "stability_problems": [
+        [
+          "boundary_reject_fraction",
+          0.336326171875
+        ]
+      ],
+      "summary": {
+        "boundary_reject_fraction": 0.336326171875,
+        "energy_abs_mean": 28.63430888871519,
+        "energy_abs_mean_se": 0.6941522940952038,
+        "energy_iqr": 33.9450503686985,
+        "energy_iqr_se": 0.9322233451442545,
+        "energy_mean": 28.63417876868275,
+        "energy_mean_se": 0.6941626483313565,
+        "energy_median": 27.43844852531975,
+        "energy_median_se": 1.0248057775455388,
+        "n_effective": 1024,
+        "n_steps": 2500,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 36.36912309703223,
+        "summary_abs_mean_se": 0.5738127585145018,
+        "summary_iqr": 78.62639885718738,
+        "summary_iqr_se": 2.2043344259615147,
+        "summary_mean": 1.2395903810536981,
+        "summary_mean_se": 1.1992511683502274,
+        "summary_median": -0.07360675790114433,
+        "summary_median_se": 1.709179181830946
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.3101341796875,
+        "energy_abs_mean": 31.52264915936251,
+        "energy_abs_mean_se": 0.7853570392800052,
+        "energy_iqr": 40.29720759885232,
+        "energy_iqr_se": 1.1753132435633895,
+        "energy_mean": 31.522587689819545,
+        "energy_mean_se": 0.7853563217046691,
+        "energy_median": 33.53096486476617,
+        "energy_median_se": 1.2725688262247268,
+        "n_effective": 1024,
+        "n_steps": 5000,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 37.013679158524,
+        "summary_abs_mean_se": 0.6961645471823165,
+        "summary_iqr": 83.86406636050737,
+        "summary_iqr_se": 2.9685524055396275,
+        "summary_mean": -2.411529281792129,
+        "summary_mean_se": 1.3428408121704787,
+        "summary_median": -3.893862017598015,
+        "summary_median_se": 1.0813699015555076
+      }
+    },
+    {
+      "agreement_failures": [],
+      "dt": 0.00125,
+      "pass": false,
+      "stability_problems": [
+        [
+          "boundary_reject_fraction",
+          0.3101341796875
+        ]
+      ],
+      "summary": {
+        "boundary_reject_fraction": 0.3101341796875,
+        "energy_abs_mean": 31.52264915936251,
+        "energy_abs_mean_se": 0.7853570392800052,
+        "energy_iqr": 40.29720759885232,
+        "energy_iqr_se": 1.1753132435633895,
+        "energy_mean": 31.522587689819545,
+        "energy_mean_se": 0.7853563217046691,
+        "energy_median": 33.53096486476617,
+        "energy_median_se": 1.2725688262247268,
+        "n_effective": 1024,
+        "n_steps": 5000,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 37.013679158524,
+        "summary_abs_mean_se": 0.6961645471823165,
+        "summary_iqr": 83.86406636050737,
+        "summary_iqr_se": 2.9685524055396275,
+        "summary_mean": -2.411529281792129,
+        "summary_mean_se": 1.3428408121704787,
+        "summary_median": -3.893862017598015,
+        "summary_median_se": 1.0813699015555076
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.2825654296875,
+        "energy_abs_mean": 34.87767310163832,
+        "energy_abs_mean_se": 0.8605699617112732,
+        "energy_iqr": 48.757383944352334,
+        "energy_iqr_se": 0.9323518190582282,
+        "energy_mean": 34.877274934758596,
+        "energy_mean_se": 0.8605798163135341,
+        "energy_median": 37.85039650027473,
+        "energy_median_se": 1.1866114382216437,
+        "n_effective": 1024,
+        "n_steps": 10000,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 38.61902388656307,
+        "summary_abs_mean_se": 0.677610767217453,
+        "summary_iqr": 90.02246491504403,
+        "summary_iqr_se": 3.131718578289564,
+        "summary_mean": -1.7669428501157958,
+        "summary_mean_se": 1.4682712082648728,
+        "summary_median": -2.8185853745484897,
+        "summary_median_se": 1.2977038292642622
+      }
+    }
+  ]
+}

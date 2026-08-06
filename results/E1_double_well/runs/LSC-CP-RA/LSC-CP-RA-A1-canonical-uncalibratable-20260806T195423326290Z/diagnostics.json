@@ -1,0 +1,266 @@
+{
+  "note": "No production trajectory was started because no admissible calibration was certified.",
+  "outcome": {
+    "calibration_hash": "bf7d226d01e0a071aae03f39d09af4b8",
+    "diagnosis": "unstable at every timestep tried (boundary_reject_fraction) and it does not improve as the timestep shrinks",
+    "kind": "timestep",
+    "next_candidate": 0.0003125,
+    "status": "uncalibratable",
+    "table": [
+      {
+        "agreement_failures": [],
+        "dt": 0.005,
+        "pass": false,
+        "stability_problems": [
+          [
+            "boundary_reject_fraction",
+            0.0492625
+          ]
+        ],
+        "summary": {
+          "boundary_reject_fraction": 0.0492625,
+          "energy_abs_mean": 1.0171273487113783,
+          "energy_abs_mean_se": 0.15710847746506695,
+          "energy_iqr": 0.11823639253686033,
+          "energy_iqr_se": 0.008375645199884056,
+          "energy_mean": 1.0171273487113783,
+          "energy_mean_se": 0.15710847746506695,
+          "energy_median": 0.03630792233124294,
+          "energy_median_se": 0.0024103346340665415,
+          "n_effective": 1024,
+          "n_steps": 1250,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.0014375,
+          "summary_abs_mean": 1.0504504527510634,
+          "summary_abs_mean_se": 0.010398761719020754,
+          "summary_iqr": 1.9670892669291176,
+          "summary_iqr_se": 0.011323725865379781,
+          "summary_mean": 0.019629833945555168,
+          "summary_mean_se": 0.03584275539650207,
+          "summary_median": 0.6242640366237888,
+          "summary_median_se": 0.663621913924238
+        },
+        "summary_half": {
+          "boundary_reject_fraction": 0.051259375,
+          "energy_abs_mean": 1.246947595630481,
+          "energy_abs_mean_se": 0.18961557042949653,
+          "energy_iqr": 0.12036843246441195,
+          "energy_iqr_se": 0.006256795351786791,
+          "energy_mean": 1.246947595630481,
+          "energy_mean_se": 0.18961557042949653,
+          "energy_median": 0.04197449102700024,
+          "energy_median_se": 0.0038262015494641755,
+          "n_effective": 1024,
+          "n_steps": 2500,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.001048828125,
+          "summary_abs_mean": 1.0558005283383523,
+          "summary_abs_mean_se": 0.010467152289281125,
+          "summary_iqr": 1.972397509659551,
+          "summary_iqr_se": 0.012309417666666359,
+          "summary_mean": 0.04614762624654108,
+          "summary_mean_se": 0.030897280283096316,
+          "summary_median": 0.7492699752865009,
+          "summary_median_se": 0.30624625441205494
+        }
+      },
+      {
+        "agreement_failures": [
+          {
+            "allowance": 1.22524174,
+            "coarse": 0.74926998,
+            "difference": 1.48369534,
+            "fine": -0.73442537,
+            "key": "summary_median"
+          }
+        ],
+        "dt": 0.0025,
+        "pass": false,
+        "stability_problems": [
+          [
+            "boundary_reject_fraction",
+            0.051259375
+          ]
+        ],
+        "summary": {
+          "boundary_reject_fraction": 0.051259375,
+          "energy_abs_mean": 1.246947595630481,
+          "energy_abs_mean_se": 0.18961557042949653,
+          "energy_iqr": 0.12036843246441195,
+          "energy_iqr_se": 0.006256795351786791,
+          "energy_mean": 1.246947595630481,
+          "energy_mean_se": 0.18961557042949653,
+          "energy_median": 0.04197449102700024,
+          "energy_median_se": 0.0038262015494641755,
+          "n_effective": 1024,
+          "n_steps": 2500,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.001048828125,
+          "summary_abs_mean": 1.0558005283383523,
+          "summary_abs_mean_se": 0.010467152289281125,
+          "summary_iqr": 1.972397509659551,
+          "summary_iqr_se": 0.012309417666666359,
+          "summary_mean": 0.04614762624654108,
+          "summary_mean_se": 0.030897280283096316,
+          "summary_median": 0.7492699752865009,
+          "summary_median_se": 0.30624625441205494
+        },
+        "summary_half": {
+          "boundary_reject_fraction": 0.0514107421875,
+          "energy_abs_mean": 1.3394627134796022,
+          "energy_abs_mean_se": 0.2859905055620762,
+          "energy_iqr": 0.11352799265678598,
+          "energy_iqr_se": 0.009278048910255977,
+          "energy_mean": 1.3394627134796022,
+          "energy_mean_se": 0.2859905055620762,
+          "energy_median": 0.03741770954345598,
+          "energy_median_se": 0.0030312384032097827,
+          "n_effective": 1024,
+          "n_steps": 5000,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.00129140625,
+          "summary_abs_mean": 1.068642381454,
+          "summary_abs_mean_se": 0.010528329589655092,
+          "summary_iqr": 1.9978478927783705,
+          "summary_iqr_se": 0.010388709303872817,
+          "summary_mean": -0.08629899477035313,
+          "summary_mean_se": 0.034711667223959373,
+          "summary_median": -0.7344253662773773,
+          "summary_median_se": 0.21662313475124076
+        }
+      },
+      {
+        "agreement_failures": [
+          {
+            "allowance": 0.95024721,
+            "coarse": -0.73442537,
+            "difference": 1.44681542,
+            "fine": 0.71239005,
+            "key": "summary_median"
+          }
+        ],
+        "dt": 0.00125,
+        "pass": false,
+        "stability_problems": [
+          [
+            "boundary_reject_fraction",
+            0.0514107421875
+          ]
+        ],
+        "summary": {
+          "boundary_reject_fraction": 0.0514107421875,
+          "energy_abs_mean": 1.3394627134796022,
+          "energy_abs_mean_se": 0.2859905055620762,
+          "energy_iqr": 0.11352799265678598,
+          "energy_iqr_se": 0.009278048910255977,
+          "energy_mean": 1.3394627134796022,
+          "energy_mean_se": 0.2859905055620762,
+          "energy_median": 0.03741770954345598,
+          "energy_median_se": 0.0030312384032097827,
+          "n_effective": 1024,
+          "n_steps": 5000,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.00129140625,
+          "summary_abs_mean": 1.068642381454,
+          "summary_abs_mean_se": 0.010528329589655092,
+          "summary_iqr": 1.9978478927783705,
+          "summary_iqr_se": 0.010388709303872817,
+          "summary_mean": -0.08629899477035313,
+          "summary_mean_se": 0.034711667223959373,
+          "summary_median": -0.7344253662773773,
+          "summary_median_se": 0.21662313475124076
+        },
+        "summary_half": {
+          "boundary_reject_fraction": 0.06553251953125,
+          "energy_abs_mean": 2.9671578723802123,
+          "energy_abs_mean_se": 0.6734504974128325,
+          "energy_iqr": 0.1698418224782606,
+          "energy_iqr_se": 0.014227594836802413,
+          "energy_mean": 2.9671578723802123,
+          "energy_mean_se": 0.6734504974128325,
+          "energy_median": 0.042713459942274365,
+          "energy_median_se": 0.004055356029721623,
+          "n_effective": 1024,
+          "n_steps": 10000,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.00225302734375,
+          "summary_abs_mean": 1.0979172388736598,
+          "summary_abs_mean_se": 0.015251451008484851,
+          "summary_iqr": 1.9651329567123312,
+          "summary_iqr_se": 0.013112627692290605,
+          "summary_mean": 0.06432684509185457,
+          "summary_mean_se": 0.03907765267852547,
+          "summary_median": 0.7123900518253831,
+          "summary_median_se": 0.18365356002874525
+        }
+      },
+      {
+        "agreement_failures": [],
+        "dt": 0.000625,
+        "pass": false,
+        "stability_problems": [
+          [
+            "boundary_reject_fraction",
+            0.06553251953125
+          ]
+        ],
+        "summary": {
+          "boundary_reject_fraction": 0.06553251953125,
+          "energy_abs_mean": 2.9671578723802123,
+          "energy_abs_mean_se": 0.6734504974128325,
+          "energy_iqr": 0.1698418224782606,
+          "energy_iqr_se": 0.014227594836802413,
+          "energy_mean": 2.9671578723802123,
+          "energy_mean_se": 0.6734504974128325,
+          "energy_median": 0.042713459942274365,
+          "energy_median_se": 0.004055356029721623,
+          "n_effective": 1024,
+          "n_steps": 10000,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.00225302734375,
+          "summary_abs_mean": 1.0979172388736598,
+          "summary_abs_mean_se": 0.015251451008484851,
+          "summary_iqr": 1.9651329567123312,
+          "summary_iqr_se": 0.013112627692290605,
+          "summary_mean": 0.06432684509185457,
+          "summary_mean_se": 0.03907765267852547,
+          "summary_median": 0.7123900518253831,
+          "summary_median_se": 0.18365356002874525
+        },
+        "summary_half": {
+          "boundary_reject_fraction": 0.094251220703125,
+          "energy_abs_mean": 3.8497272949836363,
+          "energy_abs_mean_se": 0.8392383587773647,
+          "energy_iqr": 0.2632289562284153,
+          "energy_iqr_se": 0.04748654063566483,
+          "energy_mean": 3.8497272949836363,
+          "energy_mean_se": 0.8392383587773647,
+          "energy_median": 0.0539971632783596,
+          "energy_median_se": 0.004612944194031621,
+          "n_effective": 1024,
+          "n_steps": 20000,
+          "nonfinite_fraction": 0.0,
+          "score_clip_fraction_cumulative": 0.00441982421875,
+          "summary_abs_mean": 1.1433793425085628,
+          "summary_abs_mean_se": 0.01635333196569594,
+          "summary_iqr": 2.001589429925666,
+          "summary_iqr_se": 0.012827890423836471,
+          "summary_mean": -0.008854002523054232,
+          "summary_mean_se": 0.03804670089520177,
+          "summary_median": 0.4448062101217982,
+          "summary_median_se": 0.5911128111383851
+        }
+      }
+    ]
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": true
+  }
+}

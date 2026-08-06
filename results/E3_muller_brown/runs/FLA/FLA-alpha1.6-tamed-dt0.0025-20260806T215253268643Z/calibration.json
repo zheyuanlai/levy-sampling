@@ -1,0 +1,150 @@
+{
+  "acceptance_search": null,
+  "calibration_hash": "d4f0ade09ac0fe1403cb0289ca7f1fea",
+  "criteria": [
+    "numerical_stability",
+    "self_convergence"
+  ],
+  "dt": 0.0025,
+  "dt_table": [
+    {
+      "agreement_failures": [
+        {
+          "allowance": 0.06958762,
+          "coarse": -0.50197473,
+          "difference": 0.14904644,
+          "fine": -0.65102116,
+          "key": "energy_median"
+        },
+        {
+          "allowance": 0.12578443,
+          "coarse": 0.38691737,
+          "difference": 0.19794354,
+          "fine": 0.18897383,
+          "key": "energy_iqr"
+        }
+      ],
+      "dt": 0.005,
+      "pass": false,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.003066796875,
+        "energy_abs_mean": 0.6535051436106525,
+        "energy_abs_mean_se": 0.032628581567400804,
+        "energy_iqr": 0.386917372191128,
+        "energy_iqr_se": 0.0301488770877062,
+        "energy_mean": -0.1986429846609455,
+        "energy_mean_se": 0.03806903999411969,
+        "energy_median": -0.5019747289082458,
+        "energy_median_se": 0.0108223623314924,
+        "n_effective": 1024,
+        "n_steps": 2500,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.34256440077068895,
+        "summary_abs_mean_se": 0.00905315549040094,
+        "summary_iqr": 0.5262161287477287,
+        "summary_iqr_se": 0.02769928298165254,
+        "summary_mean": -0.12746013431746606,
+        "summary_mean_se": 0.013384383248895359,
+        "summary_median": -0.07540529814588452,
+        "summary_median_se": 0.009643659314450005
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.001527734375,
+        "energy_abs_mean": 0.6938958963142967,
+        "energy_abs_mean_se": 0.031935519804022906,
+        "energy_iqr": 0.18897382862646028,
+        "energy_iqr_se": 0.00838795454905438,
+        "energy_mean": -0.4402368118625586,
+        "energy_mean_se": 0.036158946507354836,
+        "energy_median": -0.6510211645995483,
+        "energy_median_se": 0.005940400372353368,
+        "n_effective": 1024,
+        "n_steps": 5000,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.3787597383819328,
+        "summary_abs_mean_se": 0.009619669735520493,
+        "summary_iqr": 0.6380503194564643,
+        "summary_iqr_se": 0.030816412424644016,
+        "summary_mean": -0.13365400374187475,
+        "summary_mean_se": 0.016485584920199938,
+        "summary_median": -0.0904945728003867,
+        "summary_median_se": 0.009196773418187124
+      }
+    },
+    {
+      "agreement_failures": [],
+      "dt": 0.0025,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.001527734375,
+        "energy_abs_mean": 0.6938958963142967,
+        "energy_abs_mean_se": 0.031935519804022906,
+        "energy_iqr": 0.18897382862646028,
+        "energy_iqr_se": 0.00838795454905438,
+        "energy_mean": -0.4402368118625586,
+        "energy_mean_se": 0.036158946507354836,
+        "energy_median": -0.6510211645995483,
+        "energy_median_se": 0.005940400372353368,
+        "n_effective": 1024,
+        "n_steps": 5000,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.3787597383819328,
+        "summary_abs_mean_se": 0.009619669735520493,
+        "summary_iqr": 0.6380503194564643,
+        "summary_iqr_se": 0.030816412424644016,
+        "summary_mean": -0.13365400374187475,
+        "summary_mean_se": 0.016485584920199938,
+        "summary_median": -0.0904945728003867,
+        "summary_median_se": 0.009196773418187124
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.00077109375,
+        "energy_abs_mean": 0.6854735248519358,
+        "energy_abs_mean_se": 0.019688258534135375,
+        "energy_iqr": 0.12310068938108598,
+        "energy_iqr_se": 0.008022004140029878,
+        "energy_mean": -0.5675931185203626,
+        "energy_mean_se": 0.022959223234668157,
+        "energy_median": -0.6960266314263689,
+        "energy_median_se": 0.00357385389471623,
+        "n_effective": 1024,
+        "n_steps": 10000,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.4029539082638393,
+        "summary_abs_mean_se": 0.008240105761297986,
+        "summary_iqr": 0.8825565265759963,
+        "summary_iqr_se": 0.08776641393699791,
+        "summary_mean": -0.10243602546893128,
+        "summary_mean_se": 0.014707297806482191,
+        "summary_median": -0.09887480747675018,
+        "summary_median_se": 0.009893684556736393
+      }
+    }
+  ],
+  "experiment_id": "E3",
+  "method": "FLA",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "tame": true,
+  "tame_cap": 1.0,
+  "tolerance": 0.05,
+  "variant_hash": "fba3a9cc4307e4af0b8519c8281dc4f8",
+  "variant_label": "FLA alpha=1.6, tamed"
+}

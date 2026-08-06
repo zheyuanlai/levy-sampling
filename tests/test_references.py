@@ -733,6 +733,37 @@ def test_e4_snis_run_agreement_uses_frozen_family_wise_cutoffs():
         assert fields["family_wise_significance_under_independence"] <= target
 
 
+def test_e4_half_run_consistency_uses_a_frozen_family_wise_cutoff():
+    """The 16 half-run checks are one family, not 16 independent 2-SE tests.
+
+    One comparison per continuous observable per independent run. At a raw 2 SE
+    each, about 0.73 false failures are expected per build, so a correct
+    reference is rejected roughly half the time. The cutoff preserves the same
+    family-wise significance the SNIS run-agreement families already use.
+    """
+    gates = load_yaml(E4_ACCEPTANCE)["pt_mala_gates"]
+    target = gates["half_run_family_wise_two_sided_significance"]
+    assert target == pytest.approx(math.erfc(2.0 / math.sqrt(2.0)))
+
+    comparisons = gates["half_run_family_comparisons"]
+    threshold = gates["max_half_run_difference_in_combined_se"]
+    fields = e4_module._multiple_comparison_fields(
+        threshold, comparisons, target)
+    assert threshold == pytest.approx(
+        fields["bonferroni_equivalent_threshold_in_se"])
+    assert (comparisons * fields["per_comparison_two_sided_significance"]
+            <= target + 1e-14)
+    assert fields["family_wise_significance_under_independence"] <= target
+
+    # The correction must be a correction, not an amnesty: a run whose halves
+    # genuinely disagree still has to fail.
+    assert threshold < 2.0 * math.sqrt(comparisons)
+    raw_expected_false_failures = comparisons * math.erfc(2.0 / math.sqrt(2.0))
+    assert raw_expected_false_failures > 0.5, (
+        "if a raw 2 SE threshold were not over-rejecting, the correction "
+        "would not be justified")
+
+
 def test_too_few_blocks_fails_the_gate_instead_of_shrinking_the_block_length():
     """The block length is set by the autocorrelation, so a run that yields too
     few blocks must be reported as too short, not re-blocked.

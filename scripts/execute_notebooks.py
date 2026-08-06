@@ -101,8 +101,28 @@ def main(argv=None) -> int:
         print(f"  {record['status']} in {record['elapsed_seconds']:.1f}s",
               flush=True)
 
-    (args.output / "execution_report.json").write_text(
-        json.dumps(records, indent=2), encoding="utf-8")
+    # Merge with whatever is already recorded rather than replacing it. The
+    # usual invocation is --plot-only, and a plain overwrite would delete the
+    # run notebooks' records every time figures are refreshed -- which makes
+    # the documented workflow unable to satisfy release validation, since that
+    # requires a successful record for all eight notebooks. Re-executing a
+    # notebook replaces its own entry, so a stale success can never survive a
+    # later failure.
+    report_path = args.output / "execution_report.json"
+    merged: dict[str, dict] = {}
+    try:
+        previous = json.loads(report_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        previous = []
+    for record in previous if isinstance(previous, list) else []:
+        name = record.get("notebook")
+        if name:
+            merged[name] = record
+    for record in records:
+        merged[record["notebook"]] = record
+    report_path.write_text(
+        json.dumps([merged[name] for name in sorted(merged)], indent=2),
+        encoding="utf-8")
     failures = [record for record in records if record["status"] != "success"]
     if failures:
         print(f"\n{len(failures)} notebook(s) failed:")

@@ -1,0 +1,88 @@
+{
+  "acceptance_search": null,
+  "calibration_hash": "13caa62190914eb32240522bced0046d",
+  "criteria": [
+    "score",
+    "splitting",
+    "taming",
+    "observable",
+    "stability"
+  ],
+  "dt": 0.005,
+  "dt_table": [
+    {
+      "agreement_failures": [],
+      "dt": 0.005,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.00043046875,
+        "energy_abs_mean": 0.5364909619857952,
+        "energy_abs_mean_se": 0.005893433202466785,
+        "energy_iqr": 0.23872019654520138,
+        "energy_iqr_se": 0.012196301701086345,
+        "energy_mean": -0.374024902360235,
+        "energy_mean_se": 0.012793325947663846,
+        "energy_median": -0.5354730489516475,
+        "energy_median_se": 0.005700764753554785,
+        "n_effective": 1024,
+        "n_steps": 2500,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.5666345204699027,
+        "summary_abs_mean_se": 0.014358934038091607,
+        "summary_iqr": 0.95816981103271,
+        "summary_iqr_se": 0.07255824801900448,
+        "summary_mean": -0.2592019294666111,
+        "summary_mean_se": 0.02082685727735388,
+        "summary_median": -0.2080656089488186,
+        "summary_median_se": 0.027947606571008282
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.0002798828125,
+        "energy_abs_mean": 0.5453825703079151,
+        "energy_abs_mean_se": 0.005967608533744179,
+        "energy_iqr": 0.23993018235177804,
+        "energy_iqr_se": 0.018753175084696216,
+        "energy_mean": -0.3722994547323697,
+        "energy_mean_se": 0.014322983153734625,
+        "energy_median": -0.5519570691306197,
+        "energy_median_se": 0.006199136272472157,
+        "n_effective": 1024,
+        "n_steps": 5000,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.5655518050460697,
+        "summary_abs_mean_se": 0.01376244364289808,
+        "summary_iqr": 0.9940427915572465,
+        "summary_iqr_se": 0.059395837745270255,
+        "summary_mean": -0.26105559982178184,
+        "summary_mean_se": 0.022106967218272443,
+        "summary_median": -0.18008040074021692,
+        "summary_median_se": 0.03332127934660271
+      }
+    }
+  ],
+  "experiment_id": "E3",
+  "method": "Raw-CP",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "tame": true,
+  "tame_cap": 0.12012712206063299,
+  "tolerance": 0.05,
+  "variant_hash": "9b2e4b46332ff49318a1a020e8f4713f",
+  "variant_label": "Raw-CP, tamed"
+}

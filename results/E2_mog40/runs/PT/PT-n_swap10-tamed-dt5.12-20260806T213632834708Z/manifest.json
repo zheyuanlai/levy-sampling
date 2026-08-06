@@ -1,0 +1,179 @@
+{
+  "calibration_hash": "60080926b11dc0c2906137632c890677",
+  "checkpoint_steps": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "created_at_utc": "2026-08-06T21:36:32.947959Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "dt": 5.12,
+  "experiment_id": "E2",
+  "experiment_key": "E2_mog40",
+  "family": "PT",
+  "fee_calibration": {
+    "C_F": 1.4423339678160119e-07,
+    "C_V": 1.22943120572927e-07,
+    "cost_unit": "amortized_time_per_configuration",
+    "device": "cuda",
+    "device_index": 0,
+    "device_name": "NVIDIA H200 NVL",
+    "device_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "dtype": "float64",
+    "fee_calibration_hash": "076536868d101ed21862549ee5a0e135",
+    "particle_batch_size": 4096,
+    "provenance": {
+      "cpu_model": "AMD EPYC 9554 64-Core Processor",
+      "cuda_runtime_version": "13.0",
+      "device_index": 0,
+      "device_type": "cuda",
+      "dtype": "float64",
+      "gpu_capability": "9.0",
+      "gpu_name": "NVIDIA H200 NVL",
+      "gpu_total_memory_bytes": 150110011392,
+      "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+      "matplotlib_version": "3.11.1",
+      "numpy_version": "2.5.1",
+      "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+      "python_version": "3.12.13",
+      "scipy_version": "1.18.0",
+      "torch_version": "2.13.0+cu130"
+    },
+    "repetitions": 200,
+    "rho": 0.8523901073971654,
+    "shifted_potential_batch_shape": [
+      16,
+      64,
+      128
+    ],
+    "software_version": "cuda|NVIDIA H200 NVL|float64|torch2.13.0+cu130|cuda13.0|numpy2.5.1",
+    "statistic": "median",
+    "structured_chord_counts_measured": [],
+    "structured_fixed_seconds_per_particle": null,
+    "structured_seconds_per_particle_chord": null,
+    "synchronization": true,
+    "target_implementation": "src.potentials.MoG40",
+    "warmup": 50
+  },
+  "fee_calibration_hash": "076536868d101ed21862549ee5a0e135",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "ce5f65849e7cc16ae48dc65be23ad8bb974a32988c8c56823bff65f2fcdeab0f",
+    "cost_timeseries.csv": "11208ce32df9058c53ed54a89e53b1c0ae6f1405e622ed07d9deb1c18e7e29d2",
+    "diagnostics.json": "b3a9b7f87feb35539667a89601175936ebaa6668221d7c9880af7c4fadd5bfd0",
+    "metrics_timeseries.csv": "4f660bc606f958075e283428717777eb04e12a17a55758a8882dfea9386e2715",
+    "resolved_config.yaml": "ca73852a0b2d1e35edeb9b14f454946bdab6db3621fc6d64a422b748165c5c5c",
+    "sample_snapshots/checkpoint_000000000.npz": "4dad2dd304118295b13fe3c1e534009c29a294002a99caaa42f3170c05d24a7f",
+    "sample_snapshots/checkpoint_000000002.npz": "6d02f7333a0be0481b1e27124ef16f9ae4a152ef60b44cdba2313078e5d8e860",
+    "sample_snapshots/checkpoint_000000004.npz": "a1f29b16811553fd4f177a83a42713f09675a9b75420844638a2814bf5166fff",
+    "terminal_samples.npz": "78447915b12f1763807e51c01a1cff47c39e2ae15dad993cc077ce5aed1d5e2e"
+  },
+  "final_time": 25.0,
+  "git": {
+    "branch": "refactor",
+    "commit": "c4cf293c5b3436b9cdaedd1da7e47e98825b38df",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "PT",
+  "metric_definition_hash": "5471a024550bb71fafef76a952762803",
+  "n_steps": 5,
+  "parameters": {
+    "n_swap": 10,
+    "tame": true
+  },
+  "particles": 1000,
+  "reference_hash": "1ed7f635d25fe5cc00b6acb78b3f3fe4",
+  "result_directory": "results/E2_mog40/runs/PT/PT-n_swap10-tamed-dt5.12-20260806T213632834708Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "experiment_id": "E2",
+      "method_family": "PT",
+      "n_swap": 10
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 7574792296529269811,
+        "init_gen": 3496714627720915310,
+        "jump_bank_gen": 2915635564179182234,
+        "mh_uniform_gen": 3093087799309394742,
+        "poisson_gen": 4858445384612647916,
+        "stable_noise_gen": 4047690003592201892
+      },
+      "1": {
+        "diffusion_gen": 7366574113936538754,
+        "init_gen": 1873773526351794944,
+        "jump_bank_gen": 6134860500423891933,
+        "mh_uniform_gen": 2722503186031057011,
+        "poisson_gen": 7128338186227093128,
+        "stable_noise_gen": 2279491192931917993
+      },
+      "2": {
+        "diffusion_gen": 5708528176959911268,
+        "init_gen": 8637595938571838224,
+        "jump_bank_gen": 3660924807167788566,
+        "mh_uniform_gen": 160702238752596004,
+        "poisson_gen": 1760870666893159397,
+        "stable_noise_gen": 1365049151962174593
+      },
+      "3": {
+        "diffusion_gen": 822080145148249608,
+        "init_gen": 5000431916394544046,
+        "jump_bank_gen": 3188619468307213588,
+        "mh_uniform_gen": 6508307540356498716,
+        "poisson_gen": 4055946809266409892,
+        "stable_noise_gen": 8733386409391086075
+      }
+    }
+  },
+  "rng_pair_group": {
+    "method_family": "PT",
+    "n_swap": 10
+  },
+  "rng_pair_group_hash": "3bbd9c6208b2951a9022a26727ec6c2e",
+  "run_id": "PT-n_swap10-tamed-dt5.12-20260806T213632834708Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "complete",
+  "tame": true,
+  "tame_cap": 1.0,
+  "target_hash": "a7f73d9b33f4c67e2ed3a91986fd9b5c",
+  "variant_hash": "c1f69d797ceb0ab5d3b22296797106e5",
+  "variant_label": "PT n_swap=10, tamed",
+  "variant_slug": "PT-n_swap10-tamed",
+  "written_at_utc": "2026-08-06T21:36:32.947984Z"
+}

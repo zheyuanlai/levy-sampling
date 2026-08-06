@@ -1,0 +1,195 @@
+{
+  "acceptance_search": {
+    "band_attained": true,
+    "history": [
+      {
+        "acceptance": 0.87609890625,
+        "dt": 0.002
+      },
+      {
+        "acceptance": 0.6816485442008109,
+        "dt": 0.004
+      }
+    ],
+    "rationale": "acceptance decreases with dt, so the search moves both ways",
+    "selected_dt": 0.004,
+    "target_band": [
+      0.4,
+      0.75
+    ]
+  },
+  "calibration_hash": "aeb81f8738ce220e3257e4414cbf012a",
+  "criteria": [
+    "replica_acceptance",
+    "swap_acceptance",
+    "round_trip",
+    "stability"
+  ],
+  "dt": 0.004,
+  "dt_table": [
+    {
+      "agreement_failures": [],
+      "dt": 0.004,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.0,
+        "energy_abs_mean": 1.4781553626528412,
+        "energy_abs_mean_se": 0.013455172518196867,
+        "energy_iqr": 0.5859470872831885,
+        "energy_iqr_se": 0.01823884871919044,
+        "energy_mean": 1.4781553626528412,
+        "energy_mean_se": 0.013455172518196867,
+        "energy_median": 1.4449535443061543,
+        "energy_median_se": 0.017435971735618314,
+        "mh_accept_fraction_cumulative": 0.6816485442008109,
+        "n_effective": 1024,
+        "n_steps": 1562,
+        "nonfinite_fraction": 0.0,
+        "replica_0_mh_accept_fraction_cumulative": 0.7108662271927016,
+        "replica_1_mh_accept_fraction_cumulative": 0.7021015474951985,
+        "replica_2_mh_accept_fraction_cumulative": 0.6921214788732394,
+        "replica_3_mh_accept_fraction_cumulative": 0.6787590779049296,
+        "replica_4_mh_accept_fraction_cumulative": 0.6625082526408451,
+        "replica_5_mh_accept_fraction_cumulative": 0.6435346810979513,
+        "round_trip_count_cumulative": 4202.0,
+        "round_trip_rate_cumulative": 0.026304587339743588,
+        "summary_abs_mean": 0.9720588907501714,
+        "summary_abs_mean_se": 0.004258325104108106,
+        "summary_iqr": 0.16177855674264086,
+        "summary_iqr_se": 0.006214380967928552,
+        "summary_mean": -0.9691468077750235,
+        "summary_mean_se": 0.004684251747438835,
+        "summary_median": -0.9839927447825196,
+        "summary_median_se": 0.005790321314056967,
+        "swap_accept_fraction_cumulative": 0.3214618389423077
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.0,
+        "energy_abs_mean": 1.4347910689764551,
+        "energy_abs_mean_se": 0.012905317871569504,
+        "energy_iqr": 0.5418485747248756,
+        "energy_iqr_se": 0.020450917425351548,
+        "energy_mean": 1.4347910689764551,
+        "energy_mean_se": 0.012905317871569504,
+        "energy_median": 1.4041060777595407,
+        "energy_median_se": 0.01502746622143039,
+        "mh_accept_fraction_cumulative": 0.87609890625,
+        "n_effective": 1024,
+        "n_steps": 3125,
+        "nonfinite_fraction": 0.0,
+        "replica_0_mh_accept_fraction_cumulative": 0.891019375,
+        "replica_1_mh_accept_fraction_cumulative": 0.886529375,
+        "replica_2_mh_accept_fraction_cumulative": 0.881054375,
+        "replica_3_mh_accept_fraction_cumulative": 0.8745828125,
+        "replica_4_mh_accept_fraction_cumulative": 0.866625625,
+        "replica_5_mh_accept_fraction_cumulative": 0.856781875,
+        "round_trip_count_cumulative": 8200.0,
+        "round_trip_rate_cumulative": 0.025666065705128204,
+        "summary_abs_mean": 0.9663057880713297,
+        "summary_abs_mean_se": 0.004442590865575478,
+        "summary_iqr": 0.18425463424845212,
+        "summary_iqr_se": 0.00622851337188598,
+        "summary_mean": -0.9565588659945083,
+        "summary_mean_se": 0.006035498751960855,
+        "summary_median": -0.9714003655496075,
+        "summary_median_se": 0.005698740158669602,
+        "swap_accept_fraction_cumulative": 0.320361328125
+      }
+    }
+  ],
+  "experiment_id": "E4",
+  "method": "PT",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "pt_betas": [
+    8.0,
+    5.278031643091577,
+    3.482202253184496,
+    2.2973967099940698,
+    1.5157165665103978,
+    0.9999999999999998
+  ],
+  "pt_tuning": {
+    "band_attained": true,
+    "beta_max": 8.0,
+    "beta_min": 1.0,
+    "burn_in_steps": 10000,
+    "candidate_mixing_history": {
+      "6": {
+        "replica_acceptance": [
+          0.7112677734375,
+          0.70253447265625,
+          0.691887890625,
+          0.6788619140625,
+          0.66388486328125,
+          0.6453974609375
+        ],
+        "round_trip_count": 26590,
+        "round_trip_rate": 0.025966796875,
+        "swap_acceptance": 0.314767578125
+      },
+      "8": {
+        "replica_acceptance": [
+          0.7113001953125,
+          0.7053482421875,
+          0.69818369140625,
+          0.68979541015625,
+          0.6811228515625,
+          0.67077353515625,
+          0.65877119140625,
+          0.64556416015625
+        ],
+        "round_trip_count": 36148,
+        "round_trip_rate": 0.03530078125,
+        "swap_acceptance": 0.4727472098214286
+      }
+    },
+    "history": {
+      "6": 0.314767578125,
+      "8": 0.4727472098214286
+    },
+    "minimum_round_trips": 1,
+    "mixing_attained": true,
+    "mixing_gate_enforced": true,
+    "n_replicas": 6,
+    "pilot_steps": 20000,
+    "ratio": 0.6597539553864471,
+    "replica_acceptance": [
+      0.7112677734375,
+      0.70253447265625,
+      0.691887890625,
+      0.6788619140625,
+      0.66388486328125,
+      0.6453974609375
+    ],
+    "round_trip_count": 26590,
+    "round_trip_rate": 0.025966796875,
+    "swap_acceptance": 0.314767578125,
+    "target_band": [
+      0.2,
+      0.45
+    ],
+    "tuned_for_tame_variant": true
+  },
+  "requirements": {
+    "acceptance": true,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": true,
+    "quadrature": false,
+    "replica_acceptance": true,
+    "round_trip": true,
+    "score_certificate": false
+  },
+  "tame": true,
+  "tame_cap": 1.0,
+  "tolerance": 0.05,
+  "variant_hash": "c1f69d797ceb0ab5d3b22296797106e5",
+  "variant_label": "PT n_swap=10, tamed"
+}

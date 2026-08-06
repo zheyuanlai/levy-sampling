@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "167fa2c325a8c56208d0606dafc012b9",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T22:34:20.314325Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "unstable at every timestep tried (mh_acceptance_outside_target_band) and it does not improve as the timestep shrinks",
+  "dt": null,
+  "experiment_id": "E4",
+  "experiment_key": "E4_coupled_quartic_chain",
+  "family": "PT",
+  "fee_calibration_hash": "617414aeae69572deaa374dae2d362a1",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "1a05b1839aa894e752db63c87fb57ea8eae4c016bfaccbf0aa3ea65f0cd4c3dc",
+    "diagnostics.json": "2b62d018b9806859bedbd2b9f9567afade716fe80c67ea5f762edb93f6f889c3",
+    "resolved_config.yaml": "9ecc4172a30f03ea56ed29715d5b4631223a46934f3f6e337da2dfb54529cdff"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "c4cf293c5b3436b9cdaedd1da7e47e98825b38df",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "PT",
+  "parameters": {
+    "n_swap": 10,
+    "tame": false
+  },
+  "particles": 400,
+  "reference_hash": "a7c5eaa23f080ec8d57b760aa0223d05",
+  "result_directory": "results/E4_coupled_quartic_chain/runs/PT/PT-n_swap10-canonical-uncalibratable-20260806T223420199184Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "experiment_id": "E4",
+      "method_family": "PT",
+      "n_swap": 10
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 4547199376564529193,
+        "init_gen": 6954098477982617235,
+        "jump_bank_gen": 1710636229922354675,
+        "mh_uniform_gen": 8952271035055998909,
+        "poisson_gen": 3431602534082792810,
+        "stable_noise_gen": 8975351022720271453
+      },
+      "1": {
+        "diffusion_gen": 633047376157244263,
+        "init_gen": 3067661170919315694,
+        "jump_bank_gen": 6532054999644959888,
+        "mh_uniform_gen": 1176472625924211182,
+        "poisson_gen": 3172592645733889980,
+        "stable_noise_gen": 1725478151841546790
+      },
+      "2": {
+        "diffusion_gen": 6175070344093121420,
+        "init_gen": 3533676823174410006,
+        "jump_bank_gen": 7040056622977079233,
+        "mh_uniform_gen": 6882892164345494373,
+        "poisson_gen": 4327471225414985730,
+        "stable_noise_gen": 5581814551505787849
+      },
+      "3": {
+        "diffusion_gen": 6178804185041668619,
+        "init_gen": 953367293139835842,
+        "jump_bank_gen": 2156372255244239132,
+        "mh_uniform_gen": 7622575285030333736,
+        "poisson_gen": 5098123994715125907,
+        "stable_noise_gen": 1643513221435597551
+      }
+    }
+  },
+  "rng_pair_group": {
+    "method_family": "PT",
+    "n_swap": 10
+  },
+  "rng_pair_group_hash": "3bbd9c6208b2951a9022a26727ec6c2e",
+  "run_id": "PT-n_swap10-canonical-uncalibratable-20260806T223420199184Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": false,
+  "tame_cap": null,
+  "target_hash": "837c0c211f2f7922f5617aaf978c479f",
+  "variant_hash": "979380d8e3952765637f2f665a87238e",
+  "variant_label": "PT n_swap=10, canonical",
+  "variant_slug": "PT-n_swap10-canonical",
+  "written_at_utc": "2026-08-06T22:34:20.314363Z"
+}

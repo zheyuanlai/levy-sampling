@@ -1,0 +1,225 @@
+{
+  "acceptance_search": {
+    "band_attained": true,
+    "history": [
+      {
+        "acceptance": 0.9996953125,
+        "dt": 0.01
+      },
+      {
+        "acceptance": 0.9993638258713943,
+        "dt": 0.02
+      },
+      {
+        "acceptance": 0.9985727163461539,
+        "dt": 0.04
+      },
+      {
+        "acceptance": 0.9967823517628205,
+        "dt": 0.08
+      },
+      {
+        "acceptance": 0.9923440004006411,
+        "dt": 0.16
+      },
+      {
+        "acceptance": 0.98316650390625,
+        "dt": 0.32
+      },
+      {
+        "acceptance": 0.9652099609375,
+        "dt": 0.64
+      },
+      {
+        "acceptance": 0.925830078125,
+        "dt": 1.28
+      },
+      {
+        "acceptance": 0.846435546875,
+        "dt": 2.56
+      },
+      {
+        "acceptance": 0.705810546875,
+        "dt": 5.12
+      }
+    ],
+    "rationale": "acceptance decreases with dt, so the search moves both ways",
+    "selected_dt": 5.12,
+    "target_band": [
+      0.4,
+      0.75
+    ]
+  },
+  "calibration_hash": "60080926b11dc0c2906137632c890677",
+  "criteria": [
+    "replica_acceptance",
+    "swap_acceptance",
+    "round_trip",
+    "stability"
+  ],
+  "dt": 5.12,
+  "dt_table": [
+    {
+      "agreement_failures": [],
+      "dt": 5.12,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.00146484375,
+        "energy_abs_mean": 0.06997242150763655,
+        "energy_abs_mean_se": 0.0024324529312049815,
+        "energy_iqr": 0.07622728672012545,
+        "energy_iqr_se": 0.00461452399417375,
+        "energy_mean": 0.06997242150763655,
+        "energy_mean_se": 0.0024324529312049815,
+        "energy_median": 0.0431855138504598,
+        "energy_median_se": 0.0018462810101753087,
+        "mh_accept_fraction_cumulative": 0.705810546875,
+        "n_effective": 1024,
+        "n_steps": 1,
+        "nonfinite_fraction": 0.0,
+        "replica_0_mh_accept_fraction_cumulative": 0.61328125,
+        "replica_1_mh_accept_fraction_cumulative": 0.57421875,
+        "replica_2_mh_accept_fraction_cumulative": 0.763671875,
+        "replica_3_mh_accept_fraction_cumulative": 0.8720703125,
+        "summary_abs_mean": 10.960886050690542,
+        "summary_abs_mean_se": 0.02435398652533949,
+        "summary_iqr": 0.9745062370049773,
+        "summary_iqr_se": 0.03497556408397332,
+        "summary_mean": 10.960886050690542,
+        "summary_mean_se": 0.02435398652533949,
+        "summary_median": 10.972119579865113,
+        "summary_median_se": 0.02850814621633576
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.00146484375,
+        "energy_abs_mean": 0.09251413012204412,
+        "energy_abs_mean_se": 0.002672931922178891,
+        "energy_iqr": 0.10252813005946443,
+        "energy_iqr_se": 0.003989801261460756,
+        "energy_mean": 0.09251413012204412,
+        "energy_mean_se": 0.002672931922178891,
+        "energy_median": 0.06375431199276753,
+        "energy_median_se": 0.002872752083876873,
+        "mh_accept_fraction_cumulative": 0.846435546875,
+        "n_effective": 1024,
+        "n_steps": 2,
+        "nonfinite_fraction": 0.0,
+        "replica_0_mh_accept_fraction_cumulative": 0.8408203125,
+        "replica_1_mh_accept_fraction_cumulative": 0.7607421875,
+        "replica_2_mh_accept_fraction_cumulative": 0.85693359375,
+        "replica_3_mh_accept_fraction_cumulative": 0.92724609375,
+        "summary_abs_mean": 10.984143429968661,
+        "summary_abs_mean_se": 0.02756451509128704,
+        "summary_iqr": 1.1308430349705105,
+        "summary_iqr_se": 0.0419895582841551,
+        "summary_mean": 10.98414342996866,
+        "summary_mean_se": 0.02756451509128704,
+        "summary_median": 10.986957102469272,
+        "summary_median_se": 0.031418905413600644
+      }
+    }
+  ],
+  "experiment_id": "E2",
+  "method": "PT",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "pt_betas": [
+    8.0,
+    1.1696070952851465,
+    0.17099759466766973,
+    0.025000000000000005
+  ],
+  "pt_tuning": {
+    "band_attained": true,
+    "beta_max": 8.0,
+    "beta_min": 0.025,
+    "burn_in_steps": 10000,
+    "candidate_mixing_history": {
+      "4": {
+        "replica_acceptance": [
+          0.6921994140625,
+          0.66984755859375,
+          0.750757421875,
+          0.72929375
+        ],
+        "round_trip_count": 90831,
+        "round_trip_rate": 0.0887021484375,
+        "swap_acceptance": 0.4264772135416667
+      },
+      "6": {
+        "replica_acceptance": [
+          0.69222529296875,
+          0.6654587890625,
+          0.680069140625,
+          0.733871484375,
+          0.7681162109375,
+          0.7294814453125
+        ],
+        "round_trip_count": 118651,
+        "round_trip_rate": 0.1158701171875,
+        "swap_acceptance": 0.6207796875
+      },
+      "8": {
+        "replica_acceptance": [
+          0.69227685546875,
+          0.66944208984375,
+          0.6657544921875,
+          0.685644140625,
+          0.72570458984375,
+          0.75969833984375,
+          0.7660796875,
+          0.728944921875
+        ],
+        "round_trip_count": 131730,
+        "round_trip_rate": 0.128642578125,
+        "swap_acceptance": 0.72128125
+      }
+    },
+    "history": {
+      "4": 0.4264772135416667,
+      "6": 0.6207796875,
+      "8": 0.72128125
+    },
+    "minimum_round_trips": 1,
+    "mixing_attained": true,
+    "mixing_gate_enforced": true,
+    "n_replicas": 4,
+    "pilot_steps": 20000,
+    "ratio": 0.1462008869106433,
+    "replica_acceptance": [
+      0.6921994140625,
+      0.66984755859375,
+      0.750757421875,
+      0.72929375
+    ],
+    "round_trip_count": 90831,
+    "round_trip_rate": 0.0887021484375,
+    "swap_acceptance": 0.4264772135416667,
+    "target_band": [
+      0.2,
+      0.45
+    ],
+    "tuned_for_tame_variant": true
+  },
+  "requirements": {
+    "acceptance": true,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": true,
+    "quadrature": false,
+    "replica_acceptance": true,
+    "round_trip": true,
+    "score_certificate": false
+  },
+  "tame": true,
+  "tame_cap": 1.0,
+  "tolerance": 0.05,
+  "variant_hash": "c1f69d797ceb0ab5d3b22296797106e5",
+  "variant_label": "PT n_swap=10, tamed"
+}

@@ -1,0 +1,130 @@
+{
+  "acceptance_search": null,
+  "calibration_hash": "bc33a9c0c27a49babd4583aeb8b0f43c",
+  "criteria": [
+    "score",
+    "splitting",
+    "taming",
+    "observable",
+    "stability"
+  ],
+  "dt": 0.002,
+  "dt_table": [
+    {
+      "agreement_failures": [],
+      "dt": 0.002,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.0,
+        "energy_abs_mean": 1.6937236541398077,
+        "energy_abs_mean_se": 0.04105222314210541,
+        "energy_iqr": 0.6461539551128967,
+        "energy_iqr_se": 0.0242511939734348,
+        "energy_mean": 1.6937236541398077,
+        "energy_mean_se": 0.04105222314210541,
+        "energy_median": 1.578810331043023,
+        "energy_median_se": 0.01610297252281003,
+        "n_effective": 1024,
+        "n_steps": 3125,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0002053125,
+        "summary_abs_mean": 0.9624077234383933,
+        "summary_abs_mean_se": 0.004003761628630041,
+        "summary_iqr": 1.9379424250233745,
+        "summary_iqr_se": 0.00837615806210548,
+        "summary_mean": -0.03874087607901308,
+        "summary_mean_se": 0.03233899188504042,
+        "summary_median": -0.7069329303304035,
+        "summary_median_se": 0.4150134339611844
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.0,
+        "energy_abs_mean": 1.6489930517005014,
+        "energy_abs_mean_se": 0.051875825239203116,
+        "energy_iqr": 0.6001427275275883,
+        "energy_iqr_se": 0.020228849619323218,
+        "energy_mean": 1.6489930517005014,
+        "energy_mean_se": 0.051875825239203116,
+        "energy_median": 1.518051810124116,
+        "energy_median_se": 0.016154735221983525,
+        "n_effective": 1024,
+        "n_steps": 6250,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.00010265625,
+        "summary_abs_mean": 0.9707124382389956,
+        "summary_abs_mean_se": 0.004756428313595453,
+        "summary_iqr": 1.947570621331426,
+        "summary_iqr_se": 0.013448025003385978,
+        "summary_mean": -0.04150074724962216,
+        "summary_mean_se": 0.028144405246836104,
+        "summary_median": -0.7375286854170257,
+        "summary_median_se": 0.3168772383949023
+      }
+    }
+  ],
+  "experiment_id": "E4",
+  "method": "LSC-CP",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "quadrature": {
+    "q_rho": 8,
+    "q_theta": 32
+  },
+  "quadrature_check": {
+    "max_abs_log_magnitude_difference": 1.1461236404386455e-09,
+    "max_direction_difference": 6.288488877495316e-10,
+    "median_abs_log_magnitude_difference": 4.2304293401684845e-10,
+    "median_direction_difference": 1.6658368252564138e-10,
+    "n_probe": 256,
+    "p95_abs_log_magnitude_difference": 8.44143976941325e-10,
+    "p95_direction_difference": 4.653415689370566e-10,
+    "p95_tolerance": 0.2,
+    "passed": true,
+    "reference_setting": {
+      "q_rho": 16,
+      "q_theta": 64
+    },
+    "setting": {
+      "q_rho": 8,
+      "q_theta": 32
+    },
+    "shared_across_timesteps": true,
+    "tolerance": 0.05
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": true,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": true
+  },
+  "score_certificate": {
+    "kind": "deterministic_score_quadrature_self_convergence",
+    "passed": true,
+    "quadrature": {
+      "q_rho": 8,
+      "q_theta": 32
+    },
+    "reference_setting": {
+      "q_rho": 16,
+      "q_theta": 64
+    },
+    "residual": 4.2304293401684845e-10,
+    "residual_definition": "max(median absolute log-magnitude difference, median direction difference) against doubled quadrature",
+    "tolerance": 0.05
+  },
+  "tame": true,
+  "tame_cap": 1.3856211183947165,
+  "tolerance": 0.05,
+  "variant_hash": "67fe983bcba8cecb4eb040b92e2c557b",
+  "variant_label": "LSC-CP, tamed"
+}

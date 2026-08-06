@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "804c067950adedc635a0bf339c0134d3",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T19:56:16.053518Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "unstable at every timestep tried (boundary_reject_fraction) and it does not improve as the timestep shrinks",
+  "dt": null,
+  "experiment_id": "E1",
+  "experiment_key": "E1_double_well",
+  "family": "LSC-CP-RA",
+  "fee_calibration_hash": "3590adff094714fc599081a4fb309ee3",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "f38b818b7df12d71b13392626bc119ace46da6dbe15b3080c9adf6dc654f0cc0",
+    "diagnostics.json": "5c86e4c6f79f15954a196653c121382b16af93c0cb7cb934b213814523c16368",
+    "resolved_config.yaml": "86a069ead29f1073d3a11b1dabd518bb530ea28c0a5988c1b49f018e5101c1b5"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "c4cf293c5b3436b9cdaedd1da7e47e98825b38df",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "LSC-CP-RA",
+  "parameters": {
+    "A": 8,
+    "tame": false
+  },
+  "particles": 2000,
+  "reference_hash": "5f1aeed3092c00874ea7c25eb08e636d",
+  "result_directory": "results/E1_double_well/runs/LSC-CP-RA/LSC-CP-RA-A8-canonical-uncalibratable-20260806T195615922944Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "A": 8,
+      "experiment_id": "E1",
+      "method_family": "LSC-CP-RA"
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 8738760804703423244,
+        "init_gen": 8801283639383325547,
+        "jump_bank_gen": 47672676149561791,
+        "mh_uniform_gen": 7228355680732673152,
+        "poisson_gen": 6458974187747828382,
+        "stable_noise_gen": 6936749907777198167
+      },
+      "1": {
+        "diffusion_gen": 5818742017582840433,
+        "init_gen": 7464455634247976237,
+        "jump_bank_gen": 7681987987596823245,
+        "mh_uniform_gen": 9192210549820808307,
+        "poisson_gen": 6396447291629373335,
+        "stable_noise_gen": 3957913551554246826
+      },
+      "2": {
+        "diffusion_gen": 8481994128123844368,
+        "init_gen": 544902752317251050,
+        "jump_bank_gen": 7645594002798589544,
+        "mh_uniform_gen": 4948047090629239651,
+        "poisson_gen": 962384867470049792,
+        "stable_noise_gen": 8277821507869768158
+      },
+      "3": {
+        "diffusion_gen": 7609475659337853484,
+        "init_gen": 5144534914419611822,
+        "jump_bank_gen": 8041580801438075227,
+        "mh_uniform_gen": 2082410487166941132,
+        "poisson_gen": 5518523326214633845,
+        "stable_noise_gen": 6617784415781412515
+      }
+    }
+  },
+  "rng_pair_group": {
+    "A": 8,
+    "method_family": "LSC-CP-RA"
+  },
+  "rng_pair_group_hash": "11cc78b7fe7af28fb7f0b680655a10ff",
+  "run_id": "LSC-CP-RA-A8-canonical-uncalibratable-20260806T195615922944Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": false,
+  "tame_cap": null,
+  "target_hash": "f9ad59fe107edd651e125330ae78c00a",
+  "variant_hash": "d3927a3bfc4321eda287f59ad3dce42c",
+  "variant_label": "LSC-CP-RA (A=8), canonical",
+  "variant_slug": "LSC-CP-RA-A8-canonical",
+  "written_at_utc": "2026-08-06T19:56:16.053551Z"
+}

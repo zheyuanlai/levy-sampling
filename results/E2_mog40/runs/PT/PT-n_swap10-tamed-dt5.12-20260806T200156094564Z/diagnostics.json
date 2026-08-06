@@ -1,0 +1,100 @@
+{
+  "cumulative": {
+    "boundary_reject_count_cumulative": 1555,
+    "boundary_reject_fraction_cumulative": 0.0194375,
+    "mh_accept_count_cumulative": 58952,
+    "mh_accept_fraction_cumulative": 0.7369,
+    "mh_proposal_count_cumulative": 80000,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "replica_0_mh_accept_count_cumulative": 13174,
+    "replica_0_mh_accept_fraction_cumulative": 0.6587,
+    "replica_0_mh_proposal_count_cumulative": 20000,
+    "replica_1_mh_accept_count_cumulative": 13274,
+    "replica_1_mh_accept_fraction_cumulative": 0.6637,
+    "replica_1_mh_proposal_count_cumulative": 20000,
+    "replica_2_mh_accept_count_cumulative": 16232,
+    "replica_2_mh_accept_fraction_cumulative": 0.8116,
+    "replica_2_mh_proposal_count_cumulative": 20000,
+    "replica_3_mh_accept_count_cumulative": 16272,
+    "replica_3_mh_accept_fraction_cumulative": 0.8136,
+    "replica_3_mh_proposal_count_cumulative": 20000
+  },
+  "final_interval_diagnostics": {
+    "boundary_reject_count_cumulative": 1555,
+    "boundary_reject_fraction_cumulative": 0.0194375,
+    "boundary_rule": "reject",
+    "mh_accept": 0.74325,
+    "mh_accept_count_cumulative": 58952,
+    "mh_accept_fraction_cumulative": 0.7369,
+    "mh_proposal_count_cumulative": 80000,
+    "n_replicas": 4,
+    "n_swap": 10,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "replica_0_mh_accept": 0.6885,
+    "replica_0_mh_accept_count_cumulative": 13174,
+    "replica_0_mh_accept_fraction_cumulative": 0.6587,
+    "replica_0_mh_proposal_count_cumulative": 20000,
+    "replica_1_mh_accept": 0.71125,
+    "replica_1_mh_accept_count_cumulative": 13274,
+    "replica_1_mh_accept_fraction_cumulative": 0.6637,
+    "replica_1_mh_proposal_count_cumulative": 20000,
+    "replica_2_mh_accept": 0.81,
+    "replica_2_mh_accept_count_cumulative": 16232,
+    "replica_2_mh_accept_fraction_cumulative": 0.8116,
+    "replica_2_mh_proposal_count_cumulative": 20000,
+    "replica_3_mh_accept": 0.76325,
+    "replica_3_mh_accept_count_cumulative": 16272,
+    "replica_3_mh_accept_fraction_cumulative": 0.8136,
+    "replica_3_mh_proposal_count_cumulative": 20000,
+    "tame_cap": 1.0,
+    "tamed": true
+  },
+  "measurement_suite": {
+    "descriptor": "argmax_k log N(x; mu_k, I)",
+    "descriptor_masses_are_uniform": false,
+    "emc_definition": "-sum_k p_k log p_k / log K",
+    "emc_star": 0.9999986540061276,
+    "emc_star_standard_error": 5.484868327060714e-07,
+    "experiment_id": "E2",
+    "metric_definition_hash": "5471a024550bb71fafef76a952762803",
+    "mmd_bandwidth": 41.95558225644368,
+    "n_projections": 512,
+    "primary_metrics": [
+      "EMC",
+      "mode_weight_JS",
+      "per_mode_occupancy"
+    ],
+    "reference_kind": "exact_gaussian_mixture"
+  },
+  "requirements": {
+    "acceptance": true,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": true,
+    "quadrature": false,
+    "replica_acceptance": true,
+    "round_trip": true,
+    "score_certificate": false
+  },
+  "sampler": {
+    "boundary": {
+      "hi": [
+        65.0,
+        65.0
+      ],
+      "kind": "rect",
+      "lo": [
+        -65.0,
+        -65.0
+      ]
+    },
+    "boundary_rule": "reject",
+    "dt": 5.12,
+    "family": "PT",
+    "method": "PT",
+    "tame_cap": 1.0,
+    "tamed": true
+  }
+}

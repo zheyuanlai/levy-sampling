@@ -1,0 +1,109 @@
+{
+  "cumulative": {
+    "boundary_reject_count_cumulative": 25,
+    "boundary_reject_fraction_cumulative": 6.25e-07,
+    "jump_count_applied_cumulative": 199439,
+    "jump_count_cumulative": 199439,
+    "jump_rate_per_particle_time_cumulative": 0.997195,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "score_clip_count_cumulative": 18679,
+    "score_clip_fraction_cumulative": 0.000466975
+  },
+  "final_interval_diagnostics": {
+    "bank_refresh_policy": "every_step",
+    "bank_shared_between_score_and_noise": true,
+    "bank_size": 4,
+    "boundary_reject_count_cumulative": 25,
+    "boundary_reject_fraction_cumulative": 6.25e-07,
+    "boundary_rule": "reject",
+    "jump_count_applied_cumulative": 199439,
+    "jump_count_cumulative": 199439,
+    "jump_count_mean": 0.004841666666666668,
+    "jump_mode": "iid_bank",
+    "jump_rate_per_particle_time_cumulative": 0.997195,
+    "m_clip_fraction": 0.0004958333333333336,
+    "max_log_magnitude": 4296.344906740401,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "score_clip_count_cumulative": 18679,
+    "score_clip_fraction_cumulative": 0.000466975,
+    "score_evaluation": "pre_step",
+    "splitting": "drift_diffusion_then_jump",
+    "tame_cap": 1.0,
+    "tamed": true
+  },
+  "measurement_suite": {
+    "experiment_id": "E1",
+    "metric_definition_hash": "8da7d73e85753d4e79f54062070fbc7b",
+    "mmd_bandwidth": 0.9284306556521876,
+    "mmd_bandwidth_rule": "median heuristic, frozen on the reference bank",
+    "mmd_kernel": "rbf",
+    "primary_metrics": [
+      "W2_exact_1d",
+      "MMD2_biased",
+      "KS"
+    ],
+    "reference_kind": "grid_inverse_cdf_1d",
+    "reference_subsample_size": 2000
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": true
+  },
+  "sampler": {
+    "boundary": {
+      "hi": [
+        5.2
+      ],
+      "kind": "rect",
+      "lo": [
+        -5.2
+      ]
+    },
+    "boundary_rule": "reject",
+    "dt": 0.005,
+    "family": "LSC-CP-RA",
+    "intensity": 1.0,
+    "jump_law": {
+      "atom_norms": [
+        2.0,
+        2.0
+      ],
+      "dimension": 1,
+      "h": [
+        0.2,
+        0.2
+      ],
+      "kind": "shell",
+      "max_reach": 2.2,
+      "n_atoms": 2,
+      "weights": [
+        0.5,
+        0.5
+      ]
+    },
+    "jump_mode": "iid_bank",
+    "method": "LSC-CP-RA",
+    "score": {
+      "bank_refresh_policy": "every_step",
+      "bank_sampling": "iid_from_full_mixture",
+      "bank_shared_between_score_and_noise": true,
+      "bank_size": 4,
+      "estimator_type": "iid_random_atomic",
+      "extra_potential_per_particle_step": 128,
+      "m_max": 600.0,
+      "q_theta": 32
+    },
+    "score_evaluation": "pre_step",
+    "splitting": "drift_diffusion_then_jump",
+    "tame_cap": 1.0,
+    "tamed": true
+  }
+}

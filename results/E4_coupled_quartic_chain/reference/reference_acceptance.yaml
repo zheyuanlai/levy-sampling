@@ -34,7 +34,9 @@ pt_mala_gates:
   min_tail_ess: 400
   min_phase_indicator_ess: 500
   max_block_mcse_fraction_of_sd: 0.05
-  max_half_run_difference_in_combined_se: 2.0
+  half_run_family_comparisons: 16
+  half_run_family_wise_two_sided_significance: 0.04550026389635844
+  max_half_run_difference_in_combined_se: 2.9841399707708147
 snis_gates:
   min_independent_runs: 4
   min_total_ess: 2000

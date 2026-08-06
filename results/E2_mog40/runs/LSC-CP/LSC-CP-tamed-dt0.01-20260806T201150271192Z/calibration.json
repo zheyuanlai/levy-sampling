@@ -1,0 +1,130 @@
+{
+  "acceptance_search": null,
+  "calibration_hash": "027ddec493c298ad2535538e79d07893",
+  "criteria": [
+    "score",
+    "splitting",
+    "taming",
+    "observable",
+    "stability"
+  ],
+  "dt": 0.01,
+  "dt_table": [
+    {
+      "agreement_failures": [],
+      "dt": 0.01,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.0,
+        "energy_abs_mean": 0.2448043670939425,
+        "energy_abs_mean_se": 0.02253922080612036,
+        "energy_iqr": 0.15717535862506116,
+        "energy_iqr_se": 0.009279760403238498,
+        "energy_mean": 0.24331689308995713,
+        "energy_mean_se": 0.02256746052356555,
+        "energy_median": 0.08628262142731523,
+        "energy_median_se": 0.004324150404804268,
+        "n_effective": 1024,
+        "n_steps": 625,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 16.21446241581296,
+        "summary_abs_mean_se": 0.35032184051608395,
+        "summary_iqr": 22.108668396037903,
+        "summary_iqr_se": 0.6625225816389392,
+        "summary_mean": 10.589387806620765,
+        "summary_mean_se": 0.48224987157266075,
+        "summary_median": 10.47755211137126,
+        "summary_median_se": 0.5665784244057158
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.0,
+        "energy_abs_mean": 0.19061707073785805,
+        "energy_abs_mean_se": 0.019801491805610513,
+        "energy_iqr": 0.14240362575150148,
+        "energy_iqr_se": 0.006154168817672237,
+        "energy_mean": 0.18905335915406543,
+        "energy_mean_se": 0.01980474768003076,
+        "energy_median": 0.08546122515443193,
+        "energy_median_se": 0.004235170719792526,
+        "n_effective": 1024,
+        "n_steps": 1250,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 16.022358511042114,
+        "summary_abs_mean_se": 0.3267835210420859,
+        "summary_iqr": 22.752741363173772,
+        "summary_iqr_se": 0.6850875300574991,
+        "summary_mean": 10.1218132610111,
+        "summary_mean_se": 0.5260640038011616,
+        "summary_median": 10.231422728448427,
+        "summary_median_se": 0.3963852258547969
+      }
+    }
+  ],
+  "experiment_id": "E2",
+  "method": "LSC-CP",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "quadrature": {
+    "q_rho": 4,
+    "q_theta": 32
+  },
+  "quadrature_check": {
+    "max_abs_log_magnitude_difference": 0.0001340211933964497,
+    "max_direction_difference": 0.00010599059340041502,
+    "median_abs_log_magnitude_difference": 2.0108861872536465e-05,
+    "median_direction_difference": 2.6230860635885672e-05,
+    "n_probe": 256,
+    "p95_abs_log_magnitude_difference": 5.753015962861596e-05,
+    "p95_direction_difference": 7.370976090746541e-05,
+    "p95_tolerance": 0.2,
+    "passed": true,
+    "reference_setting": {
+      "q_rho": 8,
+      "q_theta": 64
+    },
+    "setting": {
+      "q_rho": 4,
+      "q_theta": 32
+    },
+    "shared_across_timesteps": true,
+    "tolerance": 0.05
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": true,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": true
+  },
+  "score_certificate": {
+    "kind": "deterministic_score_quadrature_self_convergence",
+    "passed": true,
+    "quadrature": {
+      "q_rho": 4,
+      "q_theta": 32
+    },
+    "reference_setting": {
+      "q_rho": 8,
+      "q_theta": 64
+    },
+    "residual": 2.6230860635885672e-05,
+    "residual_definition": "max(median absolute log-magnitude difference, median direction difference) against doubled quadrature",
+    "tolerance": 0.05
+  },
+  "tame": true,
+  "tame_cap": 1.0,
+  "tolerance": 0.05,
+  "variant_hash": "67fe983bcba8cecb4eb040b92e2c557b",
+  "variant_label": "LSC-CP, tamed"
+}

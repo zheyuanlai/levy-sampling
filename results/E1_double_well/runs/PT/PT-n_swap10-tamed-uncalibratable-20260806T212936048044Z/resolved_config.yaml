@@ -1,0 +1,555 @@
+boundary:
+  hi:
+  - 5.2
+  kind: rect
+  lo:
+  - -5.2
+  rule: reject
+calibration:
+  dt:
+    grid_rule: dyadic_halving
+    max_halvings: 4
+    tolerance: 0.05
+  mala:
+    target_acceptance:
+    - 0.4
+    - 0.75
+  pt:
+    beta_min: 1.0
+    k_cap: 64
+    k_initial: 8
+    pilot_steps: 20000
+    target_swap_acceptance:
+    - 0.2
+    - 0.4
+  stability:
+    max_boundary_reject_fraction: 0.02
+    max_nonfinite_fraction: 0.0
+    report_score_clip_fraction: true
+checkpoints:
+  dense:
+    count: 60
+    fraction: 0.05
+  include_initial: true
+  include_terminal: true
+  sparse:
+    count: 160
+display_name: 'E1: double well (1D)'
+id: E1
+initial_condition:
+  center:
+  - -1.0
+  kind: gaussian_blob
+  sigma: 0.05
+jump_law:
+  atoms:
+  - - 2.0
+  - - -2.0
+  h: 0.2
+  intensity: 1.0
+  kind: shell
+  weights:
+  - 0.5
+  - 0.5
+metrics:
+  basins:
+    kind: sign_partition
+    labels:
+    - left
+    - right
+  mmd:
+    bandwidth_reference_points: 4096
+    bandwidth_rule: median_heuristic_on_reference_bank
+    kernel: rbf
+  primary:
+  - W2_exact_1d
+  - MMD2_biased
+  - KS
+  secondary:
+  - MMD2_unbiased
+  - basin_mass
+  - moments
+  - CDF_L2
+plot_snapshots:
+  max_points_per_seed: 2000
+  time_values:
+  - 1.0
+  - 5.0
+  - 12.5
+  - 25.0
+protocol:
+  final_time: 25.0
+  initial_dt: 0.005
+  particles: 2000
+  seeds: 4
+reference:
+  bounds:
+  - -5.2
+  - 5.2
+  builder: src.references.e1.build_reference
+  method: grid_inverse_cdf_1d
+  n_grid: 200001
+  sample_bank_size: 200000
+  validation:
+    grid_sizes:
+    - 100001
+    - 200001
+    - 400001
+    moment_orders:
+    - 1
+    - 2
+    - 3
+    - 4
+    self_w2_replicates: 20
+    wide_bounds:
+    - -8.0
+    - 8.0
+resolved:
+  boundary:
+    hi:
+    - 5.2
+    kind: rect
+    lo:
+    - -5.2
+  calibration:
+    calibration_hash: 71f471c6cb7e892ed3ef5eff27acb510
+    diagnosis: no timestep agreed with its halving on summary_iqr, summary_mean
+    kind: timestep
+    next_candidate: 0.0025
+    status: uncalibratable
+    table:
+    - agreement_failures:
+      - allowance: 0.20341549
+        coarse: -0.68283661
+        difference: 0.33257016
+        fine: -0.35026645
+        key: summary_mean
+      - allowance: 0.16718768
+        coarse: 0.24819363
+        difference: 1.64421369
+        fine: 1.89240731
+        key: summary_iqr
+      dt: 0.16
+      pass: false
+      stability_problems: []
+      summary:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.06510563499665366
+        energy_abs_mean_se: 0.0030446077766882033
+        energy_iqr: 0.08050442356531767
+        energy_iqr_se: 0.004938050258275285
+        energy_mean: 0.06510563499665366
+        energy_mean_se: 0.0030446077766882033
+        energy_median: 0.02745741602886107
+        energy_median_se: 0.002044853638083763
+        mh_accept_fraction_cumulative: 0.7442908653846154
+        n_effective: 1024
+        n_steps: 39
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.7197766426282052
+        replica_1_mh_accept_fraction_cumulative: 0.7688050881410257
+        round_trip_count_cumulative: 408.0
+        round_trip_rate_cumulative: 0.1328125
+        summary_abs_mean: 0.9792324443798641
+        summary_abs_mean_se: 0.004113469481428037
+        summary_iqr: 0.2481936289157357
+        summary_iqr_se: 0.014251668680335693
+        summary_mean: -0.6828366052128109
+        summary_mean_se: 0.0221446033497007
+        summary_median: -0.9634635159602131
+        summary_median_se: 0.00709928110405484
+        swap_accept_fraction_cumulative: 0.3984375
+      summary_half:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.07419991572235936
+        energy_abs_mean_se: 0.003459076562403945
+        energy_iqr: 0.08936786440498296
+        energy_iqr_se: 0.005940980583236971
+        energy_mean: 0.07419991572235936
+        energy_mean_se: 0.003459076562403945
+        energy_median: 0.035771020954597096
+        energy_median_se: 0.0025120547024702518
+        mh_accept_fraction_cumulative: 0.8751377203525641
+        n_effective: 1024
+        n_steps: 78
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.8762019230769231
+        replica_1_mh_accept_fraction_cumulative: 0.8740735176282052
+        round_trip_count_cumulative: 1276.0
+        round_trip_rate_cumulative: 0.17801339285714285
+        summary_abs_mean: 0.9675078171879685
+        summary_abs_mean_se: 0.0042489543128642554
+        summary_iqr: 1.892407314107174
+        summary_iqr_se: 0.01954489176879763
+        summary_mean: -0.35026644963765535
+        summary_mean_se: 0.028718806615570133
+        summary_median: -0.8854305046332338
+        summary_median_se: 0.009003478897096583
+        swap_accept_fraction_cumulative: 0.4153645833333333
+    - agreement_failures: []
+      dt: 0.08
+      pass: false
+      stability_problems:
+      - - mh_acceptance_outside_target_band
+        - 0.8751377203525641
+      summary:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.07419991572235936
+        energy_abs_mean_se: 0.003459076562403945
+        energy_iqr: 0.08936786440498296
+        energy_iqr_se: 0.005940980583236971
+        energy_mean: 0.07419991572235936
+        energy_mean_se: 0.003459076562403945
+        energy_median: 0.035771020954597096
+        energy_median_se: 0.0025120547024702518
+        mh_accept_fraction_cumulative: 0.8751377203525641
+        n_effective: 1024
+        n_steps: 78
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.8762019230769231
+        replica_1_mh_accept_fraction_cumulative: 0.8740735176282052
+        round_trip_count_cumulative: 1276.0
+        round_trip_rate_cumulative: 0.17801339285714285
+        summary_abs_mean: 0.9675078171879685
+        summary_abs_mean_se: 0.0042489543128642554
+        summary_iqr: 1.892407314107174
+        summary_iqr_se: 0.01954489176879763
+        summary_mean: -0.35026644963765535
+        summary_mean_se: 0.028718806615570133
+        summary_median: -0.8854305046332338
+        summary_median_se: 0.009003478897096583
+        swap_accept_fraction_cumulative: 0.4153645833333333
+      summary_half:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.06400714403709606
+        energy_abs_mean_se: 0.002767586006701478
+        energy_iqr: 0.08076131857422043
+        energy_iqr_se: 0.004099642713780992
+        energy_mean: 0.06400714403709606
+        energy_mean_se: 0.002767586006701478
+        energy_median: 0.02916600089903576
+        energy_median_se: 0.002236263671033216
+        mh_accept_fraction_cumulative: 0.9473157051282052
+        n_effective: 1024
+        n_steps: 156
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.9508713942307693
+        replica_1_mh_accept_fraction_cumulative: 0.9437600160256411
+        round_trip_count_cumulative: 2888.0
+        round_trip_rate_cumulative: 0.18802083333333333
+        summary_abs_mean: 0.9761518545627499
+        summary_abs_mean_se: 0.004374079021043336
+        summary_iqr: 1.9607336684109926
+        summary_iqr_se: 0.011597736750326104
+        summary_mean: -0.17749397806471975
+        summary_mean_se: 0.030637370360132428
+        summary_median: -0.8327910668839786
+        summary_median_se: 0.013954174595287094
+        swap_accept_fraction_cumulative: 0.4029017857142857
+    - agreement_failures: []
+      dt: 0.04
+      pass: false
+      stability_problems:
+      - - mh_acceptance_outside_target_band
+        - 0.9473157051282052
+      summary:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.06400714403709606
+        energy_abs_mean_se: 0.002767586006701478
+        energy_iqr: 0.08076131857422043
+        energy_iqr_se: 0.004099642713780992
+        energy_mean: 0.06400714403709606
+        energy_mean_se: 0.002767586006701478
+        energy_median: 0.02916600089903576
+        energy_median_se: 0.002236263671033216
+        mh_accept_fraction_cumulative: 0.9473157051282052
+        n_effective: 1024
+        n_steps: 156
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.9508713942307693
+        replica_1_mh_accept_fraction_cumulative: 0.9437600160256411
+        round_trip_count_cumulative: 2888.0
+        round_trip_rate_cumulative: 0.18802083333333333
+        summary_abs_mean: 0.9761518545627499
+        summary_abs_mean_se: 0.004374079021043336
+        summary_iqr: 1.9607336684109926
+        summary_iqr_se: 0.011597736750326104
+        summary_mean: -0.17749397806471975
+        summary_mean_se: 0.030637370360132428
+        summary_median: -0.8327910668839786
+        summary_median_se: 0.013954174595287094
+        swap_accept_fraction_cumulative: 0.4029017857142857
+      summary_half:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.06846462905343698
+        energy_abs_mean_se: 0.003049369973796679
+        energy_iqr: 0.08078270482022924
+        energy_iqr_se: 0.005119290376094435
+        energy_mean: 0.06846462905343698
+        energy_mean_se: 0.003049369973796679
+        energy_median: 0.030077231946999433
+        energy_median_se: 0.0027382019093260914
+        mh_accept_fraction_cumulative: 0.9796283428485577
+        n_effective: 1024
+        n_steps: 312
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.9818209134615384
+        replica_1_mh_accept_fraction_cumulative: 0.9774357722355769
+        round_trip_count_cumulative: 6264.0
+        round_trip_rate_cumulative: 0.19732862903225806
+        summary_abs_mean: 0.9698199930737574
+        summary_abs_mean_se: 0.004259460771325249
+        summary_iqr: 1.948708773662068
+        summary_iqr_se: 0.009980584582043149
+        summary_mean: -0.12925450276592482
+        summary_mean_se: 0.0333773115531336
+        summary_median: -0.8248302860069918
+        summary_median_se: 0.023977297163893
+        swap_accept_fraction_cumulative: 0.4078125
+    - agreement_failures: []
+      dt: 0.02
+      pass: false
+      stability_problems:
+      - - mh_acceptance_outside_target_band
+        - 0.9796283428485577
+      summary:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.06846462905343698
+        energy_abs_mean_se: 0.003049369973796679
+        energy_iqr: 0.08078270482022924
+        energy_iqr_se: 0.005119290376094435
+        energy_mean: 0.06846462905343698
+        energy_mean_se: 0.003049369973796679
+        energy_median: 0.030077231946999433
+        energy_median_se: 0.0027382019093260914
+        mh_accept_fraction_cumulative: 0.9796283428485577
+        n_effective: 1024
+        n_steps: 312
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.9818209134615384
+        replica_1_mh_accept_fraction_cumulative: 0.9774357722355769
+        round_trip_count_cumulative: 6264.0
+        round_trip_rate_cumulative: 0.19732862903225806
+        summary_abs_mean: 0.9698199930737574
+        summary_abs_mean_se: 0.004259460771325249
+        summary_iqr: 1.948708773662068
+        summary_iqr_se: 0.009980584582043149
+        summary_mean: -0.12925450276592482
+        summary_mean_se: 0.0333773115531336
+        summary_median: -0.8248302860069918
+        summary_median_se: 0.023977297163893
+        swap_accept_fraction_cumulative: 0.4078125
+      summary_half:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.07012257143897052
+        energy_abs_mean_se: 0.003255029874862475
+        energy_iqr: 0.08829212066041553
+        energy_iqr_se: 0.005133632309487527
+        energy_mean: 0.07012257143897052
+        energy_mean_se: 0.003255029874862475
+        energy_median: 0.029384248453926252
+        energy_median_se: 0.0015734081784760288
+        mh_accept_fraction_cumulative: 0.992315625
+        n_effective: 1024
+        n_steps: 625
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.9933921875
+        replica_1_mh_accept_fraction_cumulative: 0.9912390625
+        round_trip_count_cumulative: 13003.0
+        round_trip_rate_cumulative: 0.20481035786290322
+        summary_abs_mean: 0.967613752957484
+        summary_abs_mean_se: 0.004183140857541663
+        summary_iqr: 1.9578013932663014
+        summary_iqr_se: 0.011395498726752475
+        summary_mean: -0.09160346576021845
+        summary_mean_se: 0.030532690811121033
+        summary_median: -0.77083073574102
+        summary_median_se: 0.04168181333766915
+        swap_accept_fraction_cumulative: 0.40962071572580644
+    - agreement_failures: []
+      dt: 0.01
+      pass: false
+      stability_problems:
+      - - mh_acceptance_outside_target_band
+        - 0.992315625
+      summary:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.07012257143897052
+        energy_abs_mean_se: 0.003255029874862475
+        energy_iqr: 0.08829212066041553
+        energy_iqr_se: 0.005133632309487527
+        energy_mean: 0.07012257143897052
+        energy_mean_se: 0.003255029874862475
+        energy_median: 0.029384248453926252
+        energy_median_se: 0.0015734081784760288
+        mh_accept_fraction_cumulative: 0.992315625
+        n_effective: 1024
+        n_steps: 625
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.9933921875
+        replica_1_mh_accept_fraction_cumulative: 0.9912390625
+        round_trip_count_cumulative: 13003.0
+        round_trip_rate_cumulative: 0.20481035786290322
+        summary_abs_mean: 0.967613752957484
+        summary_abs_mean_se: 0.004183140857541663
+        summary_iqr: 1.9578013932663014
+        summary_iqr_se: 0.011395498726752475
+        summary_mean: -0.09160346576021845
+        summary_mean_se: 0.030532690811121033
+        summary_median: -0.77083073574102
+        summary_median_se: 0.04168181333766915
+        swap_accept_fraction_cumulative: 0.40962071572580644
+      summary_half:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.06879986225142462
+        energy_abs_mean_se: 0.0027036734299242526
+        energy_iqr: 0.09029336925275791
+        energy_iqr_se: 0.004559479402039565
+        energy_mean: 0.06879986225142462
+        energy_mean_se: 0.0027036734299242526
+        energy_median: 0.031118328415109354
+        energy_median_se: 0.002025644584855718
+        mh_accept_fraction_cumulative: 0.9971921875
+        n_effective: 1024
+        n_steps: 1250
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.99761015625
+        replica_1_mh_accept_fraction_cumulative: 0.99677421875
+        round_trip_count_cumulative: 26012.0
+        round_trip_rate_cumulative: 0.20321875
+        summary_abs_mean: 0.9670456636004194
+        summary_abs_mean_se: 0.004175505972862641
+        summary_iqr: 1.9423637702195427
+        summary_iqr_se: 0.011702640308691625
+        summary_mean: -0.13592251576860814
+        summary_mean_se: 0.02968814722493643
+        summary_median: -0.8030261324568261
+        summary_median_se: 0.02386342298287383
+        swap_accept_fraction_cumulative: 0.40971522177419356
+    - agreement_failures: []
+      dt: 0.005
+      pass: false
+      stability_problems:
+      - - mh_acceptance_outside_target_band
+        - 0.9971921875
+      summary:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.06879986225142462
+        energy_abs_mean_se: 0.0027036734299242526
+        energy_iqr: 0.09029336925275791
+        energy_iqr_se: 0.004559479402039565
+        energy_mean: 0.06879986225142462
+        energy_mean_se: 0.0027036734299242526
+        energy_median: 0.031118328415109354
+        energy_median_se: 0.002025644584855718
+        mh_accept_fraction_cumulative: 0.9971921875
+        n_effective: 1024
+        n_steps: 1250
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.99761015625
+        replica_1_mh_accept_fraction_cumulative: 0.99677421875
+        round_trip_count_cumulative: 26012.0
+        round_trip_rate_cumulative: 0.20321875
+        summary_abs_mean: 0.9670456636004194
+        summary_abs_mean_se: 0.004175505972862641
+        summary_iqr: 1.9423637702195427
+        summary_iqr_se: 0.011702640308691625
+        summary_mean: -0.13592251576860814
+        summary_mean_se: 0.02968814722493643
+        summary_median: -0.8030261324568261
+        summary_median_se: 0.02386342298287383
+        swap_accept_fraction_cumulative: 0.40971522177419356
+      summary_half:
+        boundary_reject_fraction: 0.0
+        energy_abs_mean: 0.07368562161395457
+        energy_abs_mean_se: 0.0031163466329984873
+        energy_iqr: 0.08644311955920146
+        energy_iqr_se: 0.004568070789294573
+        energy_mean: 0.07368562161395457
+        energy_mean_se: 0.0031163466329984873
+        energy_median: 0.030449851151098814
+        energy_median_se: 0.0021135160987929198
+        mh_accept_fraction_cumulative: 0.998976953125
+        n_effective: 1024
+        n_steps: 2500
+        nonfinite_fraction: 0.0
+        replica_0_mh_accept_fraction_cumulative: 0.999124609375
+        replica_1_mh_accept_fraction_cumulative: 0.998829296875
+        round_trip_count_cumulative: 52471.0
+        round_trip_rate_cumulative: 0.20496484375
+        summary_abs_mean: 0.9683273187386875
+        summary_abs_mean_se: 0.004131361219045839
+        summary_iqr: 1.9594346144769608
+        summary_iqr_se: 0.00937319604874735
+        summary_mean: -0.11601220332603249
+        summary_mean_se: 0.030468757020407855
+        summary_median: -0.7846571925918621
+        summary_median_se: 0.03221751260148403
+        swap_accept_fraction_cumulative: 0.4099296875
+  device:
+    cpu_model: AMD EPYC 9554 64-Core Processor
+    cuda_runtime_version: '13.0'
+    device_index: 0
+    device_type: cuda
+    dtype: float64
+    gpu_capability: '9.0'
+    gpu_name: NVIDIA H200 NVL
+    gpu_total_memory_bytes: 150110011392
+    gpu_uuid: b7477750-5992-8ae3-fde2-11bf70934062
+    matplotlib_version: 3.11.1
+    numpy_version: 2.5.1
+    platform: Linux-6.8.0-90-generic-x86_64-with-glibc2.39
+    python_version: 3.12.13
+    scipy_version: 1.18.0
+    torch_version: 2.13.0+cu130
+  jump_law:
+    atom_norms:
+    - 2.0
+    - 2.0
+    dimension: 1
+    h:
+    - 0.2
+    - 0.2
+    kind: shell
+    max_reach: 2.2
+    n_atoms: 2
+    weights:
+    - 0.5
+    - 0.5
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  tame_cap: 1.0
+  taming:
+    cp_cap: 1.0
+    default_cap: 1.0
+  variant:
+    family: PT
+    method: PT
+    parameters:
+      n_swap: 10
+      tame: true
+    rng_pair_group:
+      method_family: PT
+      n_swap: 10
+    rng_pair_group_hash: 3bbd9c6208b2951a9022a26727ec6c2e
+    tame: true
+    variant_hash: c1f69d797ceb0ab5d3b22296797106e5
+    variant_label: PT n_swap=10, tamed
+    variant_slug: PT-n_swap10-tamed
+schema_version: 2
+score:
+  m_max: 600.0
+  q_rho: 8
+  q_theta: 32
+slug: double_well
+taming:
+  cp_cap: 1.0
+  default_cap: 1.0
+target:
+  beta: 8.0
+  builder: src.targets.build_e1_target
+  dimension: 1
+  potential: double_well_1d

@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "c66218d880be6dbd7baf01b7bba6096b",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T19:50:09.292930Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "no timestep agreed with its halving on summary_iqr, summary_mean",
+  "dt": null,
+  "experiment_id": "E1",
+  "experiment_key": "E1_double_well",
+  "family": "PT",
+  "fee_calibration_hash": "3590adff094714fc599081a4fb309ee3",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "56a26c1748eeaff34a0597619c02abd4b26a5b29b169e7c9ac15732d886ece48",
+    "diagnostics.json": "3272f48657aa8c9440eb32ea527716955bd76b75a0c39e3c86546df687b58139",
+    "resolved_config.yaml": "aec06e0ebb0b1dfb4eb3ccc3b73f4afc31df687faa9b8b7f334ca578c1154c1b"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "c4cf293c5b3436b9cdaedd1da7e47e98825b38df",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "PT",
+  "parameters": {
+    "n_swap": 10,
+    "tame": false
+  },
+  "particles": 2000,
+  "reference_hash": "5f1aeed3092c00874ea7c25eb08e636d",
+  "result_directory": "results/E1_double_well/runs/PT/PT-n_swap10-canonical-uncalibratable-20260806T195009159723Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "experiment_id": "E1",
+      "method_family": "PT",
+      "n_swap": 10
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 4355258199505319264,
+        "init_gen": 5504849110562180305,
+        "jump_bank_gen": 1844665231122629848,
+        "mh_uniform_gen": 5738366470709709193,
+        "poisson_gen": 5846978778099935700,
+        "stable_noise_gen": 2865921945733267457
+      },
+      "1": {
+        "diffusion_gen": 559556855406984720,
+        "init_gen": 4703754499687687192,
+        "jump_bank_gen": 7041418315869963561,
+        "mh_uniform_gen": 6736967232218868654,
+        "poisson_gen": 6478066399128221536,
+        "stable_noise_gen": 7210242419410832169
+      },
+      "2": {
+        "diffusion_gen": 6011591540068589243,
+        "init_gen": 2680683435714336834,
+        "jump_bank_gen": 8109046715754518295,
+        "mh_uniform_gen": 5718920165893678979,
+        "poisson_gen": 2075421274457939443,
+        "stable_noise_gen": 4654946139102585189
+      },
+      "3": {
+        "diffusion_gen": 8248816385965345683,
+        "init_gen": 6611118573494002887,
+        "jump_bank_gen": 8148084193934826692,
+        "mh_uniform_gen": 4115224878413880107,
+        "poisson_gen": 6967081335186792244,
+        "stable_noise_gen": 5561902025881816184
+      }
+    }
+  },
+  "rng_pair_group": {
+    "method_family": "PT",
+    "n_swap": 10
+  },
+  "rng_pair_group_hash": "3bbd9c6208b2951a9022a26727ec6c2e",
+  "run_id": "PT-n_swap10-canonical-uncalibratable-20260806T195009159723Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": false,
+  "tame_cap": null,
+  "target_hash": "f9ad59fe107edd651e125330ae78c00a",
+  "variant_hash": "979380d8e3952765637f2f665a87238e",
+  "variant_label": "PT n_swap=10, canonical",
+  "variant_slug": "PT-n_swap10-canonical",
+  "written_at_utc": "2026-08-06T19:50:09.292976Z"
+}
