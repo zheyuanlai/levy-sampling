@@ -1,0 +1,206 @@
+boundary:
+  hi:
+  - 5.2
+  kind: rect
+  lo:
+  - -5.2
+  rule: reject
+calibration:
+  dt:
+    grid_rule: dyadic_halving
+    max_halvings: 4
+    tolerance: 0.05
+  mala:
+    target_acceptance:
+    - 0.4
+    - 0.75
+  pt:
+    beta_min: 1.0
+    k_cap: 64
+    k_initial: 8
+    pilot_steps: 20000
+    target_swap_acceptance:
+    - 0.2
+    - 0.4
+  stability:
+    max_boundary_reject_fraction: 0.02
+    max_nonfinite_fraction: 0.0
+    report_score_clip_fraction: true
+checkpoints:
+  dense:
+    count: 60
+    fraction: 0.05
+  include_initial: true
+  include_terminal: true
+  sparse:
+    count: 160
+display_name: 'E1: double well (1D)'
+id: E1
+initial_condition:
+  center:
+  - -1.0
+  kind: gaussian_blob
+  sigma: 0.05
+jump_law:
+  atoms:
+  - - 2.0
+  - - -2.0
+  h: 0.2
+  intensity: 1.0
+  kind: shell
+  weights:
+  - 0.5
+  - 0.5
+metrics:
+  basins:
+    kind: sign_partition
+    labels:
+    - left
+    - right
+  mmd:
+    bandwidth_reference_points: 4096
+    bandwidth_rule: median_heuristic_on_reference_bank
+    kernel: rbf
+  primary:
+  - W2_exact_1d
+  - MMD2_biased
+  - KS
+  secondary:
+  - MMD2_unbiased
+  - basin_mass
+  - moments
+  - CDF_L2
+plot_snapshots:
+  max_points_per_seed: 2000
+  time_values:
+  - 1.0
+  - 5.0
+  - 12.5
+  - 25.0
+protocol:
+  final_time: 25.0
+  initial_dt: 0.005
+  particles: 2000
+  seeds: 4
+reference:
+  bounds:
+  - -5.2
+  - 5.2
+  builder: src.references.e1.build_reference
+  method: grid_inverse_cdf_1d
+  n_grid: 200001
+  sample_bank_size: 200000
+  validation:
+    grid_sizes:
+    - 100001
+    - 200001
+    - 400001
+    moment_orders:
+    - 1
+    - 2
+    - 3
+    - 4
+    self_w2_replicates: 20
+    wide_bounds:
+    - -8.0
+    - 8.0
+resolved:
+  boundary:
+    hi:
+    - 5.2
+    kind: rect
+    lo:
+    - -5.2
+  calibration:
+    calibration_hash: 00f5afb72237037ffac3a5f2c9a28192
+    diagnosis: no PT ladder candidate met the frozen swap acceptance band and final-timestep
+      round-trip requirement
+    kind: pt_ladder
+    next_candidate: null
+    status: uncalibratable
+    table:
+    - band_attained: false
+      minimum_round_trips: 1
+      mixing_attained: true
+      mixing_gate_enforced: false
+      n_replicas: 2
+      pass: false
+      replica_acceptance:
+      - 0.997630078125
+      - 0.9967517578125
+      round_trip_count: 208484
+      round_trip_rate: 0.20359765625
+      stability_problems:
+      - - swap_acceptance_band
+        - 0.4071953125
+      swap_acceptance: 0.4071953125
+      target_band:
+      - 0.2
+      - 0.4
+  device:
+    cpu_model: AMD EPYC 9554 64-Core Processor
+    cuda_runtime_version: '13.0'
+    device_index: 0
+    device_type: cuda
+    dtype: float64
+    gpu_capability: '9.0'
+    gpu_name: NVIDIA H200 NVL
+    gpu_total_memory_bytes: 150110011392
+    gpu_uuid: b7477750-5992-8ae3-fde2-11bf70934062
+    matplotlib_version: 3.11.1
+    numpy_version: 2.5.1
+    platform: Linux-6.8.0-90-generic-x86_64-with-glibc2.39
+    python_version: 3.12.13
+    scipy_version: 1.18.0
+    torch_version: 2.13.0+cu130
+  jump_law:
+    atom_norms:
+    - 2.0
+    - 2.0
+    dimension: 1
+    h:
+    - 0.2
+    - 0.2
+    kind: shell
+    max_reach: 2.2
+    n_atoms: 2
+    weights:
+    - 0.5
+    - 0.5
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  tame_cap: 1.0
+  taming:
+    cp_cap: 1.0
+    default_cap: 1.0
+  variant:
+    family: PT
+    method: PT
+    parameters:
+      n_swap: 10
+      tame: true
+    rng_pair_group:
+      method_family: PT
+      n_swap: 10
+    rng_pair_group_hash: 3bbd9c6208b2951a9022a26727ec6c2e
+    tame: true
+    variant_hash: c1f69d797ceb0ab5d3b22296797106e5
+    variant_label: PT n_swap=10, tamed
+    variant_slug: PT-n_swap10-tamed
+schema_version: 2
+score:
+  m_max: 600.0
+  q_rho: 8
+  q_theta: 32
+slug: double_well
+taming:
+  cp_cap: 1.0
+  default_cap: 1.0
+target:
+  beta: 8.0
+  builder: src.targets.build_e1_target
+  dimension: 1
+  potential: double_well_1d

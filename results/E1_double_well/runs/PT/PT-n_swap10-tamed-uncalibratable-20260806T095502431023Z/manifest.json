@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "00f5afb72237037ffac3a5f2c9a28192",
+  "calibration_kind": "pt_ladder",
+  "created_at_utc": "2026-08-06T09:55:02.464686Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "no PT ladder candidate met the frozen swap acceptance band and final-timestep round-trip requirement",
+  "dt": null,
+  "experiment_id": "E1",
+  "experiment_key": "E1_double_well",
+  "family": "PT",
+  "fee_calibration_hash": "3590adff094714fc599081a4fb309ee3",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "bd32f21fc50e464f73a5d78f5c9780882bb3dc9cccf05bcdfd5094dd3d0341e7",
+    "diagnostics.json": "331a7fac77142ad88af124dec612d3508ddf054208afed4c29121e866acf59b6",
+    "resolved_config.yaml": "ad0b962332ad56dc829b5e327d39a95a3aa7b1eb0639b5abcd703a77d64b41f2"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "910f6685a7746288fa4b76dc4fd3f9374c756256",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "PT",
+  "parameters": {
+    "n_swap": 10,
+    "tame": true
+  },
+  "particles": 2000,
+  "reference_hash": "5f1aeed3092c00874ea7c25eb08e636d",
+  "result_directory": "results/E1_double_well/runs/PT/PT-n_swap10-tamed-uncalibratable-20260806T095502431023Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "experiment_id": "E1",
+      "method_family": "PT",
+      "n_swap": 10
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 4355258199505319264,
+        "init_gen": 5504849110562180305,
+        "jump_bank_gen": 1844665231122629848,
+        "mh_uniform_gen": 5738366470709709193,
+        "poisson_gen": 5846978778099935700,
+        "stable_noise_gen": 2865921945733267457
+      },
+      "1": {
+        "diffusion_gen": 559556855406984720,
+        "init_gen": 4703754499687687192,
+        "jump_bank_gen": 7041418315869963561,
+        "mh_uniform_gen": 6736967232218868654,
+        "poisson_gen": 6478066399128221536,
+        "stable_noise_gen": 7210242419410832169
+      },
+      "2": {
+        "diffusion_gen": 6011591540068589243,
+        "init_gen": 2680683435714336834,
+        "jump_bank_gen": 8109046715754518295,
+        "mh_uniform_gen": 5718920165893678979,
+        "poisson_gen": 2075421274457939443,
+        "stable_noise_gen": 4654946139102585189
+      },
+      "3": {
+        "diffusion_gen": 8248816385965345683,
+        "init_gen": 6611118573494002887,
+        "jump_bank_gen": 8148084193934826692,
+        "mh_uniform_gen": 4115224878413880107,
+        "poisson_gen": 6967081335186792244,
+        "stable_noise_gen": 5561902025881816184
+      }
+    }
+  },
+  "rng_pair_group": {
+    "method_family": "PT",
+    "n_swap": 10
+  },
+  "rng_pair_group_hash": "3bbd9c6208b2951a9022a26727ec6c2e",
+  "run_id": "PT-n_swap10-tamed-uncalibratable-20260806T095502431023Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": true,
+  "tame_cap": 1.0,
+  "target_hash": "f9ad59fe107edd651e125330ae78c00a",
+  "variant_hash": "c1f69d797ceb0ab5d3b22296797106e5",
+  "variant_label": "PT n_swap=10, tamed",
+  "variant_slug": "PT-n_swap10-tamed",
+  "written_at_utc": "2026-08-06T09:55:02.464764Z"
+}

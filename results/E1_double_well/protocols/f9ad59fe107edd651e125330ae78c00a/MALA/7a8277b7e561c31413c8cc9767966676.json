@@ -1,0 +1,128 @@
+{
+  "acceptance_search": {
+    "band_attained": true,
+    "history": [
+      {
+        "acceptance": 0.9976240234375,
+        "dt": 0.005
+      },
+      {
+        "acceptance": 0.99341796875,
+        "dt": 0.01
+      },
+      {
+        "acceptance": 0.98166796875,
+        "dt": 0.02
+      },
+      {
+        "acceptance": 0.9510625,
+        "dt": 0.04
+      },
+      {
+        "acceptance": 0.8761581029647436,
+        "dt": 0.08
+      },
+      {
+        "acceptance": 0.7232008713942307,
+        "dt": 0.16
+      }
+    ],
+    "rationale": "acceptance decreases with dt, so the search moves both ways",
+    "selected_dt": 0.16,
+    "target_band": [
+      0.4,
+      0.75
+    ]
+  },
+  "calibration_hash": "7a8277b7e561c31413c8cc9767966676",
+  "criteria": [
+    "acceptance",
+    "ess",
+    "stability"
+  ],
+  "dt": 0.16,
+  "dt_table": [
+    {
+      "agreement_failures": [],
+      "dt": 0.16,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 0.0,
+        "energy_abs_mean": 0.07238230025326714,
+        "energy_abs_mean_se": 0.003037237711693107,
+        "energy_iqr": 0.08901534160211765,
+        "energy_iqr_se": 0.005601235168944578,
+        "energy_mean": 0.07238230025326714,
+        "energy_mean_se": 0.003037237711693107,
+        "energy_median": 0.03606438364736796,
+        "energy_median_se": 0.0027545901713370807,
+        "mh_accept_fraction_cumulative": 0.7232008713942307,
+        "n_effective": 1024,
+        "n_steps": 156,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.9726427960962297,
+        "summary_abs_mean_se": 0.004413265924715977,
+        "summary_iqr": 0.1926000214036565,
+        "summary_iqr_se": 0.007524371173869076,
+        "summary_mean": -0.9664561815595913,
+        "summary_mean_se": 0.006082197922569484,
+        "summary_median": -0.9788880034321775,
+        "summary_median_se": 0.005889960617583714,
+        "temporal_ess": 59.965888732188446,
+        "temporal_ess_draws_per_seed": 78,
+        "temporal_ess_fraction": 0.3843967226422336
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 0.0,
+        "energy_abs_mean": 0.06878780573883986,
+        "energy_abs_mean_se": 0.0029541972522998117,
+        "energy_iqr": 0.08764538213683117,
+        "energy_iqr_se": 0.0050052233903764435,
+        "energy_mean": 0.06878780573883986,
+        "energy_mean_se": 0.0029541972522998117,
+        "energy_median": 0.03133316421993168,
+        "energy_median_se": 0.0020449594903309224,
+        "mh_accept_fraction_cumulative": 0.8761581029647436,
+        "n_effective": 1024,
+        "n_steps": 312,
+        "nonfinite_fraction": 0.0,
+        "summary_abs_mean": 0.9677222094888238,
+        "summary_abs_mean_se": 0.00403560367060476,
+        "summary_iqr": 0.16859003404057116,
+        "summary_iqr_se": 0.006542956181938596,
+        "summary_mean": -0.950982753376588,
+        "summary_mean_se": 0.007542069502715438,
+        "summary_median": -0.9722522336914141,
+        "summary_median_se": 0.004793017430660907,
+        "temporal_ess": 67.85242639512359,
+        "temporal_ess_draws_per_seed": 156,
+        "temporal_ess_fraction": 0.2174757256253961
+      }
+    }
+  ],
+  "experiment_id": "E1",
+  "method": "MALA",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "requirements": {
+    "acceptance": true,
+    "dt": true,
+    "ess": true,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "tame": true,
+  "tame_cap": 1.0,
+  "tolerance": 0.05,
+  "variant_hash": "08c004da545dcf2d029aaf023d64b5af",
+  "variant_label": "MALA, tamed"
+}

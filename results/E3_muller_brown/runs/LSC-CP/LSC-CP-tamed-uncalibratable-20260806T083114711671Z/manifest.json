@@ -1,0 +1,157 @@
+{
+  "calibration_hash": "90e37a13d22c848146a980eefa909db4",
+  "calibration_kind": "quadrature",
+  "created_at_utc": "2026-08-06T08:31:14.750871Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "score quadrature did not converge against the doubled rule at the frozen log-magnitude/direction tolerances",
+  "dt": null,
+  "experiment_id": "E3",
+  "experiment_key": "E3_muller_brown",
+  "family": "LSC-CP",
+  "fee_calibration_hash": "088ecf363630e7e9c4899a3eb827d2f6",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "0081c9370f26d0197128387cc812e3ae4f095be189e0c7ea49a48e84c0a90cc4",
+    "diagnostics.json": "40bf773fd36750d7c8731a36bc5a8a54c58054194be13fcc75f3ab936eb22cba",
+    "resolved_config.yaml": "e38323a3d63b571c991715186a81d18b5ee7c5b27ff7c353566a36943753a9fe"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "910f6685a7746288fa4b76dc4fd3f9374c756256",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "LSC-CP",
+  "parameters": {
+    "tame": true
+  },
+  "particles": 2000,
+  "reference_hash": "53af2ac3a1c61f75142147aab9cae27b",
+  "result_directory": "results/E3_muller_brown/runs/LSC-CP/LSC-CP-tamed-uncalibratable-20260806T083114711671Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "experiment_id": "E3",
+      "method_family": "LSC-CP"
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 6622223910193993546,
+        "init_gen": 7755723594009676183,
+        "jump_bank_gen": 7139359545832525042,
+        "mh_uniform_gen": 4190200433918340162,
+        "poisson_gen": 2733550390780048544,
+        "stable_noise_gen": 1972414382910598467
+      },
+      "1": {
+        "diffusion_gen": 8980484196366501193,
+        "init_gen": 7957379162144696317,
+        "jump_bank_gen": 7390304915203359285,
+        "mh_uniform_gen": 3284097880747511303,
+        "poisson_gen": 8191588752007277606,
+        "stable_noise_gen": 2884036269382722220
+      },
+      "2": {
+        "diffusion_gen": 4980313134549215625,
+        "init_gen": 6294750688518705693,
+        "jump_bank_gen": 2217555153795882271,
+        "mh_uniform_gen": 2414071246691213296,
+        "poisson_gen": 3260179469763265544,
+        "stable_noise_gen": 2354198786285617509
+      },
+      "3": {
+        "diffusion_gen": 8879050586599998551,
+        "init_gen": 1998298319717742010,
+        "jump_bank_gen": 1837544310039224795,
+        "mh_uniform_gen": 8533169932154871817,
+        "poisson_gen": 3808848309441945313,
+        "stable_noise_gen": 3655892157756292004
+      },
+      "4": {
+        "diffusion_gen": 176423174780111266,
+        "init_gen": 1454009462944313265,
+        "jump_bank_gen": 4228700408398361265,
+        "mh_uniform_gen": 2001067613034804691,
+        "poisson_gen": 417317401253004755,
+        "stable_noise_gen": 1113717722441728546
+      },
+      "5": {
+        "diffusion_gen": 2931951310992953305,
+        "init_gen": 2062929820421162325,
+        "jump_bank_gen": 6361805658032543587,
+        "mh_uniform_gen": 1886544988276914576,
+        "poisson_gen": 7544527866548135434,
+        "stable_noise_gen": 7979328456055830498
+      },
+      "6": {
+        "diffusion_gen": 3065166700758011955,
+        "init_gen": 2001884520880688264,
+        "jump_bank_gen": 8945940744182477256,
+        "mh_uniform_gen": 3895559078568775389,
+        "poisson_gen": 5516900423806486150,
+        "stable_noise_gen": 2600062729600868343
+      },
+      "7": {
+        "diffusion_gen": 4722406107942789638,
+        "init_gen": 1542967628924651649,
+        "jump_bank_gen": 2791785401828795165,
+        "mh_uniform_gen": 1152946728082655370,
+        "poisson_gen": 1117183792656788571,
+        "stable_noise_gen": 2196666004044598422
+      }
+    }
+  },
+  "rng_pair_group": {
+    "method_family": "LSC-CP"
+  },
+  "rng_pair_group_hash": "e71bbd08ba7e81335a987ae53f2cf774",
+  "run_id": "LSC-CP-tamed-uncalibratable-20260806T083114711671Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "status": "uncalibratable",
+  "tame": true,
+  "tame_cap": 0.12012712206063299,
+  "target_hash": "ed94c0eda92286239de64b68502a0389",
+  "variant_hash": "67fe983bcba8cecb4eb040b92e2c557b",
+  "variant_label": "LSC-CP, tamed",
+  "variant_slug": "LSC-CP-tamed",
+  "written_at_utc": "2026-08-06T08:31:14.750898Z"
+}

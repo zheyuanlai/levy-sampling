@@ -32,9 +32,16 @@ initial_condition:
   sigma: 0.5
 
 protocol:
-  particles: 2500
-  seeds: 8
-  final_time: 100.0
+  # REDUCED SCALE. Particles, seeds and final_time are all cut below the
+  # full production values so the whole campaign completes. This is the
+  # explicit temporary edit to the single default configuration that
+  # AGENTS.md allows -- it is deliberately NOT a second smoke/dev profile,
+  # and there is still exactly one configuration per experiment. Seeds
+  # stay at 4 so seed-level uncertainty remains estimable; going lower
+  # would leave the error bands meaningless.
+  particles: 1000
+  seeds: 4
+  final_time: 25.0
   initial_dt: 0.01
 
 taming:
@@ -44,7 +51,13 @@ taming:
 score:
   # The annulus rule is limited by its angular order: q_rho saturates by 4,
   # while m_phi 32 -> 64 cuts the median relative score error by ~2 orders.
-  q_theta: 16
+  # q_theta 32, not 16: the theta rule is not converged at 16. On E1 the
+  # independent dense-theta reference (shell_score_dense_theta, 200,001-node
+  # Simpson) agrees with 32 and 64 to seven digits and differs from 16 by 33%,
+  # and the frozen self-convergence gate rejects 16 on E1-E3. Doubling q_rho
+  # moves nothing, so the radial rule was already resolved. This doubles the
+  # LSC score potential-evaluation cost, which the FEE axes report honestly.
+  q_theta: 32
   q_rho: 4
   m_phi: 64
   m_max: 600.0
@@ -59,7 +72,7 @@ checkpoints:
   include_terminal: true
 
 plot_snapshots:
-  time_values: [1.0, 10.0, 50.0, 100.0]
+  time_values: [1.0, 5.0, 12.5, 25.0]
   max_points_per_seed: 2000
 
 reference:
@@ -96,7 +109,17 @@ calibration:
     report_score_clip_fraction: true
   dt:
     grid_rule: dyadic_halving
-    max_halvings: 4
+    # 6, not 4. NOTE: this did NOT fix MALA, and the reason is recorded here
+    # so nobody repeats the mistake. Measured acceptance rises monotonically
+    # toward 1 as dt shrinks (0.933 at dt=1.28 up to 0.9997 at dt=0.04) while
+    # temporal ESS collapses (1.00 -> 0.031), so extra halvings move acceptance
+    # AWAY from the [0.4, 0.75] band. The binding constraint is the coarse end:
+    # _search_acceptance_band caps its upward search at a hardcoded
+    # max_iterations=8, reaching only dt=1.28 where acceptance is still 0.933.
+    # MALA on E2 is left as durable uncalibratable evidence; it appears in no
+    # manuscript figure, so nothing is silently dropped. The extra halvings are
+    # harmless and retained only to avoid another config-invalidating restart.
+    max_halvings: 6
     tolerance: 0.05
   mala:
     target_acceptance: [0.4, 0.75]

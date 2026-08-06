@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "d340641dca45b535d359e683de77d477",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T14:48:45.707258Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "unstable at every timestep tried (mh_acceptance_outside_target_band) and it does not improve as the timestep shrinks",
+  "dt": null,
+  "experiment_id": "E2",
+  "experiment_key": "E2_mog40",
+  "family": "PT",
+  "fee_calibration_hash": "076536868d101ed21862549ee5a0e135",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "f6729bbcdfed4064a07a646e733a82b7f967167b937005197552abfac4663e63",
+    "diagnostics.json": "66a27d6570d9e60cf2b2d970dc3f49920aac8158e3f814f48a587b76c5e4d639",
+    "resolved_config.yaml": "13d0c596e02331348d919a3a3ec0a230c902c214c8306a59785be6d311df142f"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "910f6685a7746288fa4b76dc4fd3f9374c756256",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "PT",
+  "parameters": {
+    "n_swap": 10,
+    "tame": false
+  },
+  "particles": 1000,
+  "reference_hash": "1ed7f635d25fe5cc00b6acb78b3f3fe4",
+  "result_directory": "results/E2_mog40/runs/PT/PT-n_swap10-canonical-uncalibratable-20260806T144845666456Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "experiment_id": "E2",
+      "method_family": "PT",
+      "n_swap": 10
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 7574792296529269811,
+        "init_gen": 3496714627720915310,
+        "jump_bank_gen": 2915635564179182234,
+        "mh_uniform_gen": 3093087799309394742,
+        "poisson_gen": 4858445384612647916,
+        "stable_noise_gen": 4047690003592201892
+      },
+      "1": {
+        "diffusion_gen": 7366574113936538754,
+        "init_gen": 1873773526351794944,
+        "jump_bank_gen": 6134860500423891933,
+        "mh_uniform_gen": 2722503186031057011,
+        "poisson_gen": 7128338186227093128,
+        "stable_noise_gen": 2279491192931917993
+      },
+      "2": {
+        "diffusion_gen": 5708528176959911268,
+        "init_gen": 8637595938571838224,
+        "jump_bank_gen": 3660924807167788566,
+        "mh_uniform_gen": 160702238752596004,
+        "poisson_gen": 1760870666893159397,
+        "stable_noise_gen": 1365049151962174593
+      },
+      "3": {
+        "diffusion_gen": 822080145148249608,
+        "init_gen": 5000431916394544046,
+        "jump_bank_gen": 3188619468307213588,
+        "mh_uniform_gen": 6508307540356498716,
+        "poisson_gen": 4055946809266409892,
+        "stable_noise_gen": 8733386409391086075
+      }
+    }
+  },
+  "rng_pair_group": {
+    "method_family": "PT",
+    "n_swap": 10
+  },
+  "rng_pair_group_hash": "3bbd9c6208b2951a9022a26727ec6c2e",
+  "run_id": "PT-n_swap10-canonical-uncalibratable-20260806T144845666456Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": false,
+  "tame_cap": null,
+  "target_hash": "a7f73d9b33f4c67e2ed3a91986fd9b5c",
+  "variant_hash": "979380d8e3952765637f2f665a87238e",
+  "variant_label": "PT n_swap=10, canonical",
+  "variant_slug": "PT-n_swap10-canonical",
+  "written_at_utc": "2026-08-06T14:48:45.707287Z"
+}

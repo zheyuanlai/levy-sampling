@@ -1,0 +1,1285 @@
+{
+  "basin_map": {
+    "cache_schema_version": 1,
+    "dt_flow": 0.00015,
+    "hi": [
+      4.0,
+      4.0
+    ],
+    "lo": [
+      -4.0,
+      -4.0
+    ],
+    "minima": [
+      [
+        -1.0024959969059426,
+        -1.0034237963554171
+      ],
+      [
+        -0.9993798207010036,
+        0.996545590220411
+      ],
+      [
+        0.9974900640638564,
+        -1.0003162717173835
+      ],
+      [
+        1.0006239289619008,
+        0.9996883291961056
+      ]
+    ],
+    "n_flow": 20000,
+    "n_grid": 600,
+    "path": "/home/zheyuanlai/levy-sampling/results/E4_coupled_quartic_chain/reference/reference_basin_map_order_parameter.npz",
+    "sha256": "cff243856e81112d0b797cc1798ca6a389fb0b815b88ebb25821d667becd9c25",
+    "validation_status": "created_validated"
+  },
+  "experiment_id": "E4",
+  "kind": "multistart_pt_mala_with_snis_crosscheck",
+  "metric_inputs": {
+    "mmd_bandwidth": 1.952563896381761,
+    "mmd_bandwidth_rule": "median_heuristic_on_reference_bank",
+    "sw2_projections": {
+      "dimension": 2,
+      "n_projections": 512
+    }
+  },
+  "notes": [
+    "The order-parameter grid is a numerical estimate obtained by projecting the PT-MALA bank, not an analytic density.",
+    "The SNIS arm is a weighted cross-check; its weights are used directly and it is not a second unweighted sample bank.",
+    "Reference uncertainty is estimated by independent chain or non-overlapping block; correlated draws from one cold chain are never treated as i.i.d. replicates."
+  ],
+  "observable_targets": {
+    "binder_cumulant": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": 4.848964128489018e-05,
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": 0.48185870445738854
+    },
+    "coherence_mean": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": 3.956312674718026e-06,
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": 0.007478188529734247
+    },
+    "coherence_sd": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": 3.105824607172728e-06,
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": 0.0022533265713188433
+    },
+    "connected_two_point_correlation": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": [
+        0.0009707405694101709,
+        0.0009707597664532383,
+        0.000970844764411109,
+        0.0009708567572215706,
+        0.0009709412875997975,
+        0.000971050384182683,
+        0.0009710343527819045
+      ],
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": [
+        1.8936021207613765,
+        1.8898630264965097,
+        1.886904498912459,
+        1.8846646238691318,
+        1.8830980867138423,
+        1.8821723403119963,
+        1.8818684322425774
+      ]
+    },
+    "energy_per_site_mean": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": 6.444049027955876e-05,
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": 0.1256466271096421
+    },
+    "energy_per_site_sd": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": 4.974738259981818e-05,
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": 0.036420291695526
+    },
+    "energy_per_site_variance": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": 3.6234603419131957e-06,
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": 0.0013264376471872
+    },
+    "heat_capacity_per_site": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": 0.002782817542589334,
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": 1.0187041130397694
+    },
+    "kink_density_mean": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": 6.485638007246408e-06,
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": 5.823863636363635e-05
+    },
+    "order_parameter_mean": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": [
+        0.0023425738338480684,
+        0.0024214069247383957
+      ],
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": [
+        -0.07192544088548887,
+        -0.12091113480887988
+      ]
+    },
+    "phase_outside_mass": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": 0.0,
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": 0.0
+    },
+    "phase_probabilities": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": [
+        0.0011552619102947362,
+        0.0009978932158951142,
+        0.00104056926119666,
+        0.0010086218731733042
+      ],
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": [
+        0.32338068181868407,
+        0.21302840909108045,
+        0.23783806818206393,
+        0.22575284090930042
+      ]
+    },
+    "susceptibility": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": [
+        [
+          0.05911687428886193,
+          0.22042212231374708
+        ],
+        [
+          0.22042212231374708,
+          0.07146533265704627
+        ]
+      ],
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": [
+        [
+          90.93631739380756,
+          8.36184321255735
+        ],
+        [
+          8.36184321255735,
+          90.09520254517786
+        ]
+      ]
+    },
+    "two_point_correlation": {
+      "block_length": 13,
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "standard_error": [
+        0.0006858270093501352,
+        0.0006858363562017141,
+        0.000685926060044447,
+        0.0006860500556539477,
+        0.0006862129603570202,
+        0.0006863816361033469,
+        0.0006863934668768779
+      ],
+      "standard_error_method": "block bootstrap over 27072 non-overlapping PT blocks of 13 saved checkpoints",
+      "value": [
+        1.9133948923287196,
+        1.9096557980638529,
+        1.9066972704798022,
+        1.904457395436475,
+        1.9028908582811854,
+        1.9019651118793395,
+        1.9016612038099205
+      ]
+    }
+  },
+  "order_parameter_grid": {
+    "binning_rule": "uniform 200 x 200 histogram on [-2.5, 2.5]^2, normalised to a density over the grid domain",
+    "cell_area": 0.0006249999999999956,
+    "estimate_kind": "numerical_estimate_from_pt_mala_samples",
+    "free_energy_offset": -0.14906801356279004,
+    "kde_bandwidth": 0.11555840407218797,
+    "kde_bandwidth_rule": "silverman_2d",
+    "n_samples": 352000,
+    "n_samples_inside": 352000,
+    "note": "This is a numerical reference estimate obtained by projecting the PT-MALA sample bank onto the order-parameter plane. It is NOT an analytic grid and carries the sampling uncertainty of that bank.",
+    "outside_grid_fraction": 0.0,
+    "uncertainty_rule": "per-cell standard error across the 32 independent cold chains"
+  },
+  "provenance": {
+    "acceptance": {
+      "cross_check_gates": {
+        "coherence_mean": {
+          "combined_se_multiplier": 2.0,
+          "relative_floor": 0.02,
+          "scale_rule": "max_abs_value_sd_or_1e-12"
+        },
+        "energy_per_site": {
+          "combined_se_multiplier": 2.0,
+          "relative_floor": 0.01,
+          "scale_rule": "max_abs_value_sd_or_1e-12"
+        },
+        "magnetization": {
+          "absolute_floor": 0.01,
+          "combined_se_multiplier": 2.0
+        },
+        "phase_probability": {
+          "absolute_floor": 0.01,
+          "combined_se_multiplier": 2.0
+        },
+        "susceptibility": {
+          "combined_se_multiplier": 2.0,
+          "relative_frobenius_floor": 0.03
+        },
+        "two_point_correlation": {
+          "combined_se_multiplier": 2.0,
+          "relative_l2_floor": 0.03
+        }
+      },
+      "experiment": "E4",
+      "observables": {
+        "continuous": [
+          "energy_per_site",
+          "mx",
+          "my",
+          "coherence"
+        ],
+        "indicators": [
+          "phase_--",
+          "phase_-+",
+          "phase_+-",
+          "phase_++"
+        ]
+      },
+      "on_failure": [
+        "extend_pt_length_and_temperature_mixing",
+        "improve_snis_proposal",
+        "enable_annealed_smc_fallback"
+      ],
+      "pt_mala_gates": {
+        "entry_event_min_consecutive_checkpoints": 5,
+        "every_cold_chain_visits_all_phases": true,
+        "init_from_each_refined_phase": true,
+        "max_block_mcse_fraction_of_sd": 0.05,
+        "max_half_run_difference_in_combined_se": 2.0,
+        "max_split_rhat": 1.01,
+        "min_bulk_ess": 1000,
+        "min_entry_events_per_phase": 10,
+        "min_independent_runs": 4,
+        "min_phase_indicator_ess": 500,
+        "min_tail_ess": 400,
+        "rhat_kind": "rank_normalized_split"
+      },
+      "schema_version": 1,
+      "snis_gates": {
+        "max_normalized_weight": 0.01,
+        "max_run_difference_in_combined_se": {
+          "coherence_mean": 2.6700773593737384,
+          "energy_per_site": 2.6700773593737384,
+          "phase_probability": 3.1060815350389697,
+          "susceptibility": 3.1060815350389697
+        },
+        "min_ess_fraction": 0.005,
+        "min_independent_runs": 4,
+        "min_total_ess": 2000,
+        "min_weighted_effective_count_per_phase": 200,
+        "require_coverage": {
+          "all_four_phases": true,
+          "coherence_upper_decile": true,
+          "nonzero_kink_configurations": true
+        },
+        "run_agreement_family_wise_two_sided_significance": 0.04550026389635844
+      },
+      "uncertainty": {
+        "block_length_multiplier": 2.0,
+        "block_rule": "non_overlapping",
+        "bootstrap": {
+          "kind": "hierarchical",
+          "replicates": 2000,
+          "resample_units": [
+            "pt_blocks",
+            "snis_runs"
+          ],
+          "seed": 90210
+        },
+        "min_effective_blocks": 20
+      }
+    },
+    "acceptance_file": "/home/zheyuanlai/levy-sampling/configs/experiments/E4_reference_acceptance.yaml",
+    "basin_map": {
+      "bound": 4.0,
+      "dt_flow": 0.00015,
+      "n_flow": 20000,
+      "n_grid": 600
+    },
+    "beta": 8.0,
+    "experiment_id": "E4",
+    "kind": "multistart_pt_mala_with_snis_crosscheck",
+    "metrics": {
+      "mmd_bandwidth_reference_points": 4096,
+      "mmd_bandwidth_rule": "median_heuristic_on_reference_bank",
+      "mmd_bandwidth_seed": 99,
+      "sw2_n_projections": 512,
+      "sw2_projection_seed": 777
+    },
+    "n_sites": 12,
+    "order_parameter_grid": {
+      "hi": 2.5,
+      "kde_bandwidth_rule": "silverman_2d",
+      "lo": -2.5,
+      "n_bins": 200
+    },
+    "phases": [
+      "--",
+      "-+",
+      "+-",
+      "++"
+    ],
+    "reference": {
+      "acceptance": "configs/experiments/E4_reference_acceptance.yaml",
+      "bootstrap": {
+        "replicates": 2000,
+        "seed": 90210
+      },
+      "builder": "src.references.e4.build_reference",
+      "fallback_annealed_smc": {
+        "enabled": false,
+        "n_particles": 100000,
+        "n_temperatures": 64
+      },
+      "method": "multistart_pt_mala_with_snis_crosscheck",
+      "pt_mala": {
+        "beta_min": 0.1,
+        "burn_in_steps": 800000,
+        "chains_per_run": 8,
+        "dt": 0.002,
+        "init_phases": [
+          "--",
+          "-+",
+          "+-",
+          "++"
+        ],
+        "n_replicas": 24,
+        "n_runs": 4,
+        "seed_base": 20260805,
+        "swap_interval": 5,
+        "thinning": 200,
+        "total_steps": 3000000
+      },
+      "snis": {
+        "hessian_regularization": 1e-06,
+        "n_runs": 4,
+        "proposals_per_run": 500000,
+        "seed_base": 31337
+      }
+    },
+    "snis_kink_components": {
+      "kink_relaxation_steps": 4000,
+      "kink_wall_separations": [
+        3,
+        6,
+        9
+      ],
+      "kink_wall_width_sites": 2.0,
+      "kink_weight_share": 0.05
+    },
+    "target": {
+      "beta": 8.0,
+      "builder": "src.targets.build_e4_target",
+      "dimension": 24,
+      "kappa": 2.5,
+      "n_sites": 12,
+      "potential": "coupled_quartic_chain",
+      "site_coefficients": {
+        "cxy": -0.0125,
+        "hx": 0.0075,
+        "hy": 0.015
+      }
+    }
+  },
+  "provenance_hash": "01a9ab430ade48015bc7a53cecaf8de4",
+  "pt_mala": {
+    "beta_min": 0.1,
+    "betas": [
+      8.0,
+      6.612214659163865,
+      5.465172837357688,
+      4.517111993755084,
+      3.733514267774035,
+      3.0858497214466145,
+      2.5505375955157543,
+      2.108087759727228,
+      1.742391098459036,
+      1.4401329954034334,
+      1.1903085629190187,
+      0.983821966082676,
+      0.8131552532674106,
+      0.6720946357288596,
+      0.5555042503389704,
+      0.4591391684148967,
+      0.37949084249866083,
+      0.3136593639735113,
+      0.2592478805562082,
+      0.2142753295213653,
+      0.1771043093697924,
+      0.1463814638270042,
+      0.12098820761834776,
+      0.10000000000000003
+    ],
+    "block_length": 13,
+    "block_rule": "non_overlapping",
+    "burn_in_steps": 800000,
+    "chains_per_run": 8,
+    "dt": 0.002,
+    "entry_events_per_phase": [
+      3071,
+      978,
+      1353,
+      1119
+    ],
+    "estimates": {
+      "binder_cumulant": 0.48185870445738854,
+      "coherence_mean": 0.007478188529734247,
+      "coherence_sd": 0.0022533265713188433,
+      "connected_two_point_correlation": [
+        1.8936021207613765,
+        1.8898630264965097,
+        1.886904498912459,
+        1.8846646238691318,
+        1.8830980867138423,
+        1.8821723403119963,
+        1.8818684322425774
+      ],
+      "energy_per_site_mean": 0.1256466271096421,
+      "energy_per_site_sd": 0.036420291695526,
+      "energy_per_site_variance": 0.0013264376471872,
+      "heat_capacity_per_site": 1.0187041130397694,
+      "kink_density_mean": 5.823863636363635e-05,
+      "order_parameter_mean": [
+        -0.07192544088548887,
+        -0.12091113480887988
+      ],
+      "phase_outside_mass": 0.0,
+      "phase_probabilities": [
+        0.32338068181868407,
+        0.21302840909108045,
+        0.23783806818206393,
+        0.22575284090930042
+      ],
+      "susceptibility": [
+        [
+          90.93631739380756,
+          8.36184321255735
+        ],
+        [
+          8.36184321255735,
+          90.09520254517786
+        ]
+      ],
+      "two_point_correlation": [
+        1.9133948923287196,
+        1.9096557980638529,
+        1.9066972704798022,
+        1.904457395436475,
+        1.9028908582811854,
+        1.9019651118793395,
+        1.9016612038099205
+      ]
+    },
+    "first_saved_step": 800200,
+    "init_phases": [
+      "--",
+      "-+",
+      "+-",
+      "++"
+    ],
+    "init_sigma": 0.05,
+    "kernel": "mh_corrected_mala_with_recomputed_reverse_drift",
+    "last_saved_step": 3000000,
+    "mala_acceptance_per_replica": [
+      0.9106283125,
+      0.9106505,
+      0.9106616041666666,
+      0.91068325,
+      0.9107347916666667,
+      0.9107995,
+      0.9108008854166667,
+      0.9107989479166667,
+      0.9108815729166667,
+      0.91082353125,
+      0.9108333854166667,
+      0.9108958854166667,
+      0.9108067395833334,
+      0.9108245416666667,
+      0.9107895416666667,
+      0.910814625,
+      0.9106879479166666,
+      0.910646,
+      0.9105950625,
+      0.9104670729166666,
+      0.9103989166666666,
+      0.9102973645833333,
+      0.91016384375,
+      0.9100695416666666
+    ],
+    "max_integrated_autocorrelation_time": 6.485733945459477,
+    "n_blocks_per_chain": 846,
+    "n_blocks_total": 27072,
+    "n_chains": 32,
+    "n_checkpoints": 11000,
+    "n_replicas": 24,
+    "n_runs": 4,
+    "phase_indices": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "phase_visits_per_chain": [
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4,
+      4
+    ],
+    "seeds": [
+      20260805,
+      20260806,
+      20260807,
+      20260808
+    ],
+    "standard_errors": {
+      "binder_cumulant": 4.848964128489018e-05,
+      "coherence_mean": 3.956312674718026e-06,
+      "coherence_sd": 3.105824607172728e-06,
+      "connected_two_point_correlation": [
+        0.0009707405694101709,
+        0.0009707597664532383,
+        0.000970844764411109,
+        0.0009708567572215706,
+        0.0009709412875997975,
+        0.000971050384182683,
+        0.0009710343527819045
+      ],
+      "energy_per_site_mean": 6.444049027955876e-05,
+      "energy_per_site_sd": 4.974738259981818e-05,
+      "energy_per_site_variance": 3.6234603419131957e-06,
+      "heat_capacity_per_site": 0.002782817542589334,
+      "kink_density_mean": 6.485638007246408e-06,
+      "order_parameter_mean": [
+        0.0023425738338480684,
+        0.0024214069247383957
+      ],
+      "phase_outside_mass": 0.0,
+      "phase_probabilities": [
+        0.0011552619102947362,
+        0.0009978932158951142,
+        0.00104056926119666,
+        0.0010086218731733042
+      ],
+      "susceptibility": [
+        [
+          0.05911687428886193,
+          0.22042212231374708
+        ],
+        [
+          0.22042212231374708,
+          0.07146533265704627
+        ]
+      ],
+      "two_point_correlation": [
+        0.0006858270093501352,
+        0.0006858363562017141,
+        0.000685926060044447,
+        0.0006860500556539477,
+        0.0006862129603570202,
+        0.0006863816361033469,
+        0.0006863934668768779
+      ]
+    },
+    "swap_acceptance_per_pair": [
+      0.6403622916666667,
+      0.6400790625,
+      0.6393253125,
+      0.6396369791666666,
+      0.6408753125,
+      0.6433183333333333,
+      0.6452271875,
+      0.6472976041666667,
+      0.6499444791666666,
+      0.6516351041666667,
+      0.6527014583333334,
+      0.6540648958333334,
+      0.65468375,
+      0.6550547916666667,
+      0.6553302083333333,
+      0.6559145833333333,
+      0.6559442708333333,
+      0.6560683333333334,
+      0.6561980208333333,
+      0.656484375,
+      0.6564288541666666,
+      0.6568403125,
+      0.6572166666666667
+    ],
+    "swap_interval": 5,
+    "thinning": 200,
+    "total_steps": 3000000
+  },
+  "reference_validated": false,
+  "sample_bank": {
+    "dimension": 24,
+    "n_samples": 352000,
+    "sampling_policy": "sample(n) draws without replacement when n <= bank size and with replacement otherwise; the choice is recorded in the returned draw record",
+    "source": "pt_mala_cold_replica_unweighted"
+  },
+  "snis": {
+    "cross_check": {
+      "bootstrap_replicates": 2000,
+      "bootstrap_seed": 90210,
+      "bootstrap_units": [
+        "pt_blocks",
+        "snis_runs"
+      ],
+      "susceptibility_relative_frobenius": 0.0009259685594975064,
+      "susceptibility_relative_frobenius_se": 0.001421071699579297,
+      "two_point_correlation_relative_l2": 1.4068046953509013e-05,
+      "two_point_correlation_relative_l2_se": 0.00023046017601968682
+    },
+    "diagnostics": {
+      "coherence_upper_decile_threshold": 0.010467013721308115,
+      "coverage_coherence_upper_decile_count": 199624,
+      "coverage_nonzero_kink_count": 43387,
+      "coverage_nonzero_kink_weighted_effective_count": 34583.40149999253,
+      "coverage_nonzero_kink_weighted_mass": 0.00028003199896465674,
+      "ess_fraction": 0.699861545004093,
+      "importance_sampling_ess": 1399723.0900081862,
+      "max_normalized_weight": 4.92361037635249e-05,
+      "n_proposals": 2000000,
+      "per_run": [
+        {
+          "coherence_mean": 0.007471357304865116,
+          "coherence_mean_se": 3.7929149060235537e-06,
+          "energy_per_site_mean": 0.1254830773108202,
+          "energy_per_site_mean_se": 6.549742444869257e-05,
+          "order_parameter_mean": [
+            -0.06752800030750641,
+            -0.12173193818996529
+          ],
+          "order_parameter_mean_se": [
+            0.0015415502277588487,
+            0.0015328736825582139
+          ],
+          "phase_probabilities": [
+            0.3229642948878842,
+            0.21162661080669076,
+            0.23890166324495965,
+            0.22650743106046545
+          ],
+          "phase_probabilities_se": [
+            0.0007889361082027319,
+            0.000686305245247836,
+            0.0007176453591280582,
+            0.0006980335986222402
+          ],
+          "susceptibility": [
+            [
+              91.02798351361807,
+              8.401671067860061
+            ],
+            [
+              8.401671067860061,
+              90.08425387405057
+            ]
+          ],
+          "susceptibility_se": [
+            [
+              0.05439483252847161,
+              0.13443793766972276
+            ],
+            [
+              0.13443793766972276,
+              0.061274548906742485
+            ]
+          ]
+        },
+        {
+          "coherence_mean": 0.007483371503817575,
+          "coherence_mean_se": 3.863138003854857e-06,
+          "energy_per_site_mean": 0.12564302580848896,
+          "energy_per_site_mean_se": 6.706440701628269e-05,
+          "order_parameter_mean": [
+            -0.06805774923440278,
+            -0.1192876490173174
+          ],
+          "order_parameter_mean_se": [
+            0.0015430184748088768,
+            0.0015376378951008688
+          ],
+          "phase_probabilities": [
+            0.3223443433487515,
+            0.2120661218297233,
+            0.23823926060009926,
+            0.2273502742214259
+          ],
+          "phase_probabilities_se": [
+            0.0007883972455802281,
+            0.0006837742153658341,
+            0.0007127226348200734,
+            0.0007115170330924407
+          ],
+          "susceptibility": [
+            [
+              91.01799013295863,
+              8.438995754693337
+            ],
+            [
+              8.438995754693337,
+              90.14613382754305
+            ]
+          ],
+          "susceptibility_se": [
+            [
+              0.054576585407730374,
+              0.13456509220600352
+            ],
+            [
+              0.13456509220600352,
+              0.06059976970331905
+            ]
+          ]
+        },
+        {
+          "coherence_mean": 0.007480101800722436,
+          "coherence_mean_se": 4.023761560525533e-06,
+          "energy_per_site_mean": 0.12564903163975846,
+          "energy_per_site_mean_se": 7.377081824047979e-05,
+          "order_parameter_mean": [
+            -0.06896133214126735,
+            -0.11840333286327512
+          ],
+          "order_parameter_mean_se": [
+            0.0015525263333722374,
+            0.001543948423441782
+          ],
+          "phase_probabilities": [
+            0.322489375244045,
+            0.21246255606549408,
+            0.23747527393196832,
+            0.22757279475849257
+          ],
+          "phase_probabilities_se": [
+            0.0007913343127818622,
+            0.0006931860933630708,
+            0.0007156814587252543,
+            0.0007261410117911349
+          ],
+          "susceptibility": [
+            [
+              91.01224907987582,
+              8.498736315063855
+            ],
+            [
+              8.498736315063855,
+              90.10895420180725
+            ]
+          ],
+          "susceptibility_se": [
+            [
+              0.05585871803559826,
+              0.13478877452343901
+            ],
+            [
+              0.13478877452343901,
+              0.061801732946029204
+            ]
+          ]
+        },
+        {
+          "coherence_mean": 0.007472936709872349,
+          "coherence_mean_se": 3.952081730799973e-06,
+          "energy_per_site_mean": 0.12556716355091763,
+          "energy_per_site_mean_se": 7.167950577582773e-05,
+          "order_parameter_mean": [
+            -0.06762666813682724,
+            -0.11771755918131324
+          ],
+          "order_parameter_mean_se": [
+            0.0015486591312693608,
+            0.0015401064153149381
+          ],
+          "phase_probabilities": [
+            0.3213522768033228,
+            0.2128377886725672,
+            0.23837882348278655,
+            0.22743111104132344
+          ],
+          "phase_probabilities_se": [
+            0.0007895079060848208,
+            0.0006891649388595635,
+            0.0007395726581606197,
+            0.0007066303330093574
+          ],
+          "susceptibility": [
+            [
+              90.93769674697857,
+              8.386428328833734
+            ],
+            [
+              8.386428328833734,
+              90.13841623918796
+            ]
+          ],
+          "susceptibility_se": [
+            [
+              0.055950193430227106,
+              0.13482533056749924
+            ],
+            [
+              0.13482533056749924,
+              0.0625266173293126
+            ]
+          ]
+        }
+      ],
+      "proposal_kink_weight_share": 0.05,
+      "proposal_phase_counts": [
+        640336,
+        427206,
+        478343,
+        454115
+      ],
+      "proposal_phase_fractions": [
+        0.320168,
+        0.213603,
+        0.2391715,
+        0.2270575
+      ],
+      "weighted_effective_count_per_phase": [
+        452192.0406765342,
+        300793.5513057803,
+        331685.2753152587,
+        315136.8759596342
+      ],
+      "weighted_kink_density": 6.60391625555929e-05
+    },
+    "influence_standard_errors": {
+      "coherence_mean": 0.007476939681562886,
+      "coherence_mean_se": 1.954536130259392e-06,
+      "energy_per_site_mean": 0.12558556226968995,
+      "energy_per_site_mean_se": 3.479438225539288e-05,
+      "order_parameter_mean": [
+        -0.06804346463300973,
+        -0.119284753561907
+      ],
+      "order_parameter_mean_se": [
+        0.000773223688819725,
+        0.0007693284566050207
+      ],
+      "phase_probabilities": [
+        0.3222874195393928,
+        0.21224844522594996,
+        0.23824869398410758,
+        0.22721544125054963
+      ],
+      "phase_probabilities_se": [
+        0.00039477668996479136,
+        0.00034405923137090157,
+        0.0003607511897091973,
+        0.0003553318408281045
+      ],
+      "susceptibility": [
+        [
+          90.99880127237346,
+          8.431403472672311
+        ],
+        [
+          8.431403472672311,
+          90.1194622770705
+        ]
+      ],
+      "susceptibility_se": [
+        [
+          0.027600454197038455,
+          0.06732747628571258
+        ],
+        [
+          0.06732747628571258,
+          0.03077710903995613
+        ]
+      ]
+    },
+    "n_runs": 4,
+    "proposal": {
+      "beta": 8.0,
+      "component_block": [
+        "coherent",
+        "coherent",
+        "coherent",
+        "coherent",
+        "kink",
+        "kink",
+        "kink",
+        "kink"
+      ],
+      "component_weights": [
+        0.3066750372618951,
+        0.20120931174208204,
+        0.22601943992309656,
+        0.21609621107292618,
+        0.013187832273775736,
+        0.013984541153644062,
+        0.011082009870421922,
+        0.011745616702158351
+      ],
+      "covariance_rule": "Sigma_s = (H_s + reg I)^-1 / beta",
+      "dimension": 24,
+      "family": "laplace_gaussian_mixture",
+      "hessian_regularization": 1e-06,
+      "kink_components": {
+        "candidates": [
+          {
+            "energy_after_relaxation": 0.0199510370509546,
+            "energy_before_relaxation": 11.822270190187988,
+            "gradient_norm_after_relaxation": 6.139205277408602e-05,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "--|-+",
+            "wall_separation_sites": 3
+          },
+          {
+            "energy_after_relaxation": 0.01995115858534295,
+            "energy_before_relaxation": 52.169219106273864,
+            "gradient_norm_after_relaxation": 0.0004050607655495412,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "--|-+",
+            "wall_separation_sites": 6
+          },
+          {
+            "energy_after_relaxation": 0.01995103720662674,
+            "energy_before_relaxation": 111.2824392435596,
+            "gradient_norm_after_relaxation": 6.304263788108313e-05,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "--|-+",
+            "wall_separation_sites": 9
+          },
+          {
+            "energy_after_relaxation": 0.00497453949675101,
+            "energy_before_relaxation": 11.81071640944176,
+            "gradient_norm_after_relaxation": 5.948981177553566e-05,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "--|+-",
+            "wall_separation_sites": 3
+          },
+          {
+            "energy_after_relaxation": 0.004974650879032452,
+            "energy_before_relaxation": 52.161351438671915,
+            "gradient_norm_after_relaxation": 0.00038842673473463515,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "--|+-",
+            "wall_separation_sites": 6
+          },
+          {
+            "energy_after_relaxation": 0.004974539642575484,
+            "energy_before_relaxation": 111.27304744514792,
+            "gradient_norm_after_relaxation": 6.10899726287954e-05,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "--|+-",
+            "wall_separation_sites": 9
+          },
+          {
+            "energy_after_relaxation": 0.009998052313282504,
+            "energy_before_relaxation": 11.826702633564324,
+            "gradient_norm_after_relaxation": 5.3583551799169974e-05,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "-+|++",
+            "wall_separation_sites": 3
+          },
+          {
+            "energy_after_relaxation": 0.009998135872944739,
+            "energy_before_relaxation": 52.188122780694066,
+            "gradient_norm_after_relaxation": 0.0003383119026968362,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "-+|++",
+            "wall_separation_sites": 6
+          },
+          {
+            "energy_after_relaxation": 0.00999805243066338,
+            "energy_before_relaxation": 111.2925003965026,
+            "gradient_norm_after_relaxation": 5.5027080795382226e-05,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "-+|++",
+            "wall_separation_sites": 9
+          },
+          {
+            "energy_after_relaxation": 0.009998052458284112,
+            "energy_before_relaxation": 11.823494324306136,
+            "gradient_norm_after_relaxation": 5.5283731060151054e-05,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "+-|++",
+            "wall_separation_sites": 3
+          },
+          {
+            "energy_after_relaxation": 0.009998143475532678,
+            "energy_before_relaxation": 52.18193104621942,
+            "gradient_norm_after_relaxation": 0.0003525006521587494,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "+-|++",
+            "wall_separation_sites": 6
+          },
+          {
+            "energy_after_relaxation": 0.009998052583523313,
+            "energy_before_relaxation": 111.28886295130094,
+            "gradient_norm_after_relaxation": 5.677236053850583e-05,
+            "kink_density_after_relaxation": 0.0,
+            "kink_density_before_relaxation": 0.16666666666666666,
+            "outcome": "pair_annihilated_to_homogeneous_state",
+            "phase_pair": "+-|++",
+            "wall_separation_sites": 9
+          }
+        ],
+        "components": [
+          {
+            "family": "homogeneous_phase_boundary_saddle",
+            "mean_energy": 0.992591101162577,
+            "phase_pair": "--|-+",
+            "reason": "every kink/antikink candidate for this pair annihilated under relaxation",
+            "reflected_eigenvalues": [
+              -0.3332871065712453
+            ],
+            "site_value": [
+              -1.0009254676532726,
+              0.006878217494032499
+            ]
+          },
+          {
+            "family": "homogeneous_phase_boundary_saddle",
+            "mean_energy": 0.9850360810812231,
+            "phase_pair": "--|+-",
+            "reason": "every kink/antikink candidate for this pair annihilated under relaxation",
+            "reflected_eigenvalues": [
+              -0.33330935492262403
+            ],
+            "site_value": [
+              0.005005944116841256,
+              -1.0018619745607344
+            ]
+          },
+          {
+            "family": "homogeneous_phase_boundary_saddle",
+            "mean_energy": 1.014989006710007,
+            "phase_pair": "-+|++",
+            "reason": "every kink/antikink candidate for this pair annihilated under relaxation",
+            "reflected_eigenvalues": [
+              -0.3333328746653144
+            ],
+            "site_value": [
+              -0.0012441198790400477,
+              0.9981177450715707
+            ]
+          },
+          {
+            "family": "homogeneous_phase_boundary_saddle",
+            "mean_energy": 1.0074972696709594,
+            "phase_pair": "+-|++",
+            "reason": "every kink/antikink candidate for this pair annihilated under relaxation",
+            "reflected_eigenvalues": [
+              -0.33333402614277363
+            ],
+            "site_value": [
+              0.9990621622451238,
+              0.0006279309905755001
+            ]
+          }
+        ],
+        "construction": "kink/antikink pair means from a tanh wall profile, relaxed by gradient descent onto a critical point; a pair that annihilates is replaced by the homogeneous phase-boundary saddle for the same phase pair",
+        "continuum_wall_width_sites": 13.416407864998739,
+        "n_candidates": 12,
+        "n_candidates_surviving_relaxation": 0,
+        "n_components": 4,
+        "phase_pairs": [
+          "--|-+",
+          "--|+-",
+          "-+|++",
+          "+-|++"
+        ],
+        "positive_definite_rule": "a kink mean need not be a minimum, so the Hessian eigenvalues are reflected lambda -> |lambda| where negative and left alone otherwise; they are never clamped, so the width along an unstable direction stays 1 / sqrt(beta |lambda|), the curvature scale of the barrier itself. The reflected eigenvalues are listed per component.",
+        "relaxation_steps": 4000,
+        "wall_fits_on_the_chain": false,
+        "wall_separations_sites": [
+          3,
+          6,
+          9
+        ],
+        "wall_width_sites": 2.0
+      },
+      "kink_weight_share": 0.05,
+      "log_component_weights": [
+        -1.1819666025604507,
+        -1.603409560803222,
+        -1.4871342660502977,
+        -1.532031548834823,
+        -4.328460671947573,
+        -4.269802762759637,
+        -4.502432217865843,
+        -4.444275154615992
+      ],
+      "n_coherent_components": 4,
+      "n_components": 8,
+      "n_kink_components": 4,
+      "realised_kink_weight_share": 0.05000000000000007,
+      "weight_rule": "omega_s ~ exp(-beta V(mu_s)) det(H_s + reg I)^-1/2 normalised within each block; the coherent block then carries 1 - kink_weight_share and the kink block kink_weight_share"
+    },
+    "proposals_per_run": 500000,
+    "seeds": [
+      31337,
+      31338,
+      31339,
+      31340
+    ],
+    "usage": "weights are used directly for weighted estimates; SNIS is not a second unweighted sample bank",
+    "weighted_estimates": {
+      "binder_cumulant": 0.481932827626223,
+      "coherence_mean": 0.007476939681562886,
+      "coherence_sd": 0.0022569823012534352,
+      "connected_two_point_correlation": [
+        1.8945078975113896,
+        1.8907694276706082,
+        1.8878116690845617,
+        1.8855740716409064,
+        1.8840076818822147,
+        1.8830800478756906,
+        1.8827730753884138
+      ],
+      "energy_per_site_mean": 0.12558556226968995,
+      "energy_per_site_sd": 0.03647845275801853,
+      "energy_per_site_variance": 0.00133067751561899,
+      "heat_capacity_per_site": 1.0219603319953843,
+      "kink_density_mean": 6.60391625555929e-05,
+      "order_parameter_mean": [
+        -0.06804346463300971,
+        -0.11928475356190704
+      ],
+      "phase_outside_mass": 0.0,
+      "phase_probabilities": [
+        0.3222874195393977,
+        0.2122484452259532,
+        0.23824869398410686,
+        0.2272154412505531
+      ],
+      "susceptibility": [
+        [
+          90.99880127237346,
+          8.431403472672311
+        ],
+        [
+          8.431403472672313,
+          90.11946227707051
+        ]
+      ],
+      "two_point_correlation": [
+        1.9133666630229782,
+        1.9096281931821968,
+        1.9066704345961503,
+        1.904432837152495,
+        1.9028664473938033,
+        1.9019388133872792,
+        1.9016318409000024
+      ]
+    }
+  },
+  "validation": {
+    "acceptance_file": "/home/zheyuanlai/levy-sampling/configs/experiments/E4_reference_acceptance.yaml",
+    "failed_gates": [
+      "pt_half_run_consistency_energy_per_site_run2",
+      "pt_half_run_consistency_my_run2",
+      "pt_half_run_consistency_coherence_run2"
+    ],
+    "n_failed": 3,
+    "n_gates": 73
+  }
+}

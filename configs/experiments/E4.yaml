@@ -49,9 +49,16 @@ initial_condition:
   sigma: 0.05
 
 protocol:
-  particles: 1000
-  seeds: 8
-  final_time: 100.0
+  # REDUCED SCALE. Particles, seeds and final_time are all cut below the
+  # full production values so the whole campaign completes. This is the
+  # explicit temporary edit to the single default configuration that
+  # AGENTS.md allows -- it is deliberately NOT a second smoke/dev profile,
+  # and there is still exactly one configuration per experiment. Seeds
+  # stay at 4 so seed-level uncertainty remains estimable; going lower
+  # would leave the error bands meaningless.
+  particles: 400
+  seeds: 4
+  final_time: 25.0
   initial_dt: 0.002
 
 taming:
@@ -60,7 +67,13 @@ taming:
   cp_cap: null
 
 score:
-  q_theta: 16
+  # q_theta 32, not 16: the theta rule is not converged at 16. On E1 the
+  # independent dense-theta reference (shell_score_dense_theta, 200,001-node
+  # Simpson) agrees with 32 and 64 to seven digits and differs from 16 by 33%,
+  # and the frozen self-convergence gate rejects 16 on E1-E3. Doubling q_rho
+  # moves nothing, so the radial rule was already resolved. This doubles the
+  # LSC score potential-evaluation cost, which the FEE axes report honestly.
+  q_theta: 32
   q_rho: 8
   m_max: 600.0
   # The chain admits an exact moment-based V(x - r) - V(x) for homogeneous
@@ -78,7 +91,7 @@ checkpoints:
   include_terminal: true
 
 plot_snapshots:
-  time_values: [1.0, 10.0, 40.0, 100.0]
+  time_values: [1.0, 5.0, 12.5, 25.0]
   max_points_per_seed: 2000
 
 reference:
@@ -89,12 +102,38 @@ reference:
     n_runs: 4
     init_phases: ["--", "-+", "+-", "++"]
     chains_per_run: 8
-    beta_min: 1.0
-    n_replicas: 12
-    swap_interval: 10
+    beta_min: 0.1
+    # 24, not 12: beta_min fell 1.0 -> 0.1, so the ladder now spans a factor of
+    # 80. With 12 replicas adjacent betas sit at 80^(1/11) ~ 1.47 apart, which
+    # depresses swap acceptance and stops the hot replica's mixing reaching the
+    # cold chain -- which is why doubling burn-in at beta_min 0.1 did not beat
+    # beta_min 0.25. At 24 replicas the ratio is 80^(1/23) ~ 1.20.
+    n_replicas: 24
+    swap_interval: 5
     dt: 0.002
-    burn_in_steps: 200000
-    total_steps: 2000000
+    # The 2,000,000-step build failed three half-run consistency gates and the
+    # PT-vs-SNIS <mx> cross-check; extending to 6,000,000 failed five, because
+    # these gates are denominated in standard errors and a longer run shrinks
+    # the SE faster than it removes the drift (energy per site differed by only
+    # 0.3% yet missed at 2.26 SE). The magnetization drift was real, so the
+    # binding problem is phase mixing, not run length: that is the second step
+    # of the frozen escalation order.
+    #
+    # beta_min 1.0 -> 0.25 -> 0.1 so the hottest replica is genuinely above the
+    # inter-phase barriers and can ferry walkers between the four phases.
+    # total_steps returns to 2,000,000 in proportion with the approved
+    # reduction of particles, seeds and final_time -- stated plainly: the
+    # shorter run is a scale decision, NOT a way to widen the gates by
+    # inflating their standard errors.
+    #
+    # Second mixing iteration. beta_min 0.25 cut the failures from five to two,
+    # both on mx: run 0 (started in phase "--") still drifts -0.0415 -> -0.1219
+    # across its halves, a 0.08 physical shift rather than an SE artifact, and
+    # the PT-vs-SNIS <mx> cross-check sits marginally over its 0.01 floor. So
+    # the hottest replica goes to beta_min 0.1, swaps are attempted twice as
+    # often, and burn-in doubles to let run 0 leave its starting phase.
+    burn_in_steps: 800000
+    total_steps: 3000000
     thinning: 200
     seed_base: 20260805
   snis:

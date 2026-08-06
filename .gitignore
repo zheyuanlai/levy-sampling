@@ -1,20 +1,19 @@
-# Git holds the SOURCE package: src/, configs/, notebooks/, scripts/, tests/,
-# README, and the environment lock. That is everything needed to run from zero.
+# This branch carries the FROZEN RELEASE, not only the source package. On top
+# of src/, configs/, notebooks/, scripts/, tests/, README and the environment
+# lock, results/, figures/, resolved_configs/, manifests/ and
+# executed_notebooks/ are tracked here so the evidence behind every figure
+# lives at the same revision as the code that produced it.
 #
-# The FROZEN RELEASE additionally carries results, figures, resolved configs,
-# manifests, and executed notebooks. It is assembled by
-# `scripts/build_release.py --frozen`, which zips the working tree, so those
-# artifacts do not need to be tracked here.
+# The E4 reference sample banks are written as uncompressed float64 .npz and
+# exceed GitHub's 100 MB per-file limit, so they go through git-lfs; see
+# .gitattributes. `scripts/build_release.py --frozen` still zips the working
+# tree for a standalone archive.
 
-# Run artifacts. Every variant writes its own directory under
-# results/<experiment>/runs/<method>/<run-id>/, all of it regenerable from the
-# source package, and catalog.csv is a derived index.
-results/
-figures/
-executed_notebooks/
 dist/
 
-# Reusable numerical caches: basin maps, FEE calibrations, reference banks.
+# Reusable numerical caches. These stay untracked: they are keyed by device and
+# software version, so another machine must measure its own rather than adopt
+# ours. Every one of them rebuilds on demand.
 cache/
 .matplotlib-cache/
 
@@ -31,3 +30,13 @@ __pycache__/
 # Internal working notes, kept local.
 REVISION_NOTES.md
 REVISION_NOTES_manuscript.md
+
+# E4's reference build never passed its frozen acceptance gates, so
+# reference_validated is false and no run may cite it. Its raw PT and SNIS
+# sample banks are 110 MB and 519 MB of uncompressed float64 -- both over
+# GitHub's 100 MB per-file limit, and not worth ~630 MB of LFS quota for data
+# nothing is allowed to use. The substantive evidence, reference_validation.json
+# with its 73 gate records, is tracked. Regenerate the banks with
+# `python scripts/build_reference.py E4`.
+results/E4_coupled_quartic_chain/reference/reference_samples_24d.npz
+results/E4_coupled_quartic_chain/reference/reference_snis_weighted_24d.npz

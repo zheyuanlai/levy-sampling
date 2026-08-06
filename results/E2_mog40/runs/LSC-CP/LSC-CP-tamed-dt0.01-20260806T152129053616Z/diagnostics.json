@@ -1,0 +1,104 @@
+{
+  "cumulative": {
+    "boundary_reject_count_cumulative": 1,
+    "boundary_reject_fraction_cumulative": 1e-07,
+    "jump_cap_excess_count_cumulative": 0,
+    "jump_cap_hit_count_cumulative": 0,
+    "jump_cap_hit_fraction_cumulative": 0.0,
+    "jump_count_applied_cumulative": 100060,
+    "jump_count_cumulative": 100060,
+    "jump_rate_per_particle_time_cumulative": 1.0006,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "score_clip_count_cumulative": 0,
+    "score_clip_fraction_cumulative": 0.0
+  },
+  "final_interval_diagnostics": {
+    "boundary_reject_count_cumulative": 1,
+    "boundary_reject_fraction_cumulative": 1e-07,
+    "boundary_rule": "reject",
+    "jump_cap_excess_count_cumulative": 0,
+    "jump_cap_hit_count_cumulative": 0,
+    "jump_cap_hit_fraction_cumulative": 0.0,
+    "jump_cap_k": 8,
+    "jump_count_applied_cumulative": 100060,
+    "jump_count_cumulative": 100060,
+    "jump_count_mean": 0.009949999999999999,
+    "jump_mode": "full_law",
+    "jump_rate_per_particle_time_cumulative": 1.0006,
+    "m_clip_fraction": 0.0,
+    "max_log_magnitude": 228.46301621465938,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "score_clip_count_cumulative": 0,
+    "score_clip_fraction_cumulative": 0.0,
+    "score_evaluation": "pre_step",
+    "splitting": "drift_diffusion_then_jump",
+    "tame_cap": 1.0,
+    "tamed": true
+  },
+  "measurement_suite": {
+    "descriptor": "argmax_k log N(x; mu_k, I)",
+    "descriptor_masses_are_uniform": false,
+    "emc_definition": "-sum_k p_k log p_k / log K",
+    "emc_star": 0.9999986540061276,
+    "emc_star_standard_error": 5.484868327060714e-07,
+    "experiment_id": "E2",
+    "metric_definition_hash": "5471a024550bb71fafef76a952762803",
+    "mmd_bandwidth": 41.95558225644368,
+    "n_projections": 512,
+    "primary_metrics": [
+      "EMC",
+      "mode_weight_JS",
+      "per_mode_occupancy"
+    ],
+    "reference_kind": "exact_gaussian_mixture"
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": true,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": true
+  },
+  "sampler": {
+    "boundary": {
+      "hi": [
+        65.0,
+        65.0
+      ],
+      "kind": "rect",
+      "lo": [
+        -65.0,
+        -65.0
+      ]
+    },
+    "boundary_rule": "reject",
+    "dt": 0.01,
+    "family": "LSC-CP",
+    "intensity": 1.0,
+    "jump_law": {
+      "dimension": 2,
+      "inner_radius": 10.0,
+      "kind": "annulus",
+      "max_reach": 14.0,
+      "outer_radius": 14.0
+    },
+    "jump_mode": "full_law",
+    "method": "LSC-CP",
+    "score": {
+      "estimator_type": "deterministic_quadrature",
+      "extra_potential_per_particle_step": 8192,
+      "m_max": 600.0,
+      "n_quadrature_shifts": 256,
+      "q_theta": 32
+    },
+    "score_evaluation": "pre_step",
+    "splitting": "drift_diffusion_then_jump",
+    "tame_cap": 1.0,
+    "tamed": true
+  }
+}

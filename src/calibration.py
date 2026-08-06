@@ -612,7 +612,12 @@ def tune_pt_ladder(context, variant, dt: float, *, pilot: dict,
                   selected_mixing["round_trip_count"])
         ]),
     }
-    if not gate["pass"]:
+    # Only the enforcing pass may fail the run. The first ladder pass is
+    # invoked with enforce_mixing=False to gate placement before the local
+    # timestep is known, and raising there defeats that: the ladder is always
+    # retuned after dt calibration, and it is that second, enforcing pass which
+    # decides whether PT is admissible.
+    if enforce_mixing and not gate["pass"]:
         raise CalibrationError(
             "pt_ladder", [gate],
             diagnosis=(
@@ -680,10 +685,25 @@ def calibrate_quadrature(context, variant, *, n_probe: int = 256,
         fine_M, fine_v = fine_score.log_parts(probe)
         # Compare in log space: the magnitudes span hundreds of decades, so a
         # relative error on the score vector itself would be meaningless.
-        log_difference = (coarse_M - fine_M).abs()
+        #
+        # The comparison must be on the SCORE's log-magnitude, log|S| = M +
+        # log|v|, not on M alone. ``log_parts`` returns S = -exp(M) v with M
+        # only the per-particle maximum exponent, so refining the rule moves
+        # weight between M and v with no change to the score: doubling the node
+        # count halves every quadrature weight, which drops M by log 2 and
+        # doubles |v|. Comparing M alone therefore reported a fixed ~0.693
+        # discrepancy for a perfectly converged rule and failed every LSC-CP
+        # variant on E1-E3. The tolerances below are unchanged; only the
+        # quantity they are applied to is corrected.
+        tiny = torch.finfo(coarse_v.dtype).tiny
+        coarse_log_magnitude = (
+            coarse_M + torch.log(coarse_v.norm(dim=1).clamp_min(tiny)))
+        fine_log_magnitude = (
+            fine_M + torch.log(fine_v.norm(dim=1).clamp_min(tiny)))
+        log_difference = (coarse_log_magnitude - fine_log_magnitude).abs()
         direction_difference = (
-            (coarse_v / coarse_v.norm(dim=1, keepdim=True).clamp(min=1e-300))
-            - (fine_v / fine_v.norm(dim=1, keepdim=True).clamp(min=1e-300))
+            (coarse_v / coarse_v.norm(dim=1, keepdim=True).clamp_min(tiny))
+            - (fine_v / fine_v.norm(dim=1, keepdim=True).clamp_min(tiny))
         ).norm(dim=1)
     quadrature_rules = ((context.method_configs.get(variant.method, {})
                          .get("calibration", {}) or {})

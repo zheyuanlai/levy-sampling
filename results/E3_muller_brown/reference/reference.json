@@ -1,0 +1,160 @@
+{
+  "aux_std": 0.08164965809277261,
+  "aux_std_formula": "sigma_aux / sqrt(beta): the Boltzmann marginal of the auxiliary latent block exp(-beta ||z_aux||^2 / (2 sigma_aux^2)) is N(0, sigma_aux^2 / beta), not N(0, sigma_aux^2)",
+  "basin_labels": [
+    "A",
+    "B",
+    "C"
+  ],
+  "basin_map": {
+    "cache_schema_version": 1,
+    "dt_flow": 0.00015,
+    "hi": [
+      1.9,
+      2.6
+    ],
+    "lo": [
+      -2.0,
+      -1.3
+    ],
+    "minima": [
+      [
+        -0.5871601649756937,
+        1.4127033993358957
+      ],
+      [
+        -0.0654708434083286,
+        0.4754573002288175
+      ],
+      [
+        0.5739323892322219,
+        0.038561532732948794
+      ]
+    ],
+    "n_flow": 40000,
+    "n_grid": 600
+  },
+  "basin_masses": {
+    "A": 0.3102247587087936,
+    "B": 0.42092296292811415,
+    "C": 0.26885227836309217
+  },
+  "build_device": "cuda",
+  "cell_area": 2.6406250000000002e-06,
+  "cell_size": [
+    0.001625,
+    0.0016250000000000001
+  ],
+  "cv_sample_bank_shape": [
+    400000,
+    2
+  ],
+  "experiment_id": "E3",
+  "fes_convention": "F_ref(z) = -beta^{-1} log p_ref(z) + C with C chosen so that min_z F_ref(z) = 0 over the grid; equivalently F_ref = V_MB - min V_MB, since p_ref ~ exp(-beta V_MB). Units are energy, not kT.",
+  "fes_max": 5212.0133736216285,
+  "kde_bandwidth": 0.05788643340152307,
+  "kde_bandwidth_rule": "silverman_on_reference_bank",
+  "kind": "cv_grid_density",
+  "mmd_bandwidth": 0.8234540835326268,
+  "mmd_bandwidth_rule": "median_heuristic_on_frozen_cv_bank",
+  "n_auxiliary": 8,
+  "potential_max": 5211.217722735738,
+  "potential_min": -0.7956508858902487,
+  "provenance": {
+    "bank_seed": 424242,
+    "basin_map": {
+      "flow_dt": 0.00015,
+      "flow_steps": 40000,
+      "mass_n_quad": 1200,
+      "n_grid": 600
+    },
+    "beta": 24.0,
+    "collective_variable": "latent_pair_z12",
+    "dimension": 10,
+    "experiment_id": "E3",
+    "grid_shape": [
+      2400,
+      2400
+    ],
+    "kde_bandwidth_rule": "silverman_on_reference_bank",
+    "kde_enabled": true,
+    "kind": "cv_grid_density",
+    "latent_hi": [
+      1.9,
+      2.6
+    ],
+    "latent_lo": [
+      -2.0,
+      -1.3
+    ],
+    "mmd_bandwidth_points": 4096,
+    "mmd_bandwidth_seed": 99,
+    "potential": "muller_brown_3well_10d",
+    "row_chunk": 256,
+    "sample_bank_size": 400000,
+    "sigma_aux": 0.4,
+    "sw2_n_projections": 512,
+    "sw2_seed": 777,
+    "validation": {
+      "histogram_bins": 60,
+      "tolerances": {
+        "bank_histogram_l1_noise_multiple": 3.0,
+        "bank_histogram_max_abs_noise_multiple": 6.0,
+        "fes_consistency_abs": 1e-09,
+        "grid_normalization_abs": 1e-12
+      }
+    }
+  },
+  "provenance_hash": "373ff8bbbeffbab2b2d84f6b793ee955",
+  "validation": {
+    "checks": [
+      {
+        "check": "grid_normalization",
+        "passed": true,
+        "statistic": "|sum(p_ref) * dA - 1|",
+        "tolerance": 1e-12,
+        "unnormalized_mass": 0.10977066243301464,
+        "value": 1.1102230246251565e-16
+      },
+      {
+        "check": "fes_consistency",
+        "convention": "F_ref(z) = -beta^{-1} log p_ref(z) + C with C chosen so that min_z F_ref(z) = 0 over the grid; equivalently F_ref = V_MB - min V_MB, since p_ref ~ exp(-beta V_MB). Units are energy, not kT.",
+        "density_offset_spread": 1.2212453270876722e-15,
+        "mean_offset": -1.5566543328268988e-15,
+        "nonzero_cells": 5364472,
+        "normal_float_cells": 5351891,
+        "passed": true,
+        "potential_offset_spread": 4.531906965536372e-13,
+        "statistic": "max spread of F_ref - (V_MB - min V_MB) and of F_ref + beta^{-1} log p_ref over representable cells",
+        "tolerance": 1e-09,
+        "total_cells": 5760000,
+        "value": 4.531906965536372e-13
+      },
+      {
+        "bins": [
+          60,
+          60
+        ],
+        "bins_requested": 60,
+        "check": "bank_histogram_l1",
+        "multinomial_l1_noise_floor": 0.014154838970526265,
+        "n_bank": 400000,
+        "passed": true,
+        "ratio_to_noise_floor": 0.9601769259903672,
+        "statistic": "sum_b |p_bank(b) - p_grid(b)|",
+        "tolerance": 0.04246451691157879,
+        "value": 0.013591149770608563
+      },
+      {
+        "check": "bank_histogram_max_abs",
+        "multinomial_max_noise_floor": 0.00028912504239409994,
+        "passed": true,
+        "ratio_to_noise_floor": 1.2889748105136274,
+        "statistic": "max_b |p_bank(b) - p_grid(b)|",
+        "tolerance": 0.0017347502543645997,
+        "value": 0.0003726748967346795
+      }
+    ],
+    "validated": true
+  }
+}

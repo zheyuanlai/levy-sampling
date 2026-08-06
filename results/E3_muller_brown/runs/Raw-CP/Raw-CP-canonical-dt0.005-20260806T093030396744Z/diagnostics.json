@@ -1,0 +1,121 @@
+{
+  "cumulative": {
+    "boundary_reject_count_cumulative": 18671,
+    "boundary_reject_fraction_cumulative": 0.00058346875,
+    "jump_cap_excess_count_cumulative": 0,
+    "jump_cap_hit_count_cumulative": 0,
+    "jump_cap_hit_fraction_cumulative": 0.0,
+    "jump_count_applied_cumulative": 160302,
+    "jump_count_cumulative": 160302,
+    "jump_rate_per_particle_time_cumulative": 1.0018875,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0
+  },
+  "final_interval_diagnostics": {
+    "boundary_reject_count_cumulative": 18671,
+    "boundary_reject_fraction_cumulative": 0.00058346875,
+    "boundary_rule": "reject",
+    "jump_cap_excess_count_cumulative": 0,
+    "jump_cap_hit_count_cumulative": 0,
+    "jump_cap_hit_fraction_cumulative": 0.0,
+    "jump_cap_k": 8,
+    "jump_count_applied_cumulative": 160302,
+    "jump_count_cumulative": 160302,
+    "jump_count_mean": 0.004941737288135595,
+    "jump_mode": "full_law",
+    "jump_rate_per_particle_time_cumulative": 1.0018875,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "score_evaluation": "pre_step",
+    "splitting": "drift_diffusion_then_jump",
+    "tame_cap": "nan",
+    "tamed": false
+  },
+  "measurement_suite": {
+    "collective_variable": "latent pair z_{1:2} = (x B^{-T})_{1:2}",
+    "experiment_id": "E3",
+    "kde_bandwidth": 0.05788643340152307,
+    "metric_definition_hash": "c87203a12406cc5114b7ffa2d8877465",
+    "mmd_bandwidth": 0.8234540835326268,
+    "mmd_bandwidth_rule": "median heuristic, frozen on the CV bank",
+    "n_projections": 512,
+    "primary_metrics": [
+      "CV_SW2",
+      "CV_MMD2_biased"
+    ],
+    "reference_kind": "cv_grid_density"
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "sampler": {
+    "boundary": {
+      "kind": "latent_rect",
+      "latent_hi": [
+        1.9,
+        2.6,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0
+      ],
+      "latent_lo": [
+        -2.0,
+        -1.3,
+        -2.0,
+        -2.0,
+        -2.0,
+        -2.0,
+        -2.0,
+        -2.0,
+        -2.0,
+        -2.0
+      ]
+    },
+    "boundary_rule": "reject",
+    "dt": 0.005,
+    "family": "CP",
+    "intensity": 1.0,
+    "jump_law": {
+      "atom_norms": [
+        0.8689098711296327,
+        0.8689098711296327,
+        0.6006356103031649,
+        0.6006356103031649
+      ],
+      "dimension": 10,
+      "h": [
+        0.060063561030316494,
+        0.060063561030316494,
+        0.060063561030316494,
+        0.060063561030316494
+      ],
+      "kind": "shell",
+      "max_reach": 0.9289734321599492,
+      "n_atoms": 4,
+      "weights": [
+        0.25,
+        0.25,
+        0.25,
+        0.25
+      ]
+    },
+    "jump_mode": "full_law",
+    "method": "Raw-CP",
+    "score_evaluation": "pre_step",
+    "splitting": "drift_diffusion_then_jump",
+    "tame_cap": null,
+    "tamed": false
+  }
+}

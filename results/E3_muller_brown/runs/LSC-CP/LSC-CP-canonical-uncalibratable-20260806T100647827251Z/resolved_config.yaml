@@ -1,0 +1,270 @@
+boundary:
+  kind: latent_rect
+  latent_hi:
+  - 1.9
+  - 2.6
+  - 2.0
+  - 2.0
+  - 2.0
+  - 2.0
+  - 2.0
+  - 2.0
+  - 2.0
+  - 2.0
+  latent_lo:
+  - -2.0
+  - -1.3
+  - -2.0
+  - -2.0
+  - -2.0
+  - -2.0
+  - -2.0
+  - -2.0
+  - -2.0
+  - -2.0
+  rule: reject
+calibration:
+  dt:
+    grid_rule: dyadic_halving
+    max_halvings: 4
+    tolerance: 0.05
+  mala:
+    target_acceptance:
+    - 0.4
+    - 0.75
+  pt:
+    beta_min: null
+    beta_min_rule: two_over_b_AB
+    k_cap: 64
+    k_initial: 8
+    pilot_steps: 20000
+    target_swap_acceptance:
+    - 0.2
+    - 0.4
+  stability:
+    max_boundary_reject_fraction: 0.02
+    max_nonfinite_fraction: 0.0
+    report_score_clip_fraction: true
+checkpoints:
+  dense:
+    count: 60
+    fraction: 0.05
+  include_initial: true
+  include_terminal: true
+  sparse:
+    count: 160
+collective_variable:
+  indices:
+  - 0
+  - 1
+  kind: latent_pair
+display_name: 'E3: extended Muller-Brown (10D)'
+id: E3
+initial_condition:
+  kind: latent_gaussian_blob_at_minimum
+  minimum: C
+  sigma: 0.05
+jump_law:
+  h_rule: 0.1_times_min_atom_norm
+  intensity: 1.0
+  kind: shell_relay
+  relay_edges:
+  - - A
+    - B
+  - - B
+    - A
+  - - C
+    - B
+  - - B
+    - C
+  weights_uniform: true
+metrics:
+  kde_hellinger:
+    bandwidth_rule: silverman_on_reference_bank
+    enabled: true
+    grid_shape:
+    - 200
+    - 200
+  mmd:
+    bandwidth_reference_points: 4096
+    bandwidth_rule: median_heuristic_on_reference_bank
+    kernel: rbf
+  primary:
+  - CV_SW2
+  - CV_MMD2_biased
+  secondary:
+  - CV_MMD2_unbiased
+  - CV_KDE_Hellinger
+  - latent_z1_KS
+  sw2:
+    n_projections: 512
+    projection_seed: 777
+plot_snapshots:
+  max_points_per_seed: 2000
+  time_values:
+  - 2.0
+  - 10.0
+  - 25.0
+  - 50.0
+protocol:
+  final_time: 50.0
+  initial_dt: 0.005
+  particles: 800
+  seeds: 4
+reference:
+  bank_seed: 424242
+  basin_map:
+    flow_dt: 0.00015
+    flow_steps: 40000
+    mass_n_quad: 1200
+    n_grid: 600
+  builder: src.references.e3.build_reference
+  grid_shape:
+  - 2400
+  - 2400
+  latent_bounds:
+  - - -2.0
+    - -1.3
+  - - 1.9
+    - 2.6
+  method: cv_grid_density
+  sample_bank_size: 400000
+resolved:
+  barrier_AB: 0.463396569879044
+  barrier_BC: 0.1646160992903839
+  boundary:
+    kind: latent_rect
+    latent_hi:
+    - 1.9
+    - 2.6
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    latent_lo:
+    - -2.0
+    - -1.3
+    - -2.0
+    - -2.0
+    - -2.0
+    - -2.0
+    - -2.0
+    - -2.0
+    - -2.0
+    - -2.0
+  calibration:
+    calibration_hash: 127714c234c4de8fcea2fe9dac0ebe8b
+    diagnosis: score quadrature did not converge against the doubled rule at the frozen
+      log-magnitude/direction tolerances
+    kind: quadrature
+    next_candidate:
+      q_rho: 16
+      q_theta: 64
+    status: uncalibratable
+    table:
+    - max_abs_log_magnitude_difference: 0.6676712187580582
+      max_direction_difference: 2.779151096009497e-08
+      median_abs_log_magnitude_difference: 0.6639894220701459
+      median_direction_difference: 2.237942726900616e-11
+      n_probe: 256
+      p95_abs_log_magnitude_difference: 0.6670640350043275
+      p95_direction_difference: 6.775186728007589e-09
+      p95_tolerance: 0.2
+      passed: false
+      reference_setting:
+        q_rho: 16
+        q_theta: 64
+      setting:
+        q_rho: 8
+        q_theta: 32
+      shared_across_timesteps: true
+      tolerance: 0.05
+  device:
+    cpu_model: AMD EPYC 9554 64-Core Processor
+    cuda_runtime_version: '13.0'
+    device_index: 0
+    device_type: cuda
+    dtype: float64
+    gpu_capability: '9.0'
+    gpu_name: NVIDIA H200 NVL
+    gpu_total_memory_bytes: 150110011392
+    gpu_uuid: b7477750-5992-8ae3-fde2-11bf70934062
+    matplotlib_version: 3.11.1
+    numpy_version: 2.5.1
+    platform: Linux-6.8.0-90-generic-x86_64-with-glibc2.39
+    python_version: 3.12.13
+    scipy_version: 1.18.0
+    torch_version: 2.13.0+cu130
+  jump_law:
+    atom_norms:
+    - 0.8689098711296327
+    - 0.8689098711296327
+    - 0.6006356103031649
+    - 0.6006356103031649
+    dimension: 10
+    h: 0.060063561030316494
+    h_rule: 0.1 * min ||r_a||
+    kind: shell
+    max_reach: 0.9289734321599492
+    n_atoms: 4
+    relay_edges:
+    - - A
+      - B
+    - - B
+      - A
+    - - C
+      - B
+    - - B
+      - C
+    weights:
+    - 0.25
+    - 0.25
+    - 0.25
+    - 0.25
+  pt_beta_min: 4.315957713113934
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  tame_cap: null
+  taming:
+    cp_cap: 0.12012712206063299
+    cp_cap_rule: 2h
+    default_cap: 1.0
+  variant:
+    family: LSC-CP
+    method: LSC-CP
+    parameters:
+      tame: false
+    rng_pair_group:
+      method_family: LSC-CP
+    rng_pair_group_hash: e71bbd08ba7e81335a987ae53f2cf774
+    tame: false
+    variant_hash: ce06a1214b487d843820179501a08beb
+    variant_label: LSC-CP, canonical
+    variant_slug: LSC-CP-canonical
+schema_version: 2
+score:
+  m_max: 600.0
+  q_rho: 8
+  q_theta: 32
+slug: muller_brown
+taming:
+  cp_cap: null
+  cp_cap_rule: two_h
+  default_cap: 1.0
+target:
+  beta: 24.0
+  builder: src.targets.build_e3_target
+  dimension: 10
+  embedding_seed: 12345
+  potential: muller_brown_3well_10d
+  sigma_aux: 0.4
+  singular_values:
+  - 0.75
+  - 1.45

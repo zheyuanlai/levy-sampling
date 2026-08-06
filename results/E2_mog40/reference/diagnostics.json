@@ -1,0 +1,25 @@
+{
+  "descriptor_definition": "a(x) = argmax_k log N(x; mu_k, I_2) over the 40 mixture components. Equal weights and isotropic unit covariances make this the nearest-centre Voronoi rule, but it is implemented and defined as the argmax of the component log-density.",
+  "emc_star": 0.9999986540061276,
+  "emc_star_miller_madow": 0.9999999755456522,
+  "emc_star_note": "the reference EMC line under the hard component-log-density assignment, as the plug-in estimator on the frozen bank. Its deficit below 1 should be read against emc_star_plugin_bias (K-1)/(2 M log K), the downward bias of any plug-in EMC at bank size M, and against p_star_chi_square_vs_uniform on K-1 degrees of freedom: at this bank size the descriptor masses are not resolvably different from 1/K, so a sampler's own EMC bias at N particles (much larger, same formula with M -> N) dominates any comparison against this line",
+  "emc_star_plugin_bias": 1.321539524573857e-06,
+  "emc_star_standard_error": 5.484868327060714e-07,
+  "emc_star_standard_error_method": {
+    "block_size": 20000,
+    "bootstrap_mean_emc": 0.9999973331321133,
+    "method": "block_bootstrap",
+    "n_blocks": 200,
+    "n_replicates": 200,
+    "seed": 515151
+  },
+  "mmd_bandwidth": 41.95558225644368,
+  "p_star_chi_square_dof": 39,
+  "p_star_chi_square_vs_uniform": 39.700140000000005,
+  "p_star_max": 0.025124,
+  "p_star_max_abs_deviation_from_uniform": 0.00018725000000000339,
+  "p_star_max_over_min": 1.012543954217086,
+  "p_star_min": 0.024812749999999998,
+  "p_star_total_variation_from_uniform": 0.001239999999999998,
+  "p_star_uniform": 0.025
+}

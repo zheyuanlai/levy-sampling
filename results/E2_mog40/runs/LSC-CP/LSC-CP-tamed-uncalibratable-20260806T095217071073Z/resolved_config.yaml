@@ -1,0 +1,186 @@
+boundary:
+  hi:
+  - 65.0
+  - 65.0
+  kind: rect
+  lo:
+  - -65.0
+  - -65.0
+  rule: reject
+calibration:
+  dt:
+    grid_rule: dyadic_halving
+    max_halvings: 6
+    tolerance: 0.05
+  mala:
+    target_acceptance:
+    - 0.4
+    - 0.75
+  pt:
+    beta_min: 0.025
+    k_cap: 64
+    k_initial: 8
+    pilot_steps: 20000
+    target_swap_acceptance:
+    - 0.2
+    - 0.4
+  stability:
+    max_boundary_reject_fraction: 0.02
+    max_nonfinite_fraction: 0.0
+    report_score_clip_fraction: true
+checkpoints:
+  dense:
+    count: 60
+    fraction: 0.05
+  include_initial: true
+  include_terminal: true
+  sparse:
+    count: 160
+display_name: 'E2: 40-mode Gaussian mixture (2D)'
+id: E2
+initial_condition:
+  component: 0
+  kind: gaussian_blob_at_component
+  sigma: 0.5
+jump_law:
+  inner_radius: 10.0
+  intensity: 1.0
+  kind: annulus
+  outer_radius: 14.0
+metrics:
+  mmd:
+    bandwidth_reference_points: 4096
+    bandwidth_rule: median_heuristic_on_reference_bank
+    kernel: rbf
+  primary:
+  - EMC
+  - mode_weight_JS
+  - per_mode_occupancy
+  secondary:
+  - SW2
+  - MMD2_biased
+  - MMD2_unbiased
+  - mode_count_above_threshold
+  - max_occupancy_error
+  sw2:
+    n_projections: 512
+    projection_seed: 777
+plot_snapshots:
+  max_points_per_seed: 2000
+  time_values:
+  - 1.0
+  - 5.0
+  - 12.5
+  - 25.0
+protocol:
+  final_time: 25.0
+  initial_dt: 0.01
+  particles: 1000
+  seeds: 4
+reference:
+  bank_seed: 424242
+  builder: src.references.e2.build_reference
+  descriptor:
+    kind: argmax_component_log_density
+    n_components: 40
+  method: exact_gaussian_mixture
+  sample_bank_size: 4000000
+resolved:
+  boundary:
+    hi:
+    - 65.0
+    - 65.0
+    kind: rect
+    lo:
+    - -65.0
+    - -65.0
+  calibration:
+    calibration_hash: f16101563567bc8965e5a4c8993647a7
+    diagnosis: score quadrature did not converge against the doubled rule at the frozen
+      log-magnitude/direction tolerances
+    kind: quadrature
+    next_candidate:
+      q_rho: 8
+      q_theta: 64
+    status: uncalibratable
+    table:
+    - max_abs_log_magnitude_difference: 1.3238116480501176
+      max_direction_difference: 0.00010599059340041502
+      median_abs_log_magnitude_difference: 1.2966537607477626
+      median_direction_difference: 2.6230860635885672e-05
+      n_probe: 256
+      p95_abs_log_magnitude_difference: 1.3071582073041177
+      p95_direction_difference: 7.370976090746541e-05
+      p95_tolerance: 0.2
+      passed: false
+      reference_setting:
+        q_rho: 8
+        q_theta: 64
+      setting:
+        q_rho: 4
+        q_theta: 32
+      shared_across_timesteps: true
+      tolerance: 0.05
+  device:
+    cpu_model: AMD EPYC 9554 64-Core Processor
+    cuda_runtime_version: '13.0'
+    device_index: 0
+    device_type: cuda
+    dtype: float64
+    gpu_capability: '9.0'
+    gpu_name: NVIDIA H200 NVL
+    gpu_total_memory_bytes: 150110011392
+    gpu_uuid: b7477750-5992-8ae3-fde2-11bf70934062
+    matplotlib_version: 3.11.1
+    numpy_version: 2.5.1
+    platform: Linux-6.8.0-90-generic-x86_64-with-glibc2.39
+    python_version: 3.12.13
+    scipy_version: 1.18.0
+    torch_version: 2.13.0+cu130
+  jump_law:
+    dimension: 2
+    inner_radius: 10.0
+    kind: annulus
+    max_reach: 14.0
+    outer_radius: 14.0
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  tame_cap: 1.0
+  taming:
+    cp_cap: 1.0
+    default_cap: 1.0
+  variant:
+    family: LSC-CP
+    method: LSC-CP
+    parameters:
+      tame: true
+    rng_pair_group:
+      method_family: LSC-CP
+    rng_pair_group_hash: e71bbd08ba7e81335a987ae53f2cf774
+    tame: true
+    variant_hash: 67fe983bcba8cecb4eb040b92e2c557b
+    variant_label: LSC-CP, tamed
+    variant_slug: LSC-CP-tamed
+schema_version: 2
+score:
+  m_max: 600.0
+  m_phi: 64
+  q_rho: 4
+  q_theta: 32
+slug: mog40
+taming:
+  cp_cap: 1.0
+  default_cap: 1.0
+target:
+  beta: 8.0
+  builder: src.targets.build_e2_target
+  center_range:
+  - -40.0
+  - 40.0
+  center_seed: 0
+  dimension: 2
+  n_components: 40
+  potential: mog40

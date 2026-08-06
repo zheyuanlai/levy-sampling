@@ -345,3 +345,51 @@ def test_component_stratified_estimator_is_gone():
 
     for token in forbidden:
         assert not hasattr(score_module, token)
+
+
+def _quadrature_log_magnitudes(target, law, intensity, probe, q_theta, q_rho):
+    """``log|S|`` under one rule, the quantity the certificate must compare."""
+    score = DeterministicShellScore(target, law, intensity,
+                                    q_theta=q_theta, q_rho=q_rho)
+    M, v = score.log_parts(probe)
+    return M, M + v.norm(dim=1).clamp(min=1e-300).log()
+
+
+def test_refining_the_rule_moves_weight_between_M_and_v_but_not_the_score(
+        quartic_target, shell_law):
+    """``S = -exp(M) v``: M alone is not the score's magnitude.
+
+    Doubling the node count halves every quadrature weight, so M falls by about
+    log 2 while |v| doubles and the score is unchanged. A certificate that
+    compares M alone therefore reports a spurious ~0.693 error for a converged
+    rule, which is what failed every LSC-CP variant on E1-E3.
+    """
+    probe = torch.linspace(-1.5, 1.5, 64, dtype=torch.float64).unsqueeze(1)
+    coarse_M, coarse_mag = _quadrature_log_magnitudes(
+        quartic_target, shell_law, 1.0, probe, 32, 8)
+    fine_M, fine_mag = _quadrature_log_magnitudes(
+        quartic_target, shell_law, 1.0, probe, 64, 16)
+
+    assert (coarse_M - fine_M).abs().median().item() == pytest.approx(
+        math.log(2.0), abs=0.05)
+    assert (coarse_mag - fine_mag).abs().median().item() < 1e-3
+
+
+def test_quadrature_certificate_still_rejects_an_under_resolved_rule(
+        quartic_target, shell_law):
+    """The correction must not turn the gate into a rubber stamp."""
+    probe = torch.linspace(-1.5, 1.5, 64, dtype=torch.float64).unsqueeze(1)
+
+    def discrepancy(q_theta):
+        _, coarse = _quadrature_log_magnitudes(
+            quartic_target, shell_law, 1.0, probe, q_theta, 8)
+        _, fine = _quadrature_log_magnitudes(
+            quartic_target, shell_law, 1.0, probe, 2 * q_theta, 16)
+        return (coarse - fine).abs().median().item()
+
+    # This fixture's beta is mild, so its theta integrand is nearly resolved
+    # by 4 nodes already; 2 is the decisively coarse rule here. On E1, where
+    # beta = 8, the same correction rejects everything up to q_theta = 16.
+    assert discrepancy(2) > 0.05, "a 2-node theta rule must not certify"
+    assert discrepancy(32) < 0.05, "a converged rule must certify"
+    assert discrepancy(2) > discrepancy(32)

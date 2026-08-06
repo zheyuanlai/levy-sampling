@@ -31,9 +31,16 @@ initial_condition:
   sigma: 0.05
 
 protocol:
-  particles: 6000
-  seeds: 8
-  final_time: 100.0
+  # REDUCED SCALE. Particles, seeds and final_time are all cut below the
+  # full production values so the whole campaign completes. This is the
+  # explicit temporary edit to the single default configuration that
+  # AGENTS.md allows -- it is deliberately NOT a second smoke/dev profile,
+  # and there is still exactly one configuration per experiment. Seeds
+  # stay at 4 so seed-level uncertainty remains estimable; going lower
+  # would leave the error bands meaningless.
+  particles: 2000
+  seeds: 4
+  final_time: 25.0
   initial_dt: 0.005
 
 taming:
@@ -43,7 +50,13 @@ taming:
   cp_cap: 1.0
 
 score:
-  q_theta: 16
+  # q_theta 32, not 16: the theta rule is not converged at 16. On E1 the
+  # independent dense-theta reference (shell_score_dense_theta, 200,001-node
+  # Simpson) agrees with 32 and 64 to seven digits and differs from 16 by 33%,
+  # and the frozen self-convergence gate rejects 16 on E1-E3. Doubling q_rho
+  # moves nothing, so the radial rule was already resolved. This doubles the
+  # LSC score potential-evaluation cost, which the FEE axes report honestly.
+  q_theta: 32
   q_rho: 8
   m_max: 600.0
 
@@ -57,7 +70,7 @@ checkpoints:
   include_terminal: true
 
 plot_snapshots:
-  time_values: [1.0, 5.0, 25.0, 100.0]
+  time_values: [1.0, 5.0, 12.5, 25.0]
   max_points_per_seed: 2000
 
 reference:

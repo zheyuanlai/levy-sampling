@@ -1,0 +1,1 @@
+2026-08-06T08:50:59.743809Z superseded: produced with score.q_theta=16, which the frozen quadrature self-convergence gate rejects; the production config now uses q_theta=32

@@ -1,0 +1,1 @@
+2026-08-06T14:06:26.533407Z superseded: the quadrature certificate compared the bookkeeping term M instead of the score log-magnitude M+log|v|, which fails a converged rule by ~log 2

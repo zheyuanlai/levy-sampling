@@ -342,12 +342,22 @@ def check_release_artifacts(root: Path, report: Report) -> None:
         identities_ok = all(
             row.get("experiment_id") == experiment_id
             for row in rows)
+        # A run retired with an INVALID marker is not a defect: the policy is to
+        # supersede rather than delete, so a rebuilt campaign necessarily leaves
+        # retired directories behind and every one of them is rejected by the
+        # scanner. Only rejections the scanner could not explain that way -- a
+        # missing manifest, a hash mismatch, an unknown schema, a run that never
+        # completed -- indicate a broken release.
+        retired = [item for item in rejections
+                   if "marked invalid" in str(item.get("reason", ""))]
+        unexplained = [item for item in rejections if item not in retired]
         report.add(
             f"{experiment_id}: all run directories verify",
-            bool(rows) and not rejections and statuses_ok and identities_ok,
-            f"{len(rows)} admitted; {len(rejections)} rejected; "
+            bool(rows) and not unexplained and statuses_ok and identities_ok,
+            f"{len(rows)} admitted; {len(retired)} retired (superseded, kept as "
+            f"evidence); {len(unexplained)} unexplained; "
             f"statuses={sorted({row.get('status') for row in rows})}; "
-            f"rejections={rejections}")
+            f"unexplained={unexplained}")
 
         reference_files = (
             list((experiment_dir / "reference").rglob("*"))

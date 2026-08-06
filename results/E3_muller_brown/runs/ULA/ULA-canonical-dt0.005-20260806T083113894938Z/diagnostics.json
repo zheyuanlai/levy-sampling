@@ -1,0 +1,76 @@
+{
+  "cumulative": {
+    "boundary_reject_count_cumulative": 0,
+    "boundary_reject_fraction_cumulative": 0.0,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0
+  },
+  "final_interval_diagnostics": {
+    "boundary_reject_count_cumulative": 0,
+    "boundary_reject_fraction_cumulative": 0.0,
+    "boundary_rule": "reject",
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "tame_cap": "nan",
+    "tamed": false
+  },
+  "measurement_suite": {
+    "collective_variable": "latent pair z_{1:2} = (x B^{-T})_{1:2}",
+    "experiment_id": "E3",
+    "kde_bandwidth": 0.05788643340152307,
+    "metric_definition_hash": "c87203a12406cc5114b7ffa2d8877465",
+    "mmd_bandwidth": 0.8234540835326268,
+    "mmd_bandwidth_rule": "median heuristic, frozen on the CV bank",
+    "n_projections": 512,
+    "primary_metrics": [
+      "CV_SW2",
+      "CV_MMD2_biased"
+    ],
+    "reference_kind": "cv_grid_density"
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "sampler": {
+    "boundary": {
+      "kind": "latent_rect",
+      "latent_hi": [
+        1.9,
+        2.6,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0
+      ],
+      "latent_lo": [
+        -2.0,
+        -1.3,
+        -2.0,
+        -2.0,
+        -2.0,
+        -2.0,
+        -2.0,
+        -2.0,
+        -2.0,
+        -2.0
+      ]
+    },
+    "boundary_rule": "reject",
+    "dt": 0.005,
+    "family": "ULA",
+    "method": "ULA",
+    "tame_cap": null,
+    "tamed": false
+  }
+}

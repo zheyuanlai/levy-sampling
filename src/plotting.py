@@ -469,6 +469,19 @@ def _spec_methods(spec: dict):
     return None
 
 
+class RunSelection(list):
+    """The loaded runs, plus the methods that were requested but uncalibratable.
+
+    A plain list of runs everywhere it is used, so nothing downstream has to
+    know about this type. The extra attribute carries the negative outcomes so
+    a figure can say a method was uncalibratable instead of quietly omitting it.
+    """
+
+    def __init__(self, runs=(), *, uncalibratable=None):
+        super().__init__(runs)
+        self.uncalibratable = dict(uncalibratable or {})
+
+
 def load_runs(experiment_dir, spec=None, *, methods=_UNSET, variants=_UNSET,
               tame=_UNSET, latest_only=_UNSET) -> list:
     """Load every completed run of one experiment that passes the filters.
@@ -508,14 +521,48 @@ def load_runs(experiment_dir, spec=None, *, methods=_UNSET, variants=_UNSET,
                                     latest_only=latest_only,
                                     from_manifests=True))
     rows = [row for row in rows if _variant_filter(row, variants)]
+    uncalibratable: dict[str, list] = {}
     if methods is not None:
         loaded_methods = {str(row.get("method")) for row in rows}
         missing_methods = [name for name in methods
                            if name not in loaded_methods]
-        if missing_methods:
+        # A method with no completed run is only tolerated when the campaign
+        # actually recorded it as uncalibratable under the same filters. That
+        # is a result about the method and belongs on the figure. A method that
+        # was simply never run is still an error: silently dropping it would
+        # turn a misconfigured plot specification into a plausible figure.
+        still_missing = []
+        for name in missing_methods:
+            negative = [
+                row for row in select_runs(
+                    experiment_dir, method=name, tame=tame,
+                    status="uncalibratable", latest_only=latest_only,
+                    from_manifests=True)
+                if _variant_filter(row, variants)]
+            if negative:
+                # The scan projection does not carry the diagnosis, so read it
+                # from the manifest the row points at. Still read-only, and
+                # still no derived index is created or refreshed.
+                entries = []
+                for row in negative:
+                    try:
+                        manifest = read_manifest(Path(row["run_directory"]))
+                    except Exception:                         # noqa: BLE001
+                        manifest = {}
+                    entries.append({
+                        "variant_label": row.get("variant_label"),
+                        "diagnosis": (manifest.get("diagnosis")
+                                      or manifest.get("calibration_kind")
+                                      or "uncalibratable")})
+                uncalibratable[name] = entries
+            else:
+                still_missing.append(name)
+        if still_missing:
             raise ValueError(
-                f"plot specification requires missing methods {missing_methods}; "
-                f"loaded {sorted(loaded_methods)} after tame/variant filters")
+                f"plot specification requires missing methods {still_missing}; "
+                f"loaded {sorted(loaded_methods)} after tame/variant filters. "
+                "No uncalibratable outcome was recorded for them either, so "
+                "this is a specification error rather than a result.")
     if not rows:
         raise ValueError(
             "no completed runs matched: experiment_dir="
@@ -527,7 +574,7 @@ def load_runs(experiment_dir, spec=None, *, methods=_UNSET, variants=_UNSET,
     runs = [_read_run(row["run_directory"]) for row in rows]
     runs.sort(key=lambda run: (order.get(run.method, len(order)), run.method,
                                run.variant_label, run.tame))
-    return runs
+    return RunSelection(runs, uncalibratable=uncalibratable)
 
 
 # ------------------------------------------------------- reference artifacts
@@ -1220,7 +1267,11 @@ def assert_panels_consistent(panels) -> dict:
 
 # --------------------------------------------------------------- draw helpers
 def _require_runs(runs, what: str) -> list:
-    runs = list(runs or [])
+    # Preserve the uncalibratable record across the guard: every figure helper
+    # funnels through here, and losing the attribute would turn an annotated
+    # negative result back into a silent omission.
+    uncalibratable = getattr(runs, "uncalibratable", None)
+    runs = RunSelection(runs or (), uncalibratable=uncalibratable)
     if not runs:
         raise ValueError(
             f"{what} got no runs; nothing to draw. Load runs with load_runs() "
@@ -1281,6 +1332,37 @@ def _collect(handles: list, labels: list, handle, label: str) -> None:
     if label not in labels:
         handles.append(handle)
         labels.append(_guard_display_text(label))
+
+
+def _collect_uncalibratable(handles: list, labels: list, registry: dict,
+                            uncalibratable: dict) -> list:
+    """Legend entries for requested methods that had no admissible timestep.
+
+    Drawn in the method's own colour so it reads as that method, but with no
+    line and an open marker, so it cannot be mistaken for a curve. The point is
+    that the reader sees the method was tried and failed rather than silently
+    finding it absent from the panel.
+    """
+    from matplotlib.lines import Line2D
+
+    recorded = []
+    for method in sorted(uncalibratable):
+        entries = uncalibratable[method] or []
+        try:
+            colour = method_style(registry, method, tame=False)["color"]
+        except KeyError:
+            colour = "0.4"
+        display = (registry.get("methods", {}).get(method, {})
+                   .get("display_name", method))
+        handle = Line2D([], [], color=colour, linestyle="none", marker="x",
+                        markersize=_MARKER_SIZE, markeredgewidth=1.4)
+        _collect(handles, labels, handle, f"{display}: uncalibratable")
+        recorded.append({"method": method,
+                         "variants": [entry.get("variant_label")
+                                      for entry in entries],
+                         "diagnoses": sorted({str(entry.get("diagnosis"))
+                                              for entry in entries})})
+    return recorded
 
 
 def _reference_style(registry: dict) -> dict:
@@ -1389,12 +1471,15 @@ def curve_figure(runs, spec: dict, registry: dict = None, *, x_axis=None,
     ``x_axis`` restricts the figure to that single axis. A ``mode_metric_panel``
     spec is routed to :func:`mode_metric_panel`.
     """
+    uncalibratable = dict(getattr(runs, "uncalibratable", {}) or {})
     runs = _require_runs(runs, "curve_figure")
     registry = load_registry() if registry is None else registry
     spec = _with_defaults(spec)
     kind = spec.get("kind", "metric_grid")
     if kind == "mode_metric_panel":
-        return mode_metric_panel(runs, spec, registry, reference=reference)
+        return mode_metric_panel(
+            RunSelection(runs, uncalibratable=uncalibratable), spec, registry,
+            reference=reference)
     if kind != "metric_grid":
         raise ValueError(
             f"curve_figure draws metric_grid and mode_metric_panel specs, not "
@@ -1477,6 +1562,8 @@ def curve_figure(runs, spec: dict, registry: dict = None, *, x_axis=None,
 
     if title:
         figure.suptitle(_guard_display_text(title))
+    uncalibratable_record = _collect_uncalibratable(
+        handles, labels, registry, uncalibratable)
     _figure_legend(figure, handles, labels)
     _record_provenance(figure, {
         "kind": "metric_grid", "x_axes": axes_names,
@@ -1488,6 +1575,7 @@ def curve_figure(runs, spec: dict, registry: dict = None, *, x_axis=None,
                                           for run in runs}),
         "sampling_floor_drawn": sorted(set(floors_drawn)),
         "sampling_floor_absent": sorted(set(floors_absent)),
+        "uncalibratable": uncalibratable_record,
     })
     return figure
 
@@ -1651,6 +1739,8 @@ def twin_axis_cdf_figure(runs, spec: dict, registry: dict = None, *,
     axes.set_ylim(-0.02, 1.02)
     _set_title(axes, spec.get(
         "title", f"matched simulation time $t={realised[0]['realised_t']:g}$"))
+    _collect_uncalibratable(handles, labels, registry,
+                            getattr(runs, "uncalibratable", {}) or {})
     _figure_legend(figure, handles, labels, ncol=3)
     _record_provenance(figure, {"kind": "twin_axis_cdf",
                                 "requested_time": requested,
@@ -1854,6 +1944,8 @@ def mode_metric_panel(runs, spec: dict, registry: dict = None, *,
         for axes in axes_grid[row][used:]:
             axes.set_visible(False)
 
+    _collect_uncalibratable(handles, labels, registry,
+                            getattr(runs, "uncalibratable", {}) or {})
     _figure_legend(figure, handles, labels)
     _record_provenance(figure, {"kind": "mode_metric_panel",
                                 "reference_keys": sorted(reference),
@@ -2179,6 +2271,8 @@ def supplement_panels(runs, spec: dict, registry: dict = None, *,
 
     for axes in axes_grid[len(panels):]:
         axes.set_visible(False)
+    _collect_uncalibratable(handles, labels, registry,
+                            getattr(runs, "uncalibratable", {}) or {})
     _figure_legend(figure, handles, labels)
     _record_provenance(figure, {
         "kind": "supplement_panels", "requested_time": requested,

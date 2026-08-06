@@ -1,0 +1,48 @@
+{
+  "C_F": 1.1282470779860887e-07,
+  "C_V": 1.1389159482178002e-07,
+  "cost_unit": "amortized_time_per_configuration",
+  "device": "cuda",
+  "device_index": 0,
+  "device_name": "NVIDIA H200 NVL",
+  "device_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+  "dtype": "float64",
+  "fee_calibration_hash": "617414aeae69572deaa374dae2d362a1",
+  "particle_batch_size": 4096,
+  "provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "repetitions": 200,
+  "rho": 1.009456147008823,
+  "shifted_potential_batch_shape": [
+    16,
+    64,
+    128
+  ],
+  "software_version": "cuda|NVIDIA H200 NVL|float64|torch2.13.0+cu130|cuda13.0|numpy2.5.1",
+  "statistic": "median",
+  "structured_chord_counts_measured": [
+    16,
+    64,
+    128
+  ],
+  "structured_fixed_seconds_per_particle": 2.246039047721555e-07,
+  "structured_seconds_per_particle_chord": 4.82321089974276e-11,
+  "synchronization": true,
+  "target_implementation": "src.potentials.CoupledQuarticChain",
+  "warmup": 50
+}

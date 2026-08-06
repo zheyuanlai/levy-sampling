@@ -1,0 +1,63 @@
+{
+  "cumulative": {
+    "boundary_reject_count_cumulative": 0,
+    "boundary_reject_fraction_cumulative": 0.0,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0
+  },
+  "final_interval_diagnostics": {
+    "boundary_reject_count_cumulative": 0,
+    "boundary_reject_fraction_cumulative": 0.0,
+    "boundary_rule": "reject",
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "tame_cap": "nan",
+    "tamed": false
+  },
+  "measurement_suite": {
+    "descriptor": "argmax_k log N(x; mu_k, I)",
+    "descriptor_masses_are_uniform": false,
+    "emc_definition": "-sum_k p_k log p_k / log K",
+    "emc_star": 0.9999986540061276,
+    "emc_star_standard_error": 5.484868327060714e-07,
+    "experiment_id": "E2",
+    "metric_definition_hash": "5471a024550bb71fafef76a952762803",
+    "mmd_bandwidth": 41.95558225644368,
+    "n_projections": 512,
+    "primary_metrics": [
+      "EMC",
+      "mode_weight_JS",
+      "per_mode_occupancy"
+    ],
+    "reference_kind": "exact_gaussian_mixture"
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "sampler": {
+    "boundary": {
+      "hi": [
+        65.0,
+        65.0
+      ],
+      "kind": "rect",
+      "lo": [
+        -65.0,
+        -65.0
+      ]
+    },
+    "boundary_rule": "reject",
+    "dt": 0.01,
+    "family": "ULA",
+    "method": "ULA",
+    "tame_cap": null,
+    "tamed": false
+  }
+}

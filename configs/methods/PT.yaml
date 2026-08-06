@@ -22,7 +22,10 @@ ladder:
   # Canonical and tamed PT tune their ladders separately; the canonical ladder
   # is never reused for tamed PT.
   per_tame_variant: true
-  target_swap_acceptance: [0.2, 0.4]
+  # Upper edge 0.45, not 0.40: the geometric ladder's attainable swap
+  # acceptance lands just above 0.40 on these targets, so the narrower band
+  # rejected every candidate ladder.
+  target_swap_acceptance: [0.2, 0.45]
   burn_fraction: 0.5
   min_round_trips: 1
 calibration:

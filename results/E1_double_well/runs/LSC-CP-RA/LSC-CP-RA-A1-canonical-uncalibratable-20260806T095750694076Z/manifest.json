@@ -1,0 +1,120 @@
+{
+  "calibration_hash": "bf7d226d01e0a071aae03f39d09af4b8",
+  "calibration_kind": "timestep",
+  "created_at_utc": "2026-08-06T09:57:50.730564Z",
+  "device_provenance": {
+    "cpu_model": "AMD EPYC 9554 64-Core Processor",
+    "cuda_runtime_version": "13.0",
+    "device_index": 0,
+    "device_type": "cuda",
+    "dtype": "float64",
+    "gpu_capability": "9.0",
+    "gpu_name": "NVIDIA H200 NVL",
+    "gpu_total_memory_bytes": 150110011392,
+    "gpu_uuid": "b7477750-5992-8ae3-fde2-11bf70934062",
+    "matplotlib_version": "3.11.1",
+    "numpy_version": "2.5.1",
+    "platform": "Linux-6.8.0-90-generic-x86_64-with-glibc2.39",
+    "python_version": "3.12.13",
+    "scipy_version": "1.18.0",
+    "torch_version": "2.13.0+cu130"
+  },
+  "diagnosis": "unstable at every timestep tried (boundary_reject_fraction) and it does not improve as the timestep shrinks",
+  "dt": null,
+  "experiment_id": "E1",
+  "experiment_key": "E1_double_well",
+  "family": "LSC-CP-RA",
+  "fee_calibration_hash": "3590adff094714fc599081a4fb309ee3",
+  "fee_cost_unit": "amortized_time_per_configuration",
+  "files": {
+    "calibration.json": "e745db61af9def63c12209e8d9a94156b8fbf78ddf8248bf44e4b30ef148b4c6",
+    "diagnostics.json": "916d22a50b2275a572a4d3fab23458843eb8eee8de9dae8e31ebf02712fd1e6c",
+    "resolved_config.yaml": "92f473b35292a120b8decbbad56c2e44d7c15dfec50e6752ed31566789e2453d"
+  },
+  "git": {
+    "branch": "refactor",
+    "commit": "910f6685a7746288fa4b76dc4fd3f9374c756256",
+    "dirty": true
+  },
+  "has_stationarity": false,
+  "method": "LSC-CP-RA",
+  "parameters": {
+    "A": 1,
+    "tame": false
+  },
+  "particles": 2000,
+  "reference_hash": "5f1aeed3092c00874ea7c25eb08e636d",
+  "result_directory": "results/E1_double_well/runs/LSC-CP-RA/LSC-CP-RA-A1-canonical-uncalibratable-20260806T095750694076Z",
+  "rng": {
+    "pairing_semantics": "common_random_numbers_not_pathwise_coupling",
+    "per_seed_generator": true,
+    "rng_implementation": "torch.Generator/Philox-or-MT19937",
+    "rng_pair_group": {
+      "A": 1,
+      "experiment_id": "E1",
+      "method_family": "LSC-CP-RA"
+    },
+    "seed_derivation": "blake2b-64/v2",
+    "seed_execution_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "stream_seed_mapping": {
+      "0": {
+        "diffusion_gen": 8812572548630087702,
+        "init_gen": 3628299080570329363,
+        "jump_bank_gen": 4491324511618126926,
+        "mh_uniform_gen": 3061695876931773429,
+        "poisson_gen": 8097706891535264942,
+        "stable_noise_gen": 3469580470876556559
+      },
+      "1": {
+        "diffusion_gen": 2742926815953483370,
+        "init_gen": 4415887720503957217,
+        "jump_bank_gen": 2007033501740567991,
+        "mh_uniform_gen": 6194248681740385619,
+        "poisson_gen": 4500283995034998275,
+        "stable_noise_gen": 6239518152443782842
+      },
+      "2": {
+        "diffusion_gen": 3607935857582976965,
+        "init_gen": 7730085971670728769,
+        "jump_bank_gen": 6436001354484498580,
+        "mh_uniform_gen": 5981483839369021648,
+        "poisson_gen": 1356660057325914193,
+        "stable_noise_gen": 7879015662757831408
+      },
+      "3": {
+        "diffusion_gen": 3686989477127990590,
+        "init_gen": 1215549442752141107,
+        "jump_bank_gen": 5606039330478774563,
+        "mh_uniform_gen": 7736297186643739352,
+        "poisson_gen": 9209429360985345086,
+        "stable_noise_gen": 450555832851636256
+      }
+    }
+  },
+  "rng_pair_group": {
+    "A": 1,
+    "method_family": "LSC-CP-RA"
+  },
+  "rng_pair_group_hash": "2bb13ee62f36cb610540be048f55178d",
+  "run_id": "LSC-CP-RA-A1-canonical-uncalibratable-20260806T095750694076Z",
+  "schema_version": 2,
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "status": "uncalibratable",
+  "tame": false,
+  "tame_cap": null,
+  "target_hash": "f9ad59fe107edd651e125330ae78c00a",
+  "variant_hash": "29c9cee5c19c5ff49f912741514934f1",
+  "variant_label": "LSC-CP-RA, canonical",
+  "variant_slug": "LSC-CP-RA-A1-canonical",
+  "written_at_utc": "2026-08-06T09:57:50.730591Z"
+}

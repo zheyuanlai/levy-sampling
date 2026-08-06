@@ -1,0 +1,33 @@
+{
+  "calibration_hash": "f5eb90e34fd321ead10a95b956898f50",
+  "diagnosis": "score quadrature did not converge against the doubled rule at the frozen log-magnitude/direction tolerances",
+  "kind": "quadrature",
+  "next_candidate": {
+    "q_rho": 16,
+    "q_theta": 32
+  },
+  "status": "uncalibratable",
+  "table": [
+    {
+      "max_abs_log_magnitude_difference": 0.6696321887730443,
+      "max_direction_difference": 0.0,
+      "median_abs_log_magnitude_difference": 0.6508254891615524,
+      "median_direction_difference": 0.0,
+      "n_probe": 256,
+      "p95_abs_log_magnitude_difference": 0.6659697174805921,
+      "p95_direction_difference": 0.0,
+      "p95_tolerance": 0.2,
+      "passed": false,
+      "reference_setting": {
+        "q_rho": 16,
+        "q_theta": 32
+      },
+      "setting": {
+        "q_rho": 8,
+        "q_theta": 16
+      },
+      "shared_across_timesteps": true,
+      "tolerance": 0.05
+    }
+  ]
+}

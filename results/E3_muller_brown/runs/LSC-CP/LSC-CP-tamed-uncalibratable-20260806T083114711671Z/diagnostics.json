@@ -1,0 +1,46 @@
+{
+  "note": "No production trajectory was started because no admissible calibration was certified.",
+  "outcome": {
+    "calibration_hash": "90e37a13d22c848146a980eefa909db4",
+    "diagnosis": "score quadrature did not converge against the doubled rule at the frozen log-magnitude/direction tolerances",
+    "kind": "quadrature",
+    "next_candidate": {
+      "q_rho": 16,
+      "q_theta": 32
+    },
+    "status": "uncalibratable",
+    "table": [
+      {
+        "max_abs_log_magnitude_difference": 0.6676712178045356,
+        "max_direction_difference": 0.0033297594894070724,
+        "median_abs_log_magnitude_difference": 0.6639894240233479,
+        "median_direction_difference": 2.0884412119303478e-05,
+        "n_probe": 256,
+        "p95_abs_log_magnitude_difference": 0.6670640338226475,
+        "p95_direction_difference": 0.0014922799303803088,
+        "p95_tolerance": 0.2,
+        "passed": false,
+        "reference_setting": {
+          "q_rho": 16,
+          "q_theta": 32
+        },
+        "setting": {
+          "q_rho": 8,
+          "q_theta": 16
+        },
+        "shared_across_timesteps": true,
+        "tolerance": 0.05
+      }
+    ]
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": true,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": true
+  }
+}

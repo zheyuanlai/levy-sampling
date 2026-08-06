@@ -326,6 +326,45 @@ def test_plot_loader_rejects_a_missing_requested_method(completed_experiment):
             {"methods": ["ULA", "ULD"], "tame_view": "canonical_only"})
 
 
+def test_plot_loader_annotates_an_uncalibratable_method_instead_of_failing(
+        completed_experiment, monkeypatch):
+    """A method that was tried and had no admissible timestep is a result.
+
+    E3's canonical FLA is uncalibratable at every alpha, so the canonical view
+    of its figures has no FLA curve. Omitting it silently would misrepresent
+    the campaign, and raising would make the negative result unpublishable, so
+    the loader reports it and the figure annotates it.
+    """
+    from src.plotting import load_runs
+
+    experiment, _ = completed_experiment
+
+    def fail_calibration(*args, **kwargs):
+        raise CalibrationError(
+            "timestep", [{"candidate": 0.001, "passed": False}],
+            next_candidate=0.0005,
+            diagnosis="boundary rejection stays above the frozen gate")
+
+    monkeypatch.setattr(pipeline_module, "run_variant", fail_calibration)
+    reports = run_variants_and_save(experiment=experiment, method="ULD",
+                                    variants=[{"tame": False}])
+    assert reports[0]["status"] == "uncalibratable"
+
+    runs = load_runs(experiment.paths.experiment_dir,
+                     {"methods": ["ULA", "ULD"], "tame_view": "canonical_only"})
+    assert [run.method for run in runs] == ["ULA"]
+    assert "ULD" in runs.uncalibratable
+    assert "boundary rejection" in (
+        runs.uncalibratable["ULD"][0]["diagnosis"])
+
+    # A method that was never run at all is still a specification error: the
+    # tolerance is for recorded negative evidence, not for absent evidence.
+    with pytest.raises(ValueError, match="specification error"):
+        load_runs(
+            experiment.paths.experiment_dir,
+            {"methods": ["ULA", "PT"], "tame_view": "canonical_only"})
+
+
 
 
 # ----------------------------------------------------- hashes and caching

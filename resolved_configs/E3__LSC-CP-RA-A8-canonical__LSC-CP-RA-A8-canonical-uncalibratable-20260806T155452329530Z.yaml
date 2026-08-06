@@ -1,0 +1,453 @@
+boundary:
+  kind: latent_rect
+  latent_hi:
+  - 1.9
+  - 2.6
+  - 2.0
+  - 2.0
+  - 2.0
+  - 2.0
+  - 2.0
+  - 2.0
+  - 2.0
+  - 2.0
+  latent_lo:
+  - -2.0
+  - -1.3
+  - -2.0
+  - -2.0
+  - -2.0
+  - -2.0
+  - -2.0
+  - -2.0
+  - -2.0
+  - -2.0
+  rule: reject
+calibration:
+  dt:
+    grid_rule: dyadic_halving
+    max_halvings: 4
+    tolerance: 0.05
+  mala:
+    target_acceptance:
+    - 0.4
+    - 0.75
+  pt:
+    beta_min: null
+    beta_min_rule: two_over_b_AB
+    k_cap: 64
+    k_initial: 8
+    pilot_steps: 20000
+    target_swap_acceptance:
+    - 0.2
+    - 0.4
+  stability:
+    max_boundary_reject_fraction: 0.02
+    max_nonfinite_fraction: 0.0
+    report_score_clip_fraction: true
+checkpoints:
+  dense:
+    count: 60
+    fraction: 0.05
+  include_initial: true
+  include_terminal: true
+  sparse:
+    count: 160
+collective_variable:
+  indices:
+  - 0
+  - 1
+  kind: latent_pair
+display_name: 'E3: extended Muller-Brown (10D)'
+id: E3
+initial_condition:
+  kind: latent_gaussian_blob_at_minimum
+  minimum: C
+  sigma: 0.05
+jump_law:
+  h_rule: 0.1_times_min_atom_norm
+  intensity: 1.0
+  kind: shell_relay
+  relay_edges:
+  - - A
+    - B
+  - - B
+    - A
+  - - C
+    - B
+  - - B
+    - C
+  weights_uniform: true
+metrics:
+  kde_hellinger:
+    bandwidth_rule: silverman_on_reference_bank
+    enabled: true
+    grid_shape:
+    - 200
+    - 200
+  mmd:
+    bandwidth_reference_points: 4096
+    bandwidth_rule: median_heuristic_on_reference_bank
+    kernel: rbf
+  primary:
+  - CV_SW2
+  - CV_MMD2_biased
+  secondary:
+  - CV_MMD2_unbiased
+  - CV_KDE_Hellinger
+  - latent_z1_KS
+  sw2:
+    n_projections: 512
+    projection_seed: 777
+plot_snapshots:
+  max_points_per_seed: 2000
+  time_values:
+  - 2.0
+  - 10.0
+  - 25.0
+  - 50.0
+protocol:
+  final_time: 50.0
+  initial_dt: 0.005
+  particles: 800
+  seeds: 4
+reference:
+  bank_seed: 424242
+  basin_map:
+    flow_dt: 0.00015
+    flow_steps: 40000
+    mass_n_quad: 1200
+    n_grid: 600
+  builder: src.references.e3.build_reference
+  grid_shape:
+  - 2400
+  - 2400
+  latent_bounds:
+  - - -2.0
+    - -1.3
+  - - 1.9
+    - 2.6
+  method: cv_grid_density
+  sample_bank_size: 400000
+resolved:
+  barrier_AB: 0.463396569879044
+  barrier_BC: 0.1646160992903839
+  boundary:
+    kind: latent_rect
+    latent_hi:
+    - 1.9
+    - 2.6
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    - 2.0
+    latent_lo:
+    - -2.0
+    - -1.3
+    - -2.0
+    - -2.0
+    - -2.0
+    - -2.0
+    - -2.0
+    - -2.0
+    - -2.0
+    - -2.0
+  calibration:
+    calibration_hash: d8b832a27d718cb0b08831fbe5756c1d
+    diagnosis: unstable at every timestep tried (boundary_reject_fraction) and it
+      does not improve as the timestep shrinks
+    kind: timestep
+    next_candidate: 0.0003125
+    status: uncalibratable
+    table:
+    - agreement_failures: []
+      dt: 0.005
+      pass: false
+      stability_problems:
+      - - boundary_reject_fraction
+        - 0.8621390625
+      summary:
+        boundary_reject_fraction: 0.8621390625
+        energy_abs_mean: 1.0221861376450283
+        energy_abs_mean_se: 0.13961629047123325
+        energy_iqr: 1.1580376921020579
+        energy_iqr_se: 0.0476193897973392
+        energy_mean: 0.981447738998537
+        energy_mean_se: 0.13921724602287006
+        energy_median: 0.4591982570810687
+        energy_median_se: 0.018721860413178068
+        n_effective: 1024
+        n_steps: 2500
+        nonfinite_fraction: 0.0
+        score_clip_fraction_cumulative: 0.000314453125
+        summary_abs_mean: 0.5868219434299513
+        summary_abs_mean_se: 0.012766604187968223
+        summary_iqr: 0.8652907872813554
+        summary_iqr_se: 0.017562258574555456
+        summary_mean: 0.24668231018243733
+        summary_mean_se: 0.02101584032464856
+        summary_median: 0.2883931566428
+        summary_median_se: 0.0775475272760889
+      summary_half:
+        boundary_reject_fraction: 0.86142265625
+        energy_abs_mean: 0.9341563968867552
+        energy_abs_mean_se: 0.03515375871212133
+        energy_iqr: 1.144831774208109
+        energy_iqr_se: 0.048465092206544415
+        energy_mean: 0.8999452009641136
+        energy_mean_se: 0.03606751875717728
+        energy_median: 0.4775956653650622
+        energy_median_se: 0.01586955119759905
+        n_effective: 1024
+        n_steps: 5000
+        nonfinite_fraction: 0.0
+        score_clip_fraction_cumulative: 0.0
+        summary_abs_mean: 0.5474547540956869
+        summary_abs_mean_se: 0.011797258550844075
+        summary_iqr: 0.8162753135364649
+        summary_iqr_se: 0.015214738624814645
+        summary_mean: 0.24946600970183108
+        summary_mean_se: 0.01947351508921383
+        summary_median: 0.22662938474021743
+        summary_median_se: 0.041974799650079234
+    - agreement_failures: []
+      dt: 0.0025
+      pass: false
+      stability_problems:
+      - - boundary_reject_fraction
+        - 0.86142265625
+      summary:
+        boundary_reject_fraction: 0.86142265625
+        energy_abs_mean: 0.9341563968867552
+        energy_abs_mean_se: 0.03515375871212133
+        energy_iqr: 1.144831774208109
+        energy_iqr_se: 0.048465092206544415
+        energy_mean: 0.8999452009641136
+        energy_mean_se: 0.03606751875717728
+        energy_median: 0.4775956653650622
+        energy_median_se: 0.01586955119759905
+        n_effective: 1024
+        n_steps: 5000
+        nonfinite_fraction: 0.0
+        score_clip_fraction_cumulative: 0.0
+        summary_abs_mean: 0.5474547540956869
+        summary_abs_mean_se: 0.011797258550844075
+        summary_iqr: 0.8162753135364649
+        summary_iqr_se: 0.015214738624814645
+        summary_mean: 0.24946600970183108
+        summary_mean_se: 0.01947351508921383
+        summary_median: 0.22662938474021743
+        summary_median_se: 0.041974799650079234
+      summary_half:
+        boundary_reject_fraction: 0.861316015625
+        energy_abs_mean: 1.0637903349573197
+        energy_abs_mean_se: 0.03480937851272804
+        energy_iqr: 1.3025657205695103
+        energy_iqr_se: 0.043467180670493266
+        energy_mean: 1.0282158404954784
+        energy_mean_se: 0.03639876718108051
+        energy_median: 0.5761353049408384
+        energy_median_se: 0.0239319914612156
+        n_effective: 1024
+        n_steps: 10000
+        nonfinite_fraction: 0.0
+        score_clip_fraction_cumulative: 0.0
+        summary_abs_mean: 0.5695140447766582
+        summary_abs_mean_se: 0.013482895518737935
+        summary_iqr: 0.803103392887128
+        summary_iqr_se: 0.015432637596430905
+        summary_mean: 0.3263066130416972
+        summary_mean_se: 0.019273534447683704
+        summary_median: 0.3793754084797576
+        summary_median_se: 0.04780288653376659
+    - agreement_failures: []
+      dt: 0.00125
+      pass: false
+      stability_problems:
+      - - boundary_reject_fraction
+        - 0.861316015625
+      summary:
+        boundary_reject_fraction: 0.861316015625
+        energy_abs_mean: 1.0637903349573197
+        energy_abs_mean_se: 0.03480937851272804
+        energy_iqr: 1.3025657205695103
+        energy_iqr_se: 0.043467180670493266
+        energy_mean: 1.0282158404954784
+        energy_mean_se: 0.03639876718108051
+        energy_median: 0.5761353049408384
+        energy_median_se: 0.0239319914612156
+        n_effective: 1024
+        n_steps: 10000
+        nonfinite_fraction: 0.0
+        score_clip_fraction_cumulative: 0.0
+        summary_abs_mean: 0.5695140447766582
+        summary_abs_mean_se: 0.013482895518737935
+        summary_iqr: 0.803103392887128
+        summary_iqr_se: 0.015432637596430905
+        summary_mean: 0.3263066130416972
+        summary_mean_se: 0.019273534447683704
+        summary_median: 0.3793754084797576
+        summary_median_se: 0.04780288653376659
+      summary_half:
+        boundary_reject_fraction: 0.86453154296875
+        energy_abs_mean: 1.13180146065752
+        energy_abs_mean_se: 0.041952602548775926
+        energy_iqr: 1.3288062253354829
+        energy_iqr_se: 0.03776730998058992
+        energy_mean: 1.1015655892735787
+        energy_mean_se: 0.041665682872776826
+        energy_median: 0.5528270373141084
+        energy_median_se: 0.025116480495216444
+        n_effective: 1024
+        n_steps: 20000
+        nonfinite_fraction: 0.0
+        score_clip_fraction_cumulative: 0.0
+        summary_abs_mean: 0.5870754289991575
+        summary_abs_mean_se: 0.013652264291354462
+        summary_iqr: 0.8262466841212872
+        summary_iqr_se: 0.014087024169232533
+        summary_mean: 0.3075385915842328
+        summary_mean_se: 0.01892588781872543
+        summary_median: 0.36628515892357977
+        summary_median_se: 0.0596080010684643
+    - agreement_failures: []
+      dt: 0.000625
+      pass: false
+      stability_problems:
+      - - boundary_reject_fraction
+        - 0.86453154296875
+      summary:
+        boundary_reject_fraction: 0.86453154296875
+        energy_abs_mean: 1.13180146065752
+        energy_abs_mean_se: 0.041952602548775926
+        energy_iqr: 1.3288062253354829
+        energy_iqr_se: 0.03776730998058992
+        energy_mean: 1.1015655892735787
+        energy_mean_se: 0.041665682872776826
+        energy_median: 0.5528270373141084
+        energy_median_se: 0.025116480495216444
+        n_effective: 1024
+        n_steps: 20000
+        nonfinite_fraction: 0.0
+        score_clip_fraction_cumulative: 0.0
+        summary_abs_mean: 0.5870754289991575
+        summary_abs_mean_se: 0.013652264291354462
+        summary_iqr: 0.8262466841212872
+        summary_iqr_se: 0.014087024169232533
+        summary_mean: 0.3075385915842328
+        summary_mean_se: 0.01892588781872543
+        summary_median: 0.36628515892357977
+        summary_median_se: 0.0596080010684643
+      summary_half:
+        boundary_reject_fraction: 0.85055595703125
+        energy_abs_mean: 1.253209000788177
+        energy_abs_mean_se: 0.04971846054827244
+        energy_iqr: 1.4100613945856462
+        energy_iqr_se: 0.039554264852484
+        energy_mean: 1.1972793341790737
+        energy_mean_se: 0.050827186839523225
+        energy_median: 0.5758640710237122
+        energy_median_se: 0.029394651499961604
+        n_effective: 1024
+        n_steps: 40000
+        nonfinite_fraction: 0.0
+        score_clip_fraction_cumulative: 1.6162109375e-05
+        summary_abs_mean: 0.6178987887870592
+        summary_abs_mean_se: 0.01277002020189085
+        summary_iqr: 0.8519590358982503
+        summary_iqr_se: 0.015169565254198625
+        summary_mean: 0.3429806936278783
+        summary_mean_se: 0.020542732054176904
+        summary_median: 0.4622578858542481
+        summary_median_se: 0.05887518234233003
+  device:
+    cpu_model: AMD EPYC 9554 64-Core Processor
+    cuda_runtime_version: '13.0'
+    device_index: 0
+    device_type: cuda
+    dtype: float64
+    gpu_capability: '9.0'
+    gpu_name: NVIDIA H200 NVL
+    gpu_total_memory_bytes: 150110011392
+    gpu_uuid: b7477750-5992-8ae3-fde2-11bf70934062
+    matplotlib_version: 3.11.1
+    numpy_version: 2.5.1
+    platform: Linux-6.8.0-90-generic-x86_64-with-glibc2.39
+    python_version: 3.12.13
+    scipy_version: 1.18.0
+    torch_version: 2.13.0+cu130
+  jump_law:
+    atom_norms:
+    - 0.8689098711296327
+    - 0.8689098711296327
+    - 0.6006356103031649
+    - 0.6006356103031649
+    dimension: 10
+    h: 0.060063561030316494
+    h_rule: 0.1 * min ||r_a||
+    kind: shell
+    max_reach: 0.9289734321599492
+    n_atoms: 4
+    relay_edges:
+    - - A
+      - B
+    - - B
+      - A
+    - - C
+      - B
+    - - B
+      - C
+    weights:
+    - 0.25
+    - 0.25
+    - 0.25
+    - 0.25
+  pt_beta_min: 4.315957713113934
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  tame_cap: null
+  taming:
+    cp_cap: 0.12012712206063299
+    cp_cap_rule: 2h
+    default_cap: 1.0
+  variant:
+    family: LSC-CP-RA
+    method: LSC-CP-RA
+    parameters:
+      A: 8
+      tame: false
+    rng_pair_group:
+      A: 8
+      method_family: LSC-CP-RA
+    rng_pair_group_hash: 11cc78b7fe7af28fb7f0b680655a10ff
+    tame: false
+    variant_hash: d3927a3bfc4321eda287f59ad3dce42c
+    variant_label: LSC-CP-RA (A=8), canonical
+    variant_slug: LSC-CP-RA-A8-canonical
+schema_version: 2
+score:
+  m_max: 600.0
+  q_rho: 8
+  q_theta: 32
+slug: muller_brown
+taming:
+  cp_cap: null
+  cp_cap_rule: two_h
+  default_cap: 1.0
+target:
+  beta: 24.0
+  builder: src.targets.build_e3_target
+  dimension: 10
+  embedding_seed: 12345
+  potential: muller_brown_3well_10d
+  sigma_aux: 0.4
+  singular_values:
+  - 0.75
+  - 1.45

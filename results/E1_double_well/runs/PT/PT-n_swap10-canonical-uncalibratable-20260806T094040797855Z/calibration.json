@@ -1,0 +1,34 @@
+{
+  "calibration_hash": "a5256e9e149ace50f6dfb299a8b1f981",
+  "diagnosis": "no PT ladder candidate met the frozen swap acceptance band and final-timestep round-trip requirement",
+  "kind": "pt_ladder",
+  "next_candidate": null,
+  "status": "uncalibratable",
+  "table": [
+    {
+      "band_attained": false,
+      "minimum_round_trips": 1,
+      "mixing_attained": true,
+      "mixing_gate_enforced": false,
+      "n_replicas": 2,
+      "pass": false,
+      "replica_acceptance": [
+        0.998131640625,
+        0.99773076171875
+      ],
+      "round_trip_count": 208511,
+      "round_trip_rate": 0.2036240234375,
+      "stability_problems": [
+        [
+          "swap_acceptance_band",
+          0.407248046875
+        ]
+      ],
+      "swap_acceptance": 0.407248046875,
+      "target_band": [
+        0.2,
+        0.4
+      ]
+    }
+  ]
+}

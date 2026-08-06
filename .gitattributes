@@ -1,0 +1,8 @@
+# No .npz currently needs LFS: the only files over GitHub's 100 MB limit were
+# the E4 reference sample banks, and that build failed its acceptance gates, so
+# they are excluded in .gitignore rather than spent against the LFS quota. If a
+# validated E4 reference is produced later, restore the two patterns below and
+# run `git lfs track` before committing it.
+#
+# results/**/reference_snis_weighted_24d.npz filter=lfs diff=lfs merge=lfs -text
+# results/**/reference_samples_24d.npz filter=lfs diff=lfs merge=lfs -text

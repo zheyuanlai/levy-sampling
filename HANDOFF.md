@@ -373,3 +373,158 @@ These results remain useful as mechanism sanity checks only.
 - No commit, push, or pull request was created.
 - To put this handoff and the fixes on GitHub, review the diff, commit it on
   `refactor`, and push explicitly.
+
+---
+
+# Production campaign, 2026-08-06
+
+This section records the first full production campaign on `refactor`, the
+defects it exposed, and the state of the evidence now in the repository.
+
+## Scope actually delivered
+
+**E1, E2 and E3 are complete. E4 is not**, and that is a deliberate, recorded
+outcome rather than an omission. Each delivered experiment carries its full
+24-outcome default variant matrix.
+
+| Experiment | complete | uncalibratable | admitted |
+|---|---:|---:|---:|
+| E1 double well | 18 | 6 | 24 |
+| E2 40-mode mixture | 16 | 8 | 24 |
+| E3 Müller--Brown | 14 | 10 | 24 |
+| E4 quartic chain | -- | -- | 0 |
+
+## Reduced scale
+
+Particles, seeds and `final_time` were cut roughly twentyfold from the original
+production values, as an explicit temporary edit to the single default
+configuration of each experiment. There is still exactly one configuration per
+experiment and no second profile. `plot_snapshots.time_values` were rescaled to
+match, since they are absolute times and would otherwise request checkpoints
+that were never saved. Seeds stay at 4 so seed-level uncertainty remains
+estimable.
+
+## Defects found and fixed
+
+1. **The score quadrature certificate measured the wrong quantity.**
+   `log_parts` returns `S = -exp(M) v`, so `M` is only the per-particle maximum
+   exponent. Doubling the node count halves every quadrature weight, which drops
+   `M` by exactly `log 2` and doubles `|v|`, leaving the score unchanged. The
+   certificate compared `M` alone and therefore reported a fixed ~0.693
+   discrepancy for a perfectly converged rule, failing **every** LSC-CP variant
+   on E1--E3. It now compares `log|S| = M + log|v|`. The frozen 0.05 / 0.20
+   tolerances are unchanged; only the quantity they apply to is corrected.
+   Measured after the fix: 1e-6 at production settings, while `q_theta` of
+   2, 4, 8 and 16 are still rejected decisively.
+
+2. **`score.q_theta = 16` was genuinely under-resolved.** Independently
+   confirmed twice: `shell_score_dense_theta` (a 200,001-node composite-Simpson
+   rule that exists to validate the Gauss--Legendre theta rule) agrees with
+   `q_theta` 32 and 64 to seven digits and differs from 16 by 33%; and the
+   corrected certificate rejects 16-vs-32 at 0.156 against a 0.05 tolerance.
+   Raised to 32 in all four experiments. `q_rho` was already converged.
+
+3. **The PT ladder raised on its non-enforcing pass.** `tune_pt_ladder` accepts
+   `enforce_mixing` and folds it into `gate_pass`, but then raised on
+   `not gate["pass"]` unconditionally, so the first ladder pass -- invoked with
+   `enforce_mixing=False` precisely because it is meant to gate placement before
+   the local timestep is known -- could still abort the run. It now raises only
+   on the enforcing pass. (Identified by the collaborator.)
+
+4. **The PT swap band was too narrow.** The attainable geometric-ladder swap
+   acceptance sits just above 0.40 on these targets, so `[0.2, 0.4]` rejected
+   every candidate ladder. Widened to `[0.2, 0.45]`. (Identified by the
+   collaborator.)
+
+5. **Release validation contradicted the retire-don't-delete policy.** The
+   frozen-release check failed an experiment if the scanner rejected any run
+   directory, but superseding a run means marking it `INVALID` and keeping it,
+   so every rebuilt campaign necessarily leaves rejected directories behind. The
+   check now separates retired runs from unexplained rejections -- a missing
+   manifest, a hash mismatch, an unknown schema -- and fails only on the latter.
+
+6. **`resolved_configs/` and `manifests/` had no producer.** The release
+   validator hashes both collections but nothing created them.
+   `scripts/collect_release_artifacts.py` now does, applying the validator's own
+   selection rule so the two cannot drift, and pruning stale copies.
+
+## Uncalibratable outcomes are results, not failures
+
+24 of 72 outcomes are `uncalibratable`, and the pattern is coherent: essentially
+every **canonical** (untamed) variant fails, while its tamed counterpart
+calibrates. The drift is not truncated, so at the step size the run stage
+settles on, canonical variants are genuinely unstable. This is direct evidence
+for the necessity of taming.
+
+- canonical CP/LSC (`LSC-CP`, `LSC-CP-RA` at A=1,4,8) on all three experiments:
+  boundary rejection, 12 outcomes;
+- E3 canonical FLA at every alpha: boundary rejection, 3 outcomes. Measured
+  rejection was 6.6% at `dt = 6.25e-4` against a 2% gate, decaying slower than
+  linearly toward a nonzero floor, so reaching the gate would need roughly 2.5
+  million steps. This is a property of heavy-tailed jumps against a finite box,
+  not a grid-length problem;
+- PT on E1 (both), E2 (both) and E3 (canonical): 5 outcomes;
+- MALA on E2 and E3 (both variants): 4 outcomes. Acceptance rises monotonically
+  toward 1 as `dt` shrinks (0.933 at `dt = 1.28` to 0.9997 at `dt = 0.04`) while
+  temporal ESS collapses, so shrinking the timestep moves *away* from the
+  `[0.4, 0.75]` band. The binding constraint is the coarse end of the search:
+  `_search_acceptance_band` caps its upward search at a hardcoded
+  `max_iterations = 8`, reaching only `dt = 1.28`. Left as recorded negative
+  evidence; MALA appears in no manuscript figure.
+
+Figures render these as explicit `"<method>: uncalibratable"` legend entries in
+the method's own colour, so a negative result is visible rather than silently
+absent.
+
+## E4: reference not validated
+
+Five build attempts, none of which passed the frozen acceptance gates. The
+failing reference and its complete 73-gate `reference_validation.json` are kept
+as evidence with `reference_validated: false`, so no E4 run can cite it, and no
+E4 production trajectory exists.
+
+| Attempt | Configuration | Gates failed | Worst |
+|---|---|---:|---:|
+| 1 | 2M steps, `beta_min` 1.0, 12 replicas | 4 | 4.06 SE |
+| 2 | 6M steps, `beta_min` 1.0, 12 replicas | 5 | 5.71 SE |
+| 3 | 2M steps, `beta_min` 0.25, 12 replicas | 2 | 4.62 SE |
+| 4 | 3M steps, `beta_min` 0.1, 12 replicas, swap 5 | 3 | 3.08 SE |
+| 5 | 3M steps, `beta_min` 0.1, **24 replicas**, swap 5 | 3 | 2.82 SE |
+
+Two findings matter for whoever picks this up.
+
+**Extending the run is not always the right escalation.** These gates are
+denominated in standard errors, so a longer run shrinks the SE faster than it
+removes residual drift: attempt 2 doubled the length and failed *more* gates
+than attempt 1. Improving temperature mixing was what actually helped.
+
+**The `pt_half_run_consistency` family has an uncorrected multiplicity
+problem.** It applies 16 simultaneous comparisons at a raw 2.0 SE threshold, so
+0.73 false failures are expected by chance, and attempt 5's three failures all
+land on a single run at 2.82, 2.51 and 2.13 SE with sub-percent physical
+differences (energy per site 0.125176 vs 0.125790). Section 3.1 of this document
+records that the analogous **SNIS** agreement families already received frozen
+Bonferroni cutoffs (3.11 SE and 2.67 SE); the PT half-run family never did. The
+matching cutoff for 16 comparisons is **2.984 SE**, under which attempt 5 would
+validate.
+
+This correction was **not** applied. Section 3.1 stresses that its cutoffs were
+frozen *before* the production reference was observed, and choosing one here
+after seeing which gates failed would not carry the same guarantee. The decision
+was to leave the gates untouched and report E4 as unresolved. Applying the
+correction is a legitimate option, but it belongs to whoever owns the frozen
+acceptance criteria, and it should be frozen before the next build is run.
+
+## Release status
+
+`python scripts/validate_release.py` passes 246/246.
+`python scripts/validate_release.py --release` passes 304/319. The 15 remaining
+failures are all expected consequences of the above:
+
+- 10 are E4 (no runs, no completed trajectory, no E4 figures);
+- 5 are executed notebooks: the four `*_run.ipynb` and E4's plot notebook.
+  Production trajectories were produced with `scripts/run_experiment.py`, which
+  does exactly what a run notebook does; the three E1--E3 plot notebooks execute
+  cleanly and regenerate every figure from saved results.
+
+A complete frozen release therefore still requires a validated E4 reference.

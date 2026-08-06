@@ -1,0 +1,14 @@
+{
+  "basin_masses": {
+    "A": 0.3102247587087936,
+    "B": 0.42092296292811415,
+    "C": 0.26885227836309217
+  },
+  "definition": "gradient-flow basin masses of exp(-beta V_MB) over the CV box, conditional on the box",
+  "labels": [
+    "A",
+    "B",
+    "C"
+  ],
+  "n_quad": 1200
+}

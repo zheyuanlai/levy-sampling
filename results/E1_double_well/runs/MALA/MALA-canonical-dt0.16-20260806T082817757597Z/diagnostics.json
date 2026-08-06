@@ -1,0 +1,65 @@
+{
+  "cumulative": {
+    "boundary_reject_count_cumulative": 0,
+    "boundary_reject_fraction_cumulative": 0.0,
+    "mh_accept_count_cumulative": 21362824,
+    "mh_accept_fraction_cumulative": 0.7120941333333334,
+    "mh_proposal_count_cumulative": 30000000,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0
+  },
+  "final_interval_diagnostics": {
+    "boundary_reject_count_cumulative": 0,
+    "boundary_reject_fraction_cumulative": 0.0,
+    "boundary_rule": "reject",
+    "mh_accept": 0.711875,
+    "mh_accept_count_cumulative": 21362824,
+    "mh_accept_fraction_cumulative": 0.7120941333333334,
+    "mh_proposal_count_cumulative": 30000000,
+    "nonfinite_proposal_count_cumulative": 0,
+    "nonfinite_proposal_fraction_cumulative": 0.0,
+    "tame_cap": "nan",
+    "tamed": false
+  },
+  "measurement_suite": {
+    "experiment_id": "E1",
+    "metric_definition_hash": "8da7d73e85753d4e79f54062070fbc7b",
+    "mmd_bandwidth": 0.7419543598610016,
+    "mmd_bandwidth_rule": "median heuristic, frozen on the reference bank",
+    "mmd_kernel": "rbf",
+    "primary_metrics": [
+      "W2_exact_1d",
+      "MMD2_biased",
+      "KS"
+    ],
+    "reference_kind": "grid_inverse_cdf_1d",
+    "reference_subsample_size": 6000
+  },
+  "requirements": {
+    "acceptance": true,
+    "dt": true,
+    "ess": true,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": false
+  },
+  "sampler": {
+    "boundary": {
+      "hi": [
+        5.2
+      ],
+      "kind": "rect",
+      "lo": [
+        -5.2
+      ]
+    },
+    "boundary_rule": "reject",
+    "dt": 0.16,
+    "family": "MALA",
+    "method": "MALA",
+    "tame_cap": null,
+    "tamed": false
+  }
+}

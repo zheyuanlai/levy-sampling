@@ -1,0 +1,103 @@
+{
+  "acceptance_search": null,
+  "calibration_hash": "5bd270e98d55de656fed40676686fa46",
+  "criteria": [
+    "score",
+    "splitting",
+    "taming",
+    "observable",
+    "stability"
+  ],
+  "dt": 0.005,
+  "dt_table": [
+    {
+      "agreement_failures": [],
+      "dt": 0.005,
+      "pass": true,
+      "stability_problems": [],
+      "summary": {
+        "boundary_reject_fraction": 1.171875e-05,
+        "energy_abs_mean": 0.5629524444077207,
+        "energy_abs_mean_se": 0.0032054047187299465,
+        "energy_iqr": 0.138014377618621,
+        "energy_iqr_se": 0.005425141365834044,
+        "energy_mean": -0.5491924833459796,
+        "energy_mean_se": 0.004932611993716868,
+        "energy_median": -0.5778134642850892,
+        "energy_median_se": 0.004170362024871218,
+        "n_effective": 1024,
+        "n_steps": 2500,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 0.39300327581903577,
+        "summary_abs_mean_se": 0.007611884435129582,
+        "summary_iqr": 0.7497195981296544,
+        "summary_iqr_se": 0.05179729089107325,
+        "summary_mean": -0.10442196404458619,
+        "summary_mean_se": 0.013717790487921721,
+        "summary_median": -0.10220115669246321,
+        "summary_median_se": 0.010932535169101424
+      },
+      "summary_half": {
+        "boundary_reject_fraction": 3.90625e-06,
+        "energy_abs_mean": 0.5681879781472282,
+        "energy_abs_mean_se": 0.0035718345862252405,
+        "energy_iqr": 0.13066143575063327,
+        "energy_iqr_se": 0.00595327553858566,
+        "energy_mean": -0.5569483177139558,
+        "energy_mean_se": 0.0052949628905148705,
+        "energy_median": -0.5817843885375722,
+        "energy_median_se": 0.0036221562670592134,
+        "n_effective": 1024,
+        "n_steps": 5000,
+        "nonfinite_fraction": 0.0,
+        "score_clip_fraction_cumulative": 0.0,
+        "summary_abs_mean": 0.39113525271197225,
+        "summary_abs_mean_se": 0.007997576075917301,
+        "summary_iqr": 0.703287039879729,
+        "summary_iqr_se": 0.049123609705778476,
+        "summary_mean": -0.12335017684625779,
+        "summary_mean_se": 0.014241314255010323,
+        "summary_median": -0.1393475330853042,
+        "summary_median_se": 0.015933869580357304
+      }
+    }
+  ],
+  "experiment_id": "E3",
+  "method": "LSC-CP-RA",
+  "pilot": {
+    "ladder_burn_fraction": 0.5,
+    "ladder_pilot_steps": 4000,
+    "particles": 512,
+    "seeds": 2,
+    "time_fraction": 0.25
+  },
+  "requirements": {
+    "acceptance": false,
+    "dt": true,
+    "ess": false,
+    "pt_ladder": false,
+    "quadrature": false,
+    "replica_acceptance": false,
+    "round_trip": false,
+    "score_certificate": true
+  },
+  "score_certificate": {
+    "bank_size": 4,
+    "checks": {
+      "iid_from_full_mixture": true,
+      "positive_bank_size": true,
+      "refreshed_every_step": true,
+      "shared_between_score_and_noise": true
+    },
+    "identity": "E[S_A(x)] equals the full-law score because every bank atom is iid from rho=nu/Lambda",
+    "kind": "iid_empirical_levy_measure_unbiasedness_contract",
+    "passed": true,
+    "scope": "structural estimator certificate; Monte Carlo convergence is covered by the independent score-estimator regression"
+  },
+  "tame": true,
+  "tame_cap": 0.12012712206063299,
+  "tolerance": 0.05,
+  "variant_hash": "98886f115ea6a7a4c556fecc8bb0d7f3",
+  "variant_label": "LSC-CP-RA (A=4), tamed"
+}
