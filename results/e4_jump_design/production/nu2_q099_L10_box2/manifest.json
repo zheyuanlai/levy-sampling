@@ -1,0 +1,154 @@
+{
+  "study": "e4_jump_design",
+  "configuration": {
+    "design": "nu2",
+    "truncation_mass": 0.99,
+    "scale": 1.0,
+    "box_reach_multiplier": 2.0,
+    "is_reference": false
+  },
+  "arms": [
+    "CP",
+    "LSC-CP-RA-8"
+  ],
+  "stage": "production",
+  "jump_law": {
+    "m": 2,
+    "alpha": 1.7,
+    "sigma": 1.0347628870557155,
+    "truncation_mass": 0.99,
+    "c": 7.289654835622965,
+    "mean_length": 6.928105591973582,
+    "max_reach": 36.95331718243443,
+    "max_componentwise_reach": 7.543064283348877,
+    "rejection_rounds": 16,
+    "clamp_fallback_fraction": 0.0,
+    "base_type": "TruncatedCoordinateStableLaw",
+    "type": "TiledStableLaw",
+    "n_sites": 12,
+    "d": 24,
+    "per_site_mean_length": 1.9999718142500496,
+    "metric_reach": 10.667503811364073
+  },
+  "cp_drift_cap": 1.3856211183947165,
+  "sampling_box_design": {
+    "formula": "ceil(max(B_beta(alpha)+R_infinity, B_beta_min(alpha))); B_b(alpha)=max|mu|+Phi^{-1}(1-alpha/(2Kd))*max sqrt(diag(H_k^{-1})/b); R_infinity=max(|r_ac|+h_a|u_ac|)",
+    "tail_probability_union_bound": 1e-08,
+    "normal_quantile": 6.4607770768778705,
+    "n_phase_modes": 4,
+    "dimension": 24,
+    "phase_component_extent": 1.0034237963554171,
+    "max_component_std_beta": 0.14038359387200985,
+    "max_component_std_beta_min": 0.39706476477694574,
+    "beta": 8.0,
+    "pt_beta_min": 1.0,
+    "target_phase_envelope_half_width": 1.9104109016134312,
+    "hottest_pt_envelope_half_width": 3.568770726662212,
+    "max_componentwise_jump_reach": 15.086128566697754,
+    "one_jump_target_required_half_width": 16.996539468311184,
+    "required_half_width_before_rounding": 16.996539468311184,
+    "sampling_box_half_width": 17.0,
+    "jump_safe_core_half_width": 1.913871433302246,
+    "jitter_sigma": 0.0,
+    "guaranteed_default_shell_jumps_from_target_envelope": true,
+    "jitter_caveat": null
+  },
+  "basin_map_metric_bounds": [
+    [
+      -18.0,
+      -18.0
+    ],
+    [
+      18.0,
+      18.0
+    ]
+  ],
+  "p_star": [
+    0.32313198154429545,
+    0.21128583352062014,
+    0.23940863049616298,
+    0.22617355443892087
+  ],
+  "q_theta": 32,
+  "q_u": 16,
+  "config": {
+    "d": 24,
+    "N": 1000,
+    "T": 100.0,
+    "dt": 0.002,
+    "beta": 8.0,
+    "lam": 1.0,
+    "seeds": 16
+  },
+  "bias_floors": {
+    "W2": {
+      "mean": 0.13033584874296772,
+      "std": 0.03521121748235918
+    },
+    "MMD": {
+      "mean": 0.026457654090805405,
+      "std": 0.010762991058643425
+    },
+    "TV": {
+      "mean": 0.024113844760648328,
+      "std": 0.010373018614342418
+    },
+    "EMC": {
+      "mean": 0.9993185856269113,
+      "std": 0.0005010014915530364
+    }
+  },
+  "method_info": {
+    "CP": {
+      "wallclock_mean_s": 704.4440317458357,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 16000.0,
+      "score_quad_evals_per_step": 0.0,
+      "state_box_clip_count_cumulative": 0,
+      "state_box_clip_fraction_cumulative": 0.0,
+      "nonfinite_proposal_count_cumulative": 0,
+      "nonfinite_proposal_fraction_cumulative": 0.0,
+      "jump_count_cumulative": 1602197,
+      "jump_count_applied_cumulative": 1602197,
+      "jump_boundary_clip_count_cumulative": 0,
+      "jump_boundary_applied_count_cumulative": 1602197,
+      "jump_boundary_clip_fraction_per_applied_jump_cumulative": 0.0,
+      "jump_rate_per_particle_time_cumulative": 1.001373125,
+      "jump_applied_rate_per_particle_time_cumulative": 1.001373125,
+      "jump_cap_hit_count_cumulative": 0,
+      "jump_cap_hit_fraction_cumulative": 0.0,
+      "jump_cap_excess_count_cumulative": 0,
+      "jump_cap_k": 8,
+      "nonfinite_count": 0,
+      "nonfinite_frac": 0.0
+    },
+    "LSC-CP-RA-8": {
+      "wallclock_mean_s": 1477.6793679497787,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 16000.0,
+      "score_quad_evals_per_step": 4096000.0,
+      "state_box_clip_count_cumulative": 0,
+      "state_box_clip_fraction_cumulative": 0.0,
+      "nonfinite_proposal_count_cumulative": 0,
+      "nonfinite_proposal_fraction_cumulative": 0.0,
+      "score_clip_count_cumulative": 1070931,
+      "score_clip_fraction_cumulative": 0.00133866375,
+      "jump_count_cumulative": 1598676,
+      "jump_count_applied_cumulative": 1598676,
+      "jump_boundary_clip_count_cumulative": 0,
+      "jump_boundary_applied_count_cumulative": 1598676,
+      "jump_boundary_clip_fraction_per_applied_jump_cumulative": 0.0,
+      "jump_rate_per_particle_time_cumulative": 0.9991725,
+      "jump_applied_rate_per_particle_time_cumulative": 0.9991725,
+      "nonfinite_count": 0,
+      "nonfinite_frac": 0.0
+    }
+  },
+  "elapsed_s": 2541.7237771900254,
+  "wallclock_reported": false,
+  "wallclock_note": "run on a shared GPU; timings are not comparable to the manuscript's dedicated-device protocol",
+  "clamp_fallback_fraction": 0.0,
+  "metric_reference": "sampling_importance_resampling"
+}

@@ -1,0 +1,149 @@
+{
+  "study": "e4_jump_design",
+  "configuration": {
+    "design": "nu24",
+    "truncation_mass": 0.99,
+    "scale": 0.5,
+    "box_reach_multiplier": 1.0,
+    "is_reference": false
+  },
+  "arms": [
+    "CP",
+    "LSC-CP-RA-8"
+  ],
+  "stage": "production",
+  "jump_law": {
+    "type": "TruncatedCoordinateStableLaw",
+    "m": 24,
+    "alpha": 1.7,
+    "sigma": 0.4468389122685541,
+    "truncation_mass": 0.99,
+    "c": 7.289654835622965,
+    "mean_length": 3.464052795986791,
+    "max_reach": 15.957452920926796,
+    "max_componentwise_reach": 3.257301437562971,
+    "rejection_rounds": 16,
+    "clamp_fallback_fraction": 0.0
+  },
+  "cp_drift_cap": 0.6928105591973582,
+  "sampling_box_design": {
+    "formula": "ceil(max(B_beta(alpha)+R_infinity, B_beta_min(alpha))); B_b(alpha)=max|mu|+Phi^{-1}(1-alpha/(2Kd))*max sqrt(diag(H_k^{-1})/b); R_infinity=max(|r_ac|+h_a|u_ac|)",
+    "tail_probability_union_bound": 1e-08,
+    "normal_quantile": 6.4607770768778705,
+    "n_phase_modes": 4,
+    "dimension": 24,
+    "phase_component_extent": 1.0034237963554171,
+    "max_component_std_beta": 0.14038359387200985,
+    "max_component_std_beta_min": 0.39706476477694574,
+    "beta": 8.0,
+    "pt_beta_min": 1.0,
+    "target_phase_envelope_half_width": 1.9104109016134312,
+    "hottest_pt_envelope_half_width": 3.568770726662212,
+    "max_componentwise_jump_reach": 3.257301437562971,
+    "one_jump_target_required_half_width": 5.167712339176402,
+    "required_half_width_before_rounding": 5.167712339176402,
+    "sampling_box_half_width": 6.0,
+    "jump_safe_core_half_width": 2.742698562437029,
+    "jitter_sigma": 0.0,
+    "guaranteed_default_shell_jumps_from_target_envelope": true,
+    "jitter_caveat": null
+  },
+  "basin_map_metric_bounds": [
+    [
+      -18.0,
+      -18.0
+    ],
+    [
+      18.0,
+      18.0
+    ]
+  ],
+  "p_star": [
+    0.32313198154429573,
+    0.21128583352061986,
+    0.2394086304961633,
+    0.22617355443892195
+  ],
+  "q_theta": 32,
+  "q_u": 16,
+  "config": {
+    "d": 24,
+    "N": 1000,
+    "T": 100.0,
+    "dt": 0.002,
+    "beta": 8.0,
+    "lam": 1.0,
+    "seeds": 16
+  },
+  "bias_floors": {
+    "W2": {
+      "mean": 0.13033584874296772,
+      "std": 0.03521121748235918
+    },
+    "MMD": {
+      "mean": 0.026457654090805405,
+      "std": 0.010762991058643425
+    },
+    "TV": {
+      "mean": 0.024113844760648182,
+      "std": 0.010373018614342474
+    },
+    "EMC": {
+      "mean": 0.9993185856269113,
+      "std": 0.0005010014915530514
+    }
+  },
+  "method_info": {
+    "CP": {
+      "wallclock_mean_s": 792.961303466931,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 16000.0,
+      "score_quad_evals_per_step": 0.0,
+      "state_box_clip_count_cumulative": 8,
+      "state_box_clip_fraction_cumulative": 1e-08,
+      "nonfinite_proposal_count_cumulative": 0,
+      "nonfinite_proposal_fraction_cumulative": 0.0,
+      "jump_count_cumulative": 1602304,
+      "jump_count_applied_cumulative": 1602304,
+      "jump_boundary_clip_count_cumulative": 11,
+      "jump_boundary_applied_count_cumulative": 1602304,
+      "jump_boundary_clip_fraction_per_applied_jump_cumulative": 6.865114235500878e-06,
+      "jump_rate_per_particle_time_cumulative": 1.00144,
+      "jump_applied_rate_per_particle_time_cumulative": 1.00144,
+      "jump_cap_hit_count_cumulative": 0,
+      "jump_cap_hit_fraction_cumulative": 0.0,
+      "jump_cap_excess_count_cumulative": 0,
+      "jump_cap_k": 8,
+      "nonfinite_count": 0,
+      "nonfinite_frac": 0.0
+    },
+    "LSC-CP-RA-8": {
+      "wallclock_mean_s": 1543.5773071059375,
+      "wallclock_std_s": 0.0,
+      "V_evals_per_step": 0.0,
+      "grad_evals_per_step": 16000.0,
+      "score_quad_evals_per_step": 4096000.0,
+      "state_box_clip_count_cumulative": 35,
+      "state_box_clip_fraction_cumulative": 4.375e-08,
+      "nonfinite_proposal_count_cumulative": 0,
+      "nonfinite_proposal_fraction_cumulative": 0.0,
+      "score_clip_count_cumulative": 1701386,
+      "score_clip_fraction_cumulative": 0.0021267325,
+      "jump_count_cumulative": 1597818,
+      "jump_count_applied_cumulative": 1597818,
+      "jump_boundary_clip_count_cumulative": 47,
+      "jump_boundary_applied_count_cumulative": 1597818,
+      "jump_boundary_clip_fraction_per_applied_jump_cumulative": 2.9415114862894273e-05,
+      "jump_rate_per_particle_time_cumulative": 0.99863625,
+      "jump_applied_rate_per_particle_time_cumulative": 0.99863625,
+      "nonfinite_count": 0,
+      "nonfinite_frac": 0.0
+    }
+  },
+  "elapsed_s": 2690.5317380159977,
+  "wallclock_reported": false,
+  "wallclock_note": "run on a shared GPU; timings are not comparable to the manuscript's dedicated-device protocol",
+  "clamp_fallback_fraction": 0.0,
+  "metric_reference": "sampling_importance_resampling"
+}

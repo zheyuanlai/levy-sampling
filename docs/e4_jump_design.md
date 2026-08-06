@@ -173,23 +173,92 @@ under `results/coupled_phi4/` or `figures/`.
 
 ## Results
 
-*Pending the production campaign.* The smoke and pilot stages establish that
-every arm constructs and runs, and already show one signal clearly enough to
-record here: **\(\nu\)-24 drives the Lévy score into its numerical cap two orders
-of magnitude more often than the manuscript's structured law does** — a
-score-clip fraction of \(1.6\text{–}1.9\times10^{-2}\) against the \(10^{-2}\)
-threshold the repository gates on and the \(2.1\times10^{-4}\) the manuscript
-reports for E4 — while \(\nu\)-2 stays between \(10^{-4}\) and
-\(5\times10^{-3}\). The clip fraction also grows with bank size, from
-\(2.3\times10^{-3}\) at \(A=1\) to \(1.6\times10^{-2}\) at \(A=128\), which is
-what a larger bank should do if the score's magnitude is set by the most
-favourable draw in it.
+Full campaign: 12 configurations, 36 arms, 16 seeds × 1000 particles, \(T=100\).
+Values are terminal \(\mathrm{SW}_2\), mean ± standard deviation across seeds;
+\(z\) uses the standard error \(\mathrm{sd}/\sqrt{16}\).
 
-Because the cap is inert, this is a statement about the correction, not about
-the arithmetic: under an incoherent 24-dimensional jump law, the corrected drift
-spends a substantial fraction of its time fully saturated, moving one cap length
-per step along the reverse chord. It is a conveyor, not a gentle correction.
+### The two designs answer the question differently
 
-A box-sensitivity control (the reference point of each design repeated with the
-box sized for two jumps instead of one) is included so that this cannot be
-dismissed as an artifact of the numerical wall.
+| | Raw-CP | corrected | \(z\) (corrected vs raw) |
+|---|---|---|---|
+| phase-edge (manuscript, frozen) | 0.4104 ± 0.0211 | **0.1241 ± 0.0310** (exact) | — |
+| \(\nu\)-2 composed | 0.4430 ± 0.0178 | **0.1119 ± 0.0293** (exact) | 38.6 |
+| \(\nu\)-24 FLA-matched | 0.2480 ± 0.0135 | **0.3017 ± 0.0059** (bank, \(A=64\)) | 14.6, *the wrong way* |
+
+**\(\nu\)-2 vindicates the manuscript's claim.** A jump measure that encodes
+nothing about the four coherent phases — heavy-tailed \(\alpha\)-stable
+displacements with no knowledge of where the minima are — reaches
+\(\mathrm{SW}_2 = 0.1119\), statistically indistinguishable from the
+hand-designed phase-edge law's 0.1241 (\(z = 1.2\)) and from its paired
+estimator's 0.1002 (\(z = 1.1\)). Raw-CP on the identical \(\nu\) gives 0.4430
+(\(z = 38.6\)), so the accuracy comes from the score, not from the jump law.
+This is the direct answer to "did LSC-CP just get handed the answer in \(\nu\)?"
+— it did not.
+
+**\(\nu\)-24 breaks the finite-step scheme.** With the same increment family
+applied incoherently across all 24 coordinates, the corrected dynamics is
+*worse* than the uncorrected ablation on the identical \(\nu\) (0.3017 against
+0.2480, \(z = 14.6\)) and worse than FLA itself (0.1937, \(z = 13.1\)). More
+bank does not rescue it: \(A=1\) gives 0.2651 and \(A=64\) gives 0.3017, moving
+away from the answer rather than toward it.
+
+### Why more bank helps one design and hurts the other
+
+| \(A\) | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|
+| \(\nu\)-2 | 0.2522 | 0.2342 | 0.2023 | 0.1917 | 0.1563 | 0.1413 | — |
+| \(\nu\)-24 | 0.2651 | 0.2746 | 0.3644 | 0.3572 | 0.3333 | 0.3172 | 0.3017 |
+
+For \(\nu\)-2 the sweep falls monotonically toward the exact quadrature's
+0.1119 (\(A=32\) versus \(A=1\): \(z = 9.6\)), reaching 0.1413 at one eighth the
+exact arm's chord-energy cost. The bank size behaves exactly as an estimator
+knob should.
+
+For \(\nu\)-24 it does not, and the score-clip fraction says why: it rises from
+\(2.2\times10^{-3}\) at \(A=1\) to \(1.4\text{–}1.7\times10^{-2}\) for
+\(A \ge 4\), against \(2.1\times10^{-4}\) for the manuscript's E4. A larger bank
+finds a more extreme atom, which drives the score's log-magnitude higher, which
+saturates the tamed drift more often. Since the cap's *value* is inert (verified
+above), what this measures is the correction's magnitude, not a numerical
+artifact — and on post-jump states 93.8% of particles are already saturated, so
+the corrected drift has degenerated into a fixed-length conveyor running back
+along the reverse chord.
+
+The continuous-time identity is not in question. What fails is the
+discretization: when an incoherent 24-dimensional jump makes the chord density
+ratio span hundreds of orders of magnitude, a fixed-step tamed Euler–Poisson
+integrator cannot realize the compensating flux. This is the caveat the
+manuscript's concluding section already states — *"the finite-step sampler also
+contains quadrature, score-cap, taming, and time-discretization errors"* — now
+with a measured example of when it bites and a diagnostic (the clip fraction)
+that predicts it.
+
+### The result is not an artifact of scale, truncation, or the box
+
+At \(A=8\), across \(q \in \{0.90, 0.95, 0.99\}\) and \(L \in \{0.5, 1, 2\}\),
+\(\nu\)-2 stays in 0.167–0.275 and \(\nu\)-24 in 0.226–0.576. The ordering never
+crosses. Longer jumps hurt both and hurt \(\nu\)-24 far more: at \(L=2\) its
+clip fraction reaches 0.366.
+
+Doubling the box's jump allowance moves every terminal metric by 0.0–3.0%
+(\(\nu\)-2 by 0.0% on all three metrics, \(\nu\)-24 by at most 3.0% on basin TV).
+The findings are about \(\nu\), not about the numerical wall.
+
+### For the manuscript
+
+Two sentences' worth, if the supplementary material is one paragraph:
+
+> The claim that \(\nu\) affects efficiency rather than correctness was tested on
+> E4 by replacing the eight phase-edge atoms with the same symmetric
+> \(\alpha\)-stable increment family used by the FLA control, at matched jump
+> intensity and mean jump length. Composed as a per-site displacement applied
+> coherently across the chain, the \(\alpha\)-stable law recovers the target as
+> well as the hand-designed one (\(\mathrm{SW}_2 = 0.1119\) against 0.1241,
+> \(z = 1.2\)) while its uncorrected ablation does not (0.4430), confirming that
+> the correction and not the jump geometry supplies the accuracy. Applied
+> incoherently in all 24 coordinates, as FLA applies its noise, the same family
+> instead drives the Lévy score into taming saturation on 94% of post-jump
+> states, and the finite-step corrected dynamics becomes less accurate than its
+> own uncorrected ablation — a concrete instance of the discretization caveat of
+> Sec. V rather than of the continuous-time identity, and one that the
+> score-cap activation fraction diagnoses directly.
